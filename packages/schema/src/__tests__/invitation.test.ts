@@ -25,3 +25,25 @@ describe('round-trip losslessness', () => {
     expect(parsed).toEqual(doc)
   })
 })
+
+test('parse-time defaults backfill missing fields on partial documents (templates/migrations)', () => {
+  const doc: any = structuredClone(createDefaultDocument())
+
+  delete doc.theme.customFonts
+  delete doc.music.playAfterOpen
+  delete doc.opening.monogram
+  delete doc.opening.showGuestName
+  const formSection = doc.sections.find((s: any) => s.type === 'form')
+  for (const field of formSection.props.fields) {
+    delete field.options
+  }
+
+  const parsed = InvitationDocumentSchema.parse(doc)
+
+  expect(parsed.theme.customFonts).toEqual([])
+  expect(parsed.music.playAfterOpen).toBe(true)
+  expect(parsed.opening.monogram).toBe('')
+  expect(parsed.opening.showGuestName).toBe(true)
+  const parsedForm = parsed.sections.find((s) => s.type === 'form')
+  expect(parsedForm?.type === 'form' && parsedForm.props.fields.every((f) => f.options.length === 0)).toBe(true)
+})

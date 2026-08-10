@@ -162,7 +162,7 @@ export const FormFieldSchema = z
     type: z.enum(['text', 'textarea', 'select', 'radio', 'checkbox', 'number', 'date']),
     label: z.string().min(1).max(200),
     required: z.boolean(),
-    options: z.array(z.string()),
+    options: z.array(z.string()).default([]),
     placeholder: z.string().optional(),
   })
   .strict()
@@ -264,14 +264,16 @@ export const ThemeSchema = z
     background: z.string(),
     headingFont: z.string(),
     bodyFont: z.string(),
-    customFonts: z.array(
-      z
-        .object({
-          family: z.string(),
-          url: z.string(),
-        })
-        .strict(),
-    ),
+    customFonts: z
+      .array(
+        z
+          .object({
+            family: z.string(),
+            url: z.string(),
+          })
+          .strict(),
+      )
+      .default([]),
   })
   .strict()
 export type Theme = z.infer<typeof ThemeSchema>
@@ -281,7 +283,7 @@ export const MusicSchema = z
     source: z.enum(['library', 'upload']).nullable(),
     url: z.string().nullable(),
     trackId: z.string().nullable(),
-    playAfterOpen: z.boolean(),
+    playAfterOpen: z.boolean().default(true),
   })
   .strict()
 export type Music = z.infer<typeof MusicSchema>
@@ -290,8 +292,8 @@ export const OpeningSchema = z
   .object({
     effect: z.enum(['envelope', 'curtain', 'fade', 'none']),
     particles: z.enum(['petals', 'confetti']).nullable(),
-    monogram: z.string(),
-    showGuestName: z.boolean(),
+    monogram: z.string().default(''),
+    showGuestName: z.boolean().default(true),
   })
   .strict()
 export type Opening = z.infer<typeof OpeningSchema>
