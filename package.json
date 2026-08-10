@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "turbo dev",
     "test": "turbo test",
-    "dev:init": "node --env-file=apps/web/.env.local apps/web/scripts/init-bucket.mjs"
+    "dev:init": "node --env-file=apps/web/.env.local apps/web/scripts/init-bucket.mjs",
+    "seed:dev": "pnpm --filter @hpwd/db exec tsx scripts/seed-dev.ts"
   },
   "devDependencies": {
     "turbo": "^2.10.9",

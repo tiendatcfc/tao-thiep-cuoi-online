@@ -11,10 +11,12 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@hpwd/schema": "workspace:^",
     "@prisma/client": "^6"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "prisma": "^6"
+    "prisma": "^6",
+    "tsx": "^4"
   }
 }
