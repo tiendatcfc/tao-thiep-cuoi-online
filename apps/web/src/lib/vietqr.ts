@@ -34,16 +34,26 @@ export function crc16ccitt(input: string): string {
   return crc.toString(16).toUpperCase().padStart(4, "0");
 }
 
-/** EMVCo TLV: 2-digit tag + 2-digit length + value. */
-const tlv = (tag: string, value: string): string =>
-  tag + String(value.length).padStart(2, "0") + value;
+/**
+ * EMVCo TLV: 2-digit tag + 2-digit length + value. The length is the UTF-8
+ * *byte* length (not JS string/UTF-16 length) — EMVCo decoders read raw
+ * bytes, so a value containing any multi-byte character would otherwise get
+ * a length prefix that under-counts it and corrupts everything after it.
+ */
+const tlv = (tag: string, value: string): string => {
+  const byteLength = new TextEncoder().encode(value).length;
+  if (byteLength > 99) {
+    throw new Error(`VietQR TLV value for tag ${tag} exceeds 99 bytes (${byteLength})`);
+  }
+  return tag + String(byteLength).padStart(2, "0") + value;
+};
 
 export interface BuildVietQRPayloadOptions {
   bankBin: string;
   accountNumber: string;
   /** Reserved for on-screen display next to the QR; not embedded in the payload. */
   accountName?: string;
-  /** VND amount. Must be a positive number; non-integers are floored (VND has no decimals). */
+  /** VND amount. Floored (VND has no decimals) then validated as >= 1; throws RangeError otherwise. */
   amount?: number;
   /** Transfer message / purpose. Diacritics are stripped and it's truncated to 25 chars. */
   message?: string;
@@ -52,10 +62,14 @@ export interface BuildVietQRPayloadOptions {
 export function buildVietQRPayload(opts: BuildVietQRPayloadOptions): string {
   let amount: number | undefined;
   if (opts.amount !== undefined) {
-    if (!Number.isFinite(opts.amount) || opts.amount <= 0) {
-      throw new Error("VietQR amount must be a positive number");
+    // Floor first, then validate the floored value: validating opts.amount
+    // before flooring would let e.g. 0.5 (not <= 0) through, only to floor
+    // to 0 and silently emit a static, amount-less QR instead of erroring.
+    const floored = Math.floor(opts.amount);
+    if (!Number.isFinite(floored) || floored < 1) {
+      throw new RangeError("VietQR amount must be a positive integer (>= 1 VND)");
     }
-    amount = Math.floor(opts.amount);
+    amount = floored;
   }
 
   const merchantAccountInfo =
@@ -74,7 +88,16 @@ export function buildVietQRPayload(opts: BuildVietQRPayloadOptions): string {
   payload += tlv("58", COUNTRY_CODE);
 
   if (opts.message) {
-    const purpose = removeDiacritics(opts.message).slice(0, MESSAGE_MAX_LENGTH);
+    // Banking-app parsers for tag 62/08 expect plain ASCII. removeDiacritics
+    // handles Vietnamese text, but anything it doesn't touch (emoji, other
+    // scripts) is stripped here too as defense-in-depth, since a stray
+    // multi-byte character would otherwise desync the UTF-8 byte length tlv()
+    // computes from the truncated JS-length slice below.
+    const purpose = removeDiacritics(opts.message)
+      .replace(/[^\x20-\x7E]/g, "")
+      .replace(/ {2,}/g, " ")
+      .trim()
+      .slice(0, MESSAGE_MAX_LENGTH);
     payload += tlv("62", tlv("08", purpose));
   }
 

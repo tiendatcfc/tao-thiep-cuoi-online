@@ -74,6 +74,26 @@ describe("buildVietQRPayload", () => {
     ).toThrow();
   });
 
+  it("rejects an amount that floors to less than 1 VND instead of silently emitting a static QR", () => {
+    // 0.5 isn't <= 0, so a naive "validate then floor" order would floor it to
+    // 0 and silently drop the amount tag. Floor first, then validate.
+    expect(() =>
+      buildVietQRPayload({ bankBin: "970436", accountNumber: "1", amount: 0.5 }),
+    ).toThrow(RangeError);
+  });
+
+  it("strips non-ASCII characters (e.g. emoji) from the message so tag 62/08 stays plain ASCII", () => {
+    const payload = buildVietQRPayload({
+      bankBin: "970436",
+      accountNumber: "1",
+      message: "Mừng cưới 💐",
+    });
+
+    // Emoji gone, diacritics gone, trailing space trimmed: byte length ==
+    // char length, so the TLV length prefix ("09") is correct EMVCo framing.
+    expect(payload).toContain("0809Mung cuoi");
+  });
+
   it("strips diacritics from the message and truncates it to 25 characters", () => {
     const message = "Mừng cưới Minh và Hà, chúc hai bạn trăm năm hạnh phúc";
     const payload = buildVietQRPayload({
