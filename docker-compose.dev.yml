@@ -20,6 +20,22 @@ services:
     volumes:
       - redis_data:/data
 
+  # S3-compatible object storage for local dev, standing in for Cloudflare R2
+  # (no R2 account exists yet). Same API, so only env values change in prod.
+  minio:
+    image: minio/minio
+    container_name: hpwd-minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    volumes:
+      - minio_data:/data
+
 volumes:
   postgres_data:
   redis_data:
+  minio_data:
