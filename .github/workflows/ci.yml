@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: hpwd
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hpwd
+      AUTH_SECRET: ci-dummy-secret-not-real
+      AUTH_GOOGLE_ID: ""
+      AUTH_GOOGLE_SECRET: ""
+      R2_ENDPOINT: http://localhost:9000
+      R2_BUCKET: hpwd
+      R2_ACCESS_KEY_ID: ci
+      R2_SECRET_ACCESS_KEY: ci
+      R2_PUBLIC_URL: http://localhost:9000/hpwd
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm --filter @hpwd/db exec prisma generate
+
+      - name: Run linting
+        run: turbo lint
+
+      - name: Run tests
+        run: turbo test
+
+      - name: Build
+        run: pnpm --filter @hpwd/web build
