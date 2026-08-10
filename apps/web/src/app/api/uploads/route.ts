@@ -9,6 +9,10 @@ const ALLOWED_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"] as const
 const uploadRequestSchema = z.object({
   kind: z.literal("image"),
   contentType: z.enum(ALLOWED_CONTENT_TYPES),
+  // Rejected here if it exceeds the cap, and separately enforced
+  // cryptographically at upload time: createSignedUploadUrl signs this
+  // exact byte count as a required Content-Length header, so a client
+  // cannot PUT a different-sized file than it declared.
   sizeBytes: z.number().positive().max(MAX_UPLOAD_SIZE_BYTES),
 });
 
@@ -55,12 +59,20 @@ export async function POST(request: Request) {
 
   const { kind, contentType, sizeBytes } = parsed.data;
 
-  const { uploadUrl, publicUrl, assetId } = await createSignedUploadUrl({
-    userId: session.user.id,
-    kind,
-    contentType,
-    sizeBytes,
-  });
+  try {
+    const { uploadUrl, publicUrl, assetId } = await createSignedUploadUrl({
+      userId: session.user.id,
+      kind,
+      contentType,
+      sizeBytes,
+    });
 
-  return NextResponse.json({ uploadUrl, publicUrl, assetId });
+    return NextResponse.json({ uploadUrl, publicUrl, assetId });
+  } catch (err) {
+    console.error("createSignedUploadUrl failed:", err);
+    return NextResponse.json(
+      { error: "Không thể tạo liên kết tải lên, vui lòng thử lại." },
+      { status: 500 }
+    );
+  }
 }

@@ -58,10 +58,15 @@ function getS3Client(): S3Client {
 }
 
 /**
- * Creates a pending `MediaAsset` row and a time-limited signed PUT URL the
- * client can upload directly to. The object key is derived from the new
- * asset's id, so `assetId` doubles as both the DB row id and the storage
- * path segment.
+ * Builds a time-limited signed PUT URL the client can upload directly to,
+ * then records a `MediaAsset` row for it. The object key is derived from a
+ * freshly generated id, so `assetId` doubles as both the DB row id and the
+ * storage path segment.
+ *
+ * Order matters here: the S3 client/URL is built (and env validated) before
+ * anything is written to the database, so a storage misconfiguration (e.g.
+ * missing R2_* env) throws before any `MediaAsset` row is created — no
+ * orphaned rows pointing at a URL that was never actually signed.
  */
 export async function createSignedUploadUrl(
   params: CreateSignedUploadUrlParams
@@ -77,8 +82,27 @@ export async function createSignedUploadUrl(
   const publicBaseUrl = requireEnv("R2_PUBLIC_URL");
 
   const assetId = randomUUID();
-  const key = `u/${userId}/${assetId}/${assetId}.${extension}`;
+  const key = `u/${userId}/${assetId}.${extension}`;
   const publicUrl = `${publicBaseUrl}/${key}`;
+
+  const client = getS3Client();
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    ContentType: contentType,
+    ContentLength: sizeBytes,
+  });
+  const uploadUrl = await getSignedUrl(client, command, {
+    expiresIn: SIGNED_UPLOAD_TTL_SECONDS,
+    // The S3 presigner treats content-type/content-length as unsignable by
+    // default (it would otherwise let a client PUT with any Content-Type or
+    // byte count it likes, regardless of what was declared when the URL was
+    // requested). Explicitly whitelisting them here forces both into
+    // SignedHeaders, so the upload must match this URL's declared
+    // Content-Type and Content-Length exactly, or S3/MinIO rejects it with
+    // a signature mismatch.
+    signableHeaders: new Set(["content-type", "content-length"]),
+  });
 
   await prisma.mediaAsset.create({
     data: {
@@ -88,21 +112,6 @@ export async function createSignedUploadUrl(
       url: publicUrl,
       meta: { contentType, sizeBytes },
     },
-  });
-
-  const client = getS3Client();
-  const command = new PutObjectCommand({
-    Bucket: bucket,
-    Key: key,
-    ContentType: contentType,
-  });
-  const uploadUrl = await getSignedUrl(client, command, {
-    expiresIn: SIGNED_UPLOAD_TTL_SECONDS,
-    // The S3 presigner treats content-type as unsignable by default (it
-    // would otherwise let a client PUT with any Content-Type it likes).
-    // Explicitly whitelisting it here forces it into SignedHeaders, so the
-    // upload must use the exact Content-Type this URL was issued for.
-    signableHeaders: new Set(["content-type"]),
   });
 
   return { uploadUrl, publicUrl, assetId };
