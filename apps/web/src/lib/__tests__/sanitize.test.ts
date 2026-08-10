@@ -45,6 +45,38 @@ describe("sanitizeHtml — security review regressions", () => {
   });
 });
 
+describe("sanitizeHtml — round 2 regressions (context leaks from whole-buffer unescaping)", () => {
+  it("does not materialize a live <p> out of text sitting inside a rejected href value", () => {
+    const out = sanitizeHtml('<a href="foo&lt;p&gt;bar">click</a>');
+    expect(hasLiveTag(out, "p")).toBe(false);
+    expect(hasLiveTag(out, "a")).toBe(false);
+    expect(out).toContain("&lt;p&gt;");
+  });
+
+  it("does not materialize a live <p> out of text sitting inside a rejected attribute on an accepted anchor", () => {
+    const out = sanitizeHtml('<a href="https://x" data-x="&lt;p&gt;">click</a>');
+    expect(hasLiveTag(out, "p")).toBe(false);
+    // The whole <a> stays rejected too — data-x isn't on the allowlist, so
+    // the exact-match anchor pattern doesn't apply to this tag at all.
+    expect(hasLiveTag(out, "a")).toBe(false);
+    expect(out).toContain("&lt;p&gt;");
+  });
+
+  it("does not reconstruct a live clickable anchor out of text sitting inside a rejected <div>", () => {
+    const out = sanitizeHtml(
+      '<div>foo&lt;a href=&quot;https://evil.com&quot;&gt;bar&lt;/a&gt;baz</div>',
+    );
+    expect(hasLiveTag(out, "a")).toBe(false);
+    expect(out).toContain("&lt;a href=&quot;https://evil.com&quot;&gt;");
+  });
+
+  it("escapes an orphan </a> with no matching accepted <a> open, instead of leaving it live", () => {
+    const out = sanitizeHtml("Hello </a> World");
+    expect(hasLiveTag(out, "a")).toBe(false);
+    expect(out).toBe("Hello &lt;/a&gt; World");
+  });
+});
+
 describe("sanitizeHtml — happy path", () => {
   it("keeps bare allowlisted tags: p, strong, em, u, span, br", () => {
     const out = sanitizeHtml("<p>Hello <strong>World</strong> <em>foo</em><br/><u>bar</u> <span>baz</span></p>");

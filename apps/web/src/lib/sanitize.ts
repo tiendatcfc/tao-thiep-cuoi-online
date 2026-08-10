@@ -1,90 +1,156 @@
 /**
- * Escape-first, selectively-unescape HTML sanitizer for owner-authored rich
+ * Single-pass, left-to-right tokenizing sanitizer for owner-authored rich
  * text (the `text` section's `props.html`).
  *
- * An earlier version of this file tried to detect and strip dangerous
- * markup with tag-matching regexes. That's a losing game: a security review
- * found two reproducible bypasses —
+ * History (two prior bypass rounds, both fixed by changing the strategy
+ * rather than patching a rule):
  *
- *   1. Nested-tag reconstruction: `<a href="jav<b>ascript:alert(1)">` — a
- *      tag-matching regex can't match the outer `<a>` (its attrs stop at
- *      the first `<`), so the inner `<b>` gets stripped on its own and
- *      `String.replace` concatenation reassembles a live `javascript:` href.
- *   2. Entity-encoded scheme: `href="&#106;avascript:alert(1)"` — a denylist
- *      check on the raw string never sees "javascript:"; the browser decodes
- *      the entity at parse time, after our check already passed it.
+ *   Round 1 — a tag-matching-regex sanitizer had two reproducible bypasses:
+ *     1. Nested-tag reconstruction: `<a href="jav<b>ascript:alert(1)">` —
+ *        the regex couldn't match the outer `<a>` (its attrs group stopped
+ *        at the first `<`), so the inner `<b>` got matched/stripped in
+ *        isolation and the untouched surrounding text reassembled a live
+ *        `javascript:` href once concatenated back together.
+ *     2. Entity-encoded scheme: `href="&#106;avascript:alert(1)"` — a
+ *        denylist check on the raw string never saw "javascript:"; the
+ *        browser only decodes `&#106;` -> "j" at HTML-parse time, after the
+ *        check had already passed it.
  *
- * Both bypasses exploit the same root cause: trying to recognize "bad"
- * patterns in a format (HTML) with too many equivalent encodings to
- * enumerate. This version inverts the approach instead of patching the
- * regexes:
+ *   Round 2 — the escape-first/selectively-unescape rewrite that followed
+ *   fixed both of those, but its allowlist regexes ran over the fully
+ *   ESCAPED text as a whole buffer, with no notion of where a match sat in
+ *   the original document. That let an allowlisted-*looking* escaped
+ *   pattern get unescaped back into live markup even when it started out
+ *   *inside* a rejected attribute value or a rejected tag's body — e.g.
+ *   `<a href="foo&lt;p&gt;bar">` produced a live `<p>` out of href-value
+ *   text that was never meant to be markup, and a `<div>` wrapping a
+ *   pre-escaped anchor could reconstruct a live, clickable link.
  *
- *   1. Escape the ENTIRE input (`&` first, then `< > "`) so none of it can
- *      be interpreted as markup.
- *   2. Selectively unescape ONLY a small set of *exact* allowlisted
- *      patterns back into real tags.
+ * This version walks the RAW input exactly once, left to right, and only
+ * ever asks "does an allowlisted construct start at *this exact position*
+ * in the ORIGINAL text?" — it never re-matches against text this function
+ * already produced. Unescaping only ever happens at the single raw `<`
+ * character a construct starts with, consuming exactly the raw characters
+ * that make it up; there is no whole-buffer regex pass for a rejected
+ * value's contents to "leak" through, because recognition only fires on a
+ * literal, untouched `<` in the source.
  *
- * Anything that isn't an exact match for an allowlisted pattern simply
- * stays escaped and renders as inert text — there is no denylist, and
- * nothing here tries to parse or repair attacker-supplied markup.
+ * Anything that isn't an exact allowlisted match — including a `<a>` with
+ * an unsafe scheme, and a `</a>` with no matching accepted `<a>` open —
+ * stays as escaped, inert text.
  */
 
-// `&` is only escaped when it ISN'T already the start of one of the four
-// entities this function itself produces. Without that guard, re-running
-// sanitizeHtml on its own output would double-escape any leftover rejected
-// markup (e.g. `&lt;div onclick=...` -> `&amp;lt;div onclick=...`) on every
-// pass, breaking idempotency for exactly the mixed "some allowlisted, some
-// rejected" content this sanitizer exists to handle. A real `<`/`>`/`"`
-// character is always re-escaped unconditionally on every pass — only the
-// leading `&` of an already-well-formed entity is left alone.
-function escapeHtml(html: string): string {
-  return html
-    .replace(/&(?!amp;|lt;|gt;|quot;)/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+// Attribute-less tags recognized verbatim, in both directions, wherever
+// they appear literally in the raw input. A tag carrying any attribute
+// (e.g. `<span style="...">`) simply isn't one of these exact strings and
+// falls through to the generic per-character escaping below.
+const BARE_TAGS = ["p", "strong", "em", "u", "span"];
+const LITERAL_TAGS: string[] = [];
+for (const tag of BARE_TAGS) {
+  LITERAL_TAGS.push(`<${tag}>`, `</${tag}>`);
 }
 
-// Attribute-less tags that unescape verbatim in both directions. Any tag
-// carrying attributes (e.g. `<span style="...">`) simply doesn't match
-// these exact literal patterns and stays escaped.
-const BARE_TAGS = ["p", "strong", "em", "u", "span"];
+// Longest-first so `<br />` (with the space) isn't shadowed by a shorter
+// prefix — with exact `startsWith` matching this only matters for clarity,
+// since none of these three strings is a literal prefix of another anyway.
+const BR_VARIANTS = ["<br />", "<br/>", "<br>"];
 
-// `<br>`, `<br/>`, and `<br />` all normalize to a single void `<br>`.
-const BR_RE = /&lt;br\s*\/?&gt;/g;
-
-// Anchors: matched on the already-escaped text. The href charset
-// deliberately excludes `&` (so no entity can hide inside — a literal `&`
-// in a URL becomes `&amp;` and simply fails to match, which is an
-// acceptable loss for owner-authored copy) and excludes whitespace, quotes,
-// and angle brackets (so a nested tag can't be smuggled in and reassembled
-// across the boundary). The trailing optional group also matches this
-// sanitizer's own output verbatim, which is what makes it idempotent:
-// re-running it on already-sanitized output must reproduce the same
-// output, not strip the `target`/`rel` it just added.
-const ANCHOR_RE =
-  /&lt;a href=&quot;([A-Za-z0-9:/?#[\]@!$'()*+,;=._~%-]*)&quot;(?: target=&quot;_blank&quot; rel=&quot;noopener noreferrer&quot;)?&gt;/g;
+// Anchors: recognized directly on the RAW input at the position a literal
+// `<a href="` starts. The href charset excludes `&`, whitespace, quotes,
+// and angle brackets, so nothing — no entity, no nested tag — can appear
+// inside the match; matching stops the instant a disallowed character is
+// hit, well before any embedded markup could be reassembled. The second
+// alternative also matches this sanitizer's own previously-expanded output
+// (with the `target`/`rel` it adds) verbatim, which is what makes
+// re-sanitizing already-sanitized output idempotent.
+const HREF_CHARSET = "[A-Za-z0-9:/?#[\\]@!$'()*+,;=._~%-]*";
+const ANCHOR_OPEN_RE = new RegExp(
+  `^<a href="(${HREF_CHARSET})">` +
+    "|" +
+    `^<a href="(${HREF_CHARSET})" target="_blank" rel="noopener noreferrer">`,
+);
 
 // Only these schemes are ever unescaped into a live `href` — an allowlist,
 // not a `javascript:`/`data:`-specific denylist, so it isn't a pattern that
 // needs to keep growing as new dangerous schemes are discovered.
 const SAFE_HREF_RE = /^(https?:\/\/|mailto:|\/)/i;
 
+// Recognized when escaping a lone `&` in the generic per-character path —
+// named, decimal, and hex character references. This is what makes
+// re-sanitizing idempotent for inert leftover entity text (e.g. `&lt;div
+// onclick=...` from a rejected tag isn't double-escaped into `&amp;lt;...`
+// on a second pass). It's safe *because* this function only ever
+// recognizes tags at a raw `<` — this carve-out never runs anywhere near
+// that logic, so it can only leave already-inert text looking the same on
+// a re-pass; it can never promote anything into live markup.
+const KNOWN_ENTITY_RE = /^(amp;|lt;|gt;|quot;|#\d+;|#x[0-9a-fA-F]+;)/;
+
 export function sanitizeHtml(html: string): string {
-  let out = escapeHtml(html);
+  let out = "";
+  let i = 0;
+  let anchorDepth = 0;
 
-  for (const tag of BARE_TAGS) {
-    out = out.split(`&lt;${tag}&gt;`).join(`<${tag}>`);
-    out = out.split(`&lt;/${tag}&gt;`).join(`</${tag}>`);
+  while (i < html.length) {
+    const ch = html[i];
+
+    if (ch === "<") {
+      const rest = html.slice(i);
+
+      const literalTag = LITERAL_TAGS.find((tag) => rest.startsWith(tag));
+      if (literalTag) {
+        out += literalTag;
+        i += literalTag.length;
+        continue;
+      }
+
+      const brTag = BR_VARIANTS.find((tag) => rest.startsWith(tag));
+      if (brTag) {
+        out += "<br>";
+        i += brTag.length;
+        continue;
+      }
+
+      const anchorMatch = ANCHOR_OPEN_RE.exec(rest);
+      if (anchorMatch) {
+        const href = anchorMatch[1] ?? anchorMatch[2] ?? "";
+        if (SAFE_HREF_RE.test(href)) {
+          out += `<a href="${href}" target="_blank" rel="noopener noreferrer">`;
+          anchorDepth += 1;
+          i += anchorMatch[0].length;
+          continue;
+        }
+        // Syntactically an anchor, but an unsafe scheme: fall through to
+        // the generic path below, which escapes it character by character.
+      }
+
+      if (anchorDepth > 0 && rest.startsWith("</a>")) {
+        out += "</a>";
+        anchorDepth -= 1;
+        i += 4;
+        continue;
+      }
+
+      // No allowlisted construct starts here — including a `</a>` with no
+      // accepted `<a>` currently open, which is what keeps an orphan
+      // closing tag from ever becoming live. Escape just the "<"; every
+      // other character in this run gets handled by the generic path
+      // below on subsequent iterations.
+      out += "&lt;";
+      i += 1;
+      continue;
+    }
+
+    if (ch === ">") {
+      out += "&gt;";
+    } else if (ch === '"') {
+      out += "&quot;";
+    } else if (ch === "&") {
+      out += KNOWN_ENTITY_RE.test(html.slice(i + 1)) ? "&" : "&amp;";
+    } else {
+      out += ch;
+    }
+    i += 1;
   }
-  out = out.split("&lt;/a&gt;").join("</a>");
-
-  out = out.replace(BR_RE, "<br>");
-
-  out = out.replace(ANCHOR_RE, (match, href: string) => {
-    if (!SAFE_HREF_RE.test(href)) return match;
-    return `<a href="${href}" target="_blank" rel="noopener noreferrer">`;
-  });
 
   return out;
 }
