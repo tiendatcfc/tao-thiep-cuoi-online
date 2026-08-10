@@ -55,10 +55,10 @@ jobs:
         run: pnpm --filter @hpwd/db exec prisma generate
 
       - name: Run linting
-        run: turbo lint
+        run: pnpm exec turbo lint
 
       - name: Run tests
-        run: turbo test
+        run: pnpm exec turbo test
 
       - name: Build
         run: pnpm --filter @hpwd/web build
