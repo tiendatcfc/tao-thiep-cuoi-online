@@ -95,7 +95,15 @@ importers:
         specifier: ^6
         version: 6.19.3(typescript@5.9.3)
 
-  packages/schema: {}
+  packages/schema:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
 
 packages:
 
