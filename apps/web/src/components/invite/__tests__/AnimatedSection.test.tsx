@@ -3,7 +3,7 @@ import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SectionRenderer } from "../SectionRenderer";
 import { AnimatedSection } from "../AnimatedSection";
-import { createDefaultDocument } from "@hpwd/schema";
+import { createDefaultDocument, createSection } from "@hpwd/schema";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -92,32 +92,13 @@ describe("AnimatedSection", () => {
     });
   });
 
-  describe("prefers-reduced-motion", () => {
-    it("calls useReducedMotion to check user preference (actual behavior verified in browser)", () => {
-      // Testing useReducedMotion() behavior with framer-motion's hook requires
-      // mocking browser matchMedia at a level that affects the hook's internal
-      // cache. The hook reads matchMedia at render time, and jsdom's matchMedia
-      // mock is ephemeral. Manual testing in a real browser is the appropriate
-      // verification path.
-      //
-      // This test verifies the code path exists and respects the pattern.
-      // The actual behavior (no wrapper + no animation when motion is reduced)
-      // is equivalent to preset: 'none' and is tested separately.
-
-      // Verify that preset: 'none' produces the same result as reduced-motion would:
-      const { container: nonePresetContainer } = render(
-        <AnimatedSection animation={{ preset: "none", durationMs: 500 }}>
-          <div data-testid="child">Content</div>
-        </AnimatedSection>,
-      );
-
-      expect(nonePresetContainer.querySelector('[data-testid="child"]')).toBeInTheDocument();
-      expect(nonePresetContainer.querySelector('[data-animate]')).not.toBeInTheDocument();
-
-      // If prefers-reduced-motion were enabled, the outcome would be identical:
-      // no animated wrapper, just plain children.
-    });
-  });
+  // `prefers-reduced-motion` behavior is covered in
+  // `AnimatedSection.reduced-motion.test.tsx`, a dedicated file — framer-motion's
+  // `useReducedMotion()` caches the `matchMedia` result once per module
+  // instance, so the mock must be installed before anything in the module
+  // renders, in a file vitest gives a fresh module registry (see that file's
+  // top comment for the full rationale, mirrored from
+  // `OpeningGate.reduced-motion.test.tsx` / `ParticlesOverlay.reduced-motion.test.tsx`).
 
   describe("animation duration", () => {
     it("exposes duration via data-duration attribute", () => {
@@ -139,32 +120,44 @@ describe("AnimatedSection", () => {
   });
 
   describe("empty wrapper behavior (null-rendering sections)", () => {
-    it("applies empty:hidden class to animated wrappers (hides empty ones via CSS)", () => {
-      // Create a document with album section that has no images
-      // (AlbumSection will render null in this case)
+    it("collapses the AnimatedSection wrapper around a section that renders null", () => {
+      // Exercised through the real SectionRenderer path (not AnimatedSection
+      // in isolation): SectionRenderer always passes a truthy React element
+      // as `children` — `<Component section={section} />` — even when that
+      // component's *output* is null, so AnimatedSection's own
+      // `if (!children) return null` early-return never fires for this case.
+      // The two-section document below has no `album`/`gift` sections (whose
+      // "empty" rendering depends on array-length props), keeping the
+      // wrapper count deterministic: exactly one wrapper per section, one of
+      // which (`video`, Phase 2's always-null placeholder) is expected to be
+      // DOM-empty.
       const document = createDefaultDocument();
-      const albumSection = document.sections.find((s) => s.type === "album");
-      if (!albumSection) throw new Error("fixture missing album section");
-      if (albumSection.type !== "album") throw new Error("wrong section type");
+      const cover = document.sections.find((s) => s.type === "cover");
+      if (!cover) throw new Error("fixture missing cover section");
 
-      // Ensure album has empty images so it renders null
-      albumSection.props.images = [];
+      const video = createSection("video");
+      // createSection defaults to visible:true, animation: {preset:"fade",
+      // durationMs:600} — a non-"none" preset, same as `cover`'s — so both
+      // sections take the motion.div branch in AnimatedSection.
+      video.order = cover.order + 1;
 
-      const { container } = render(<SectionRenderer document={document} />);
+      const { container } = render(
+        <SectionRenderer document={{ ...document, sections: [cover, video] }} />,
+      );
 
-      // Find the AnimatedSection wrapper for the album section
-      // When AlbumSection returns null, the AnimatedSection wrapper will be
-      // rendered but contain no DOM content, matching the :empty CSS selector.
-      // The empty:hidden class will hide it via CSS.
-      const albumWrapper = container.querySelector('[data-section="album"]')?.parentElement;
+      const wrappers = Array.from(container.querySelectorAll("[data-animate]"));
+      expect(wrappers).toHaveLength(2);
+      const [coverWrapper, videoWrapper] = wrappers;
 
-      if (albumWrapper) {
-        // If wrapper exists, it should have the empty:hidden class
-        // to collapse it out of layout when the section renders null
-        expect(albumWrapper).toHaveClass("empty:hidden");
-      }
-      // If wrapper doesn't exist, that's also valid — either way, empty
-      // content isn't creating phantom DOM nodes visible in the layout.
+      // Sanity check on the positional assumption: cover (order 0) sorts
+      // before video (order 1) and actually renders content.
+      expect(coverWrapper.childNodes.length).toBeGreaterThan(0);
+
+      // VideoSection renders null, so its wrapper has zero DOM children —
+      // it must collapse out of layout via `empty:hidden` rather than
+      // leaving a phantom, height-occupying node behind.
+      expect(videoWrapper.childNodes.length).toBe(0);
+      expect(videoWrapper).toHaveClass("empty:hidden");
     });
   });
 });
