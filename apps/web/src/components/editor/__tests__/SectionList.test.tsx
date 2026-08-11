@@ -53,6 +53,15 @@ describe("SectionList rows", () => {
 
     expect(useEditorStore.getState().selectedSectionId).toBe(coverId);
   });
+
+  it("does not select the row when the drag handle is clicked", () => {
+    render(<SectionList />);
+    const row = screen.getByText("Trang bìa").closest("li")!;
+
+    fireEvent.click(within(row).getByRole("button", { name: "Kéo để sắp xếp" }));
+
+    expect(useEditorStore.getState().selectedSectionId).toBeNull();
+  });
 });
 
 describe("SectionList visibility toggle", () => {

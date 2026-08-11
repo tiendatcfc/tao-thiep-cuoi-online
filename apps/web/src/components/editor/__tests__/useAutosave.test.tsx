@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createDefaultDocument } from "@hpwd/schema";
+import { createDefaultDocument, type InvitationDocument } from "@hpwd/schema";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
@@ -107,7 +107,7 @@ describe("useAutosave", () => {
     expect(useEditorStore.getState().lastSavedAt).toEqual(expect.any(Number));
   });
 
-  it("keeps dirty true and reports an error when the PATCH fails, then retries on the next change", async () => {
+  it("keeps dirty true and reports a 'network' error when the PATCH fails, then retries on the next change", async () => {
     fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: "fail" }) });
 
     const { result } = renderHook(() => useAutosave(INVITATION_ID));
@@ -121,7 +121,7 @@ describe("useAutosave", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(useEditorStore.getState().dirty).toBe(true);
-    expect(result.current.error).toBe(true);
+    expect(result.current.error).toBe("network");
 
     // Next change retries — no infinite loop, exactly one more call.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: Date.now() }) });
@@ -134,21 +134,7 @@ describe("useAutosave", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(useEditorStore.getState().dirty).toBe(false);
-    expect(result.current.error).toBe(false);
-  });
-
-  it("cancels the pending debounce timer on unmount", () => {
-    const { unmount } = renderHook(() => useAutosave(INVITATION_ID));
-
-    act(() => {
-      useEditorStore.getState().updateTheme({ primary: "#111111" });
-    });
-    unmount();
-
-    act(() => {
-      vi.advanceTimersByTime(5000);
-    });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.error).toBe(null);
   });
 
   it("warns via the standard beforeunload prompt while dirty", () => {
@@ -170,5 +156,211 @@ describe("useAutosave", () => {
     window.dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  describe("unmount flush", () => {
+    it("fires exactly one best-effort keepalive PATCH with the current document when dirty at unmount", () => {
+      const { unmount } = renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        // A Next.js client-side route change / Back button unmounts this
+        // hook without ever firing `beforeunload` — this is that case: the
+        // 2s debounce never gets to elapse before the component goes away.
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      unmount();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(`/api/invitations/${INVITATION_ID}`);
+      expect(init.method).toBe("PATCH");
+      expect(init.keepalive).toBe(true);
+      const body = JSON.parse(init.body as string);
+      expect(body.document.theme.primary).toBe("#111111");
+
+      // The pending debounce timer must have been cancelled too, not left
+      // to *also* fire after the flush.
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not call PATCH on unmount when the document is clean", () => {
+      const { unmount } = renderHook(() => useAutosave(INVITATION_ID));
+      unmount();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("does not flush a client-side-invalid document on unmount", () => {
+      const { unmount } = renderHook(() => useAutosave(INVITATION_ID));
+      const invalidDoc = { ...createDefaultDocument(), theme: undefined } as unknown as InvitationDocument;
+      act(() => {
+        useEditorStore.setState({ document: invalidDoc, dirty: true });
+      });
+
+      unmount();
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("client-side validation before sending", () => {
+    it("does not PATCH a schema-invalid document and reports the 'invalid' error kind instead of retrying blindly", async () => {
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      const invalidDoc = { ...createDefaultDocument(), theme: undefined } as unknown as InvitationDocument;
+
+      act(() => {
+        useEditorStore.setState({ document: invalidDoc, dirty: true });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(result.current.error).toBe("invalid");
+      // Whole-document validation means this can never succeed until the
+      // offending field is fixed — `dirty` correctly stays true, but no
+      // network request should ever be wasted retrying it.
+      expect(useEditorStore.getState().dirty).toBe(true);
+      expect(useEditorStore.getState().saving).toBe(false);
+    });
+
+    it("resumes sending once a later change makes the document valid again", async () => {
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      const invalidDoc = { ...createDefaultDocument(), theme: undefined } as unknown as InvitationDocument;
+
+      act(() => {
+        useEditorStore.setState({ document: invalidDoc, dirty: true });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      act(() => {
+        useEditorStore.setState({ document: createDefaultDocument(), dirty: true });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe(null);
+      expect(useEditorStore.getState().dirty).toBe(false);
+    });
+  });
+
+  describe("serialised saves", () => {
+    it("queues an edit that arrives mid-flight instead of firing a second concurrent PATCH, sends it immediately once the first settles with the latest document, and never lets the stale first response clear dirty", async () => {
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>(
+        (resolve) => {
+          resolveFirst = resolve;
+        },
+      );
+      fetchMock.mockImplementationOnce(() => firstResponse);
+
+      renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // First save is in flight; its response hasn't resolved yet.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(useEditorStore.getState().saving).toBe(true);
+
+      // A second edit lands while the first request is still in flight.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // The second edit's debounce elapsed, but a save was already in
+      // flight — it must be queued, not fired as an overlapping request.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Queue up the second (fresh) request's response before resolving
+      // the first, since the queued retry fires synchronously once the
+      // first settles.
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 222 }) });
+
+      await act(async () => {
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111 }) });
+        // Flush the microtask chain: await res.json() -> markSaved/setError
+        // -> finally -> queued performSave() -> its own await fetch() ->
+        // await res.json().
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+
+      // The queued follow-up fired immediately (no extra debounce delay),
+      // carrying the latest document — not the one captured when it was
+      // queued.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const secondBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+      expect(secondBody.document.theme.primary).toBe("#222222");
+
+      // The stale first response must not have cleared `dirty` — the edit
+      // it raced with wasn't part of what it persisted.
+      expect(useEditorStore.getState().dirty).toBe(false);
+      expect(useEditorStore.getState().lastSavedAt).toBe(222);
+    });
+
+    it("keeps dirty true while the fresh follow-up request is still in flight after a stale response resolves", async () => {
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>(
+        (resolve) => {
+          resolveFirst = resolve;
+        },
+      );
+      let resolveSecond!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
+      const secondResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>(
+        (resolve) => {
+          resolveSecond = resolve;
+        },
+      );
+      fetchMock.mockImplementationOnce(() => firstResponse);
+
+      renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      fetchMock.mockImplementationOnce(() => secondResponse);
+      await act(async () => {
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111 }) });
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+
+      // Second (fresh) request now in flight; must not be marked saved yet.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(useEditorStore.getState().dirty).toBe(true);
+      expect(useEditorStore.getState().saving).toBe(true);
+
+      await act(async () => {
+        resolveSecond({ ok: true, json: async () => ({ savedAt: 222 }) });
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+
+      expect(useEditorStore.getState().dirty).toBe(false);
+      expect(useEditorStore.getState().lastSavedAt).toBe(222);
+    });
   });
 });

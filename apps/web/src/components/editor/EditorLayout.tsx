@@ -5,7 +5,10 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { useEditorStore } from "@/stores/editor-store";
 import { PreviewPane } from "./PreviewPane";
 import { SectionList } from "./SectionList";
-import { useAutosave } from "./useAutosave";
+import { type AutosaveErrorKind, useAutosave } from "./useAutosave";
+import { useMediaQuery } from "./useMediaQuery";
+
+const DESKTOP_QUERY = "(min-width: 1024px)";
 
 const PLACEHOLDER_TEXT = "Chọn một mục để chỉnh sửa";
 
@@ -37,7 +40,13 @@ function SaveStatus() {
   let text = "";
   if (saving) {
     text = "Đang lưu…";
-  } else if (error) {
+  } else if (error === "invalid") {
+    // Distinct from the network-failure message on purpose: whole-document
+    // validation means retrying against the network can never succeed here
+    // — the fix has to happen in whatever field is currently invalid, not
+    // by waiting it out.
+    text = "Nội dung chưa hợp lệ, chưa thể lưu — vui lòng kiểm tra lại mục đang chỉnh sửa.";
+  } else if (error === "network") {
     text = "Lưu thất bại — sẽ thử lại";
   } else if (lastSavedAt) {
     text = `Đã lưu lúc ${formatSavedAt(lastSavedAt)}`;
@@ -57,7 +66,7 @@ function SaveStatus() {
  * PATCHes. This tiny context lets `EditorLayout` own the single hook
  * instance and hand the result down to both status displays.
  */
-const AutosaveStatusContext = createContext<{ error: boolean }>({ error: false });
+const AutosaveStatusContext = createContext<{ error: AutosaveErrorKind }>({ error: null });
 function useAutosaveStatusContext() {
   return useContext(AutosaveStatusContext);
 }
@@ -96,6 +105,12 @@ export function EditorLayout({ invitationId, slug, initialDocument }: EditorLayo
 
   const autosave = useAutosave(invitationId);
   const [mobileTab, setMobileTab] = useState<"list" | "preview" | "edit">("preview");
+  // Exactly one of the two layouts below renders — never both. Rendering
+  // both simultaneously and hiding one with CSS (the previous approach)
+  // mounted `PreviewPane` — and the real `InvitePage` tree inside it —
+  // twice at all times, regardless of viewport, doubling up whatever side
+  // effects live inside it (audio element, opening-animation timers, ...).
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   return (
     <AutosaveStatusContext.Provider value={autosave}>
@@ -108,50 +123,50 @@ export function EditorLayout({ invitationId, slug, initialDocument }: EditorLayo
           </div>
         </header>
 
-        {/* ≥1024px: three columns side by side. */}
-        <div className="hidden flex-1 overflow-hidden lg:grid lg:grid-cols-[280px_1fr_320px]">
-          <div className="overflow-y-auto border-r border-gray-200">
-            <SectionList />
+        {isDesktop ? (
+          <div className="grid flex-1 grid-cols-[280px_1fr_320px] overflow-hidden">
+            <div className="overflow-y-auto border-r border-gray-200">
+              <SectionList />
+            </div>
+            <div className="overflow-y-auto">
+              <PreviewPane />
+            </div>
+            <div className="overflow-y-auto border-l border-gray-200">
+              <EditorPanel />
+            </div>
           </div>
-          <div className="overflow-y-auto">
-            <PreviewPane />
+        ) : (
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex border-b border-gray-200">
+              {(
+                [
+                  { key: "list", label: "Mục" },
+                  { key: "preview", label: "Xem trước" },
+                  { key: "edit", label: "Chỉnh sửa" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setMobileTab(tab.key)}
+                  aria-current={mobileTab === tab.key}
+                  className={`flex-1 py-2 text-sm ${
+                    mobileTab === tab.key
+                      ? "border-b-2 border-rose-500 font-medium text-rose-600"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {mobileTab === "list" && <SectionList />}
+              {mobileTab === "preview" && <PreviewPane />}
+              {mobileTab === "edit" && <EditorPanel />}
+            </div>
           </div>
-          <div className="overflow-y-auto border-l border-gray-200">
-            <EditorPanel />
-          </div>
-        </div>
-
-        {/* <1024px: one pane at a time via tabs. */}
-        <div className="flex flex-1 flex-col overflow-hidden lg:hidden">
-          <div className="flex border-b border-gray-200">
-            {(
-              [
-                { key: "list", label: "Mục" },
-                { key: "preview", label: "Xem trước" },
-                { key: "edit", label: "Chỉnh sửa" },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => setMobileTab(tab.key)}
-                aria-current={mobileTab === tab.key}
-                className={`flex-1 py-2 text-sm ${
-                  mobileTab === tab.key
-                    ? "border-b-2 border-rose-500 font-medium text-rose-600"
-                    : "text-gray-500"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {mobileTab === "list" && <SectionList />}
-            {mobileTab === "preview" && <PreviewPane />}
-            {mobileTab === "edit" && <EditorPanel />}
-          </div>
-        </div>
+        )}
       </div>
     </AutosaveStatusContext.Provider>
   );

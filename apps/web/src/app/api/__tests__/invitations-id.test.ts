@@ -71,23 +71,25 @@ describe("GET /api/invitations/[id]", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 404 when the invitation doesn't exist", async () => {
+  it("returns 404 with an identical body whether the invitation is missing or owned by someone else", async () => {
     authMock.mockResolvedValue({ user: { id: userId } });
-
-    const res = await GET(new Request("http://localhost/api/test"), {
+    const missingRes = await GET(new Request("http://localhost/api/test"), {
       params: Promise.resolve({ id: `no-such-id-${randomUUID()}` }),
     });
 
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 404 (not 403) when the invitation belongs to a different user", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: otherUserId } });
+    const notOwnedRes = await GET(new Request("http://localhost/api/test"), {
+      params: Promise.resolve({ id }),
+    });
 
-    const res = await GET(new Request("http://localhost/api/test"), { params: Promise.resolve({ id }) });
-
-    expect(res.status).toBe(404);
+    expect(missingRes.status).toBe(404);
+    expect(notOwnedRes.status).toBe(404);
+    // Identical bodies, not just identical status codes — a response that
+    // distinguished "doesn't exist" from "not yours" would let a guessed id
+    // be used to probe which invitations exist.
+    const [missingBody, notOwnedBody] = await Promise.all([missingRes.json(), notOwnedRes.json()]);
+    expect(missingBody).toEqual(notOwnedBody);
   });
 
   it("returns {invitation: {id, slug, status, document, settings}} for the owner", async () => {
@@ -118,25 +120,22 @@ describe("PATCH /api/invitations/[id]", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 404 when the invitation doesn't exist", async () => {
+  it("returns 404 with an identical body whether the invitation is missing or owned by someone else", async () => {
     authMock.mockResolvedValue({ user: { id: userId } });
-
-    const res = await PATCH(jsonRequest({ document: createDefaultDocument() }, "PATCH"), {
+    const missingRes = await PATCH(jsonRequest({ document: createDefaultDocument() }, "PATCH"), {
       params: Promise.resolve({ id: `no-such-id-${randomUUID()}` }),
     });
 
-    expect(res.status).toBe(404);
-  });
-
-  it("returns 404 (not 403) when the invitation belongs to a different user", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: otherUserId } });
-
-    const res = await PATCH(jsonRequest({ document: createDefaultDocument() }, "PATCH"), {
+    const notOwnedRes = await PATCH(jsonRequest({ document: createDefaultDocument() }, "PATCH"), {
       params: Promise.resolve({ id }),
     });
 
-    expect(res.status).toBe(404);
+    expect(missingRes.status).toBe(404);
+    expect(notOwnedRes.status).toBe(404);
+    const [missingBody, notOwnedBody] = await Promise.all([missingRes.json(), notOwnedRes.json()]);
+    expect(missingBody).toEqual(notOwnedBody);
   });
 
   it("returns 400 with a Vietnamese message when the document fails schema validation", async () => {

@@ -13,6 +13,25 @@ vi.stubGlobal("fetch", fetchMock);
 
 import { EditorLayout } from "../EditorLayout";
 
+/**
+ * jsdom's own `window.matchMedia` always reports `matches: false` — it has
+ * no real layout engine to evaluate a media feature against — so without
+ * this, `EditorLayout` would only ever be testable in its mobile-tabs
+ * shape. This fakes a fixed viewport per test instead.
+ */
+function mockViewport(isDesktop: boolean) {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: isDesktop,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })) as unknown as typeof window.matchMedia;
+}
+
 function resetStore() {
   useEditorStore.setState({
     document: createDefaultDocument(),
@@ -26,6 +45,7 @@ function resetStore() {
 beforeEach(() => {
   resetStore();
   fetchMock.mockReset();
+  mockViewport(true); // desktop by default; individual tests override.
 });
 
 const baseProps = {
@@ -42,30 +62,21 @@ describe("EditorLayout", () => {
     expect(useEditorStore.getState().document.theme.primary).toBe("#TESTVAL");
   });
 
-  it("shows the placeholder panel text when no section is selected", () => {
+  it("shows the placeholder panel text when no section is selected (desktop)", () => {
     render(<EditorLayout {...baseProps} />);
-    expect(screen.getAllByText("Chọn một mục để chỉnh sửa").length).toBeGreaterThan(0);
+    expect(screen.getByText("Chọn một mục để chỉnh sửa")).toBeInTheDocument();
   });
 
   it("renders a disabled Xuất bản button titled Sắp có", () => {
     render(<EditorLayout {...baseProps} />);
-    const buttons = screen.getAllByRole("button", { name: "Xuất bản" });
-    for (const button of buttons) {
-      expect(button).toBeDisabled();
-      expect(button).toHaveAttribute("title", "Sắp có");
-    }
+    const button = screen.getByRole("button", { name: "Xuất bản" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", "Sắp có");
   });
 
   it("shows the invitation slug in the header", () => {
     render(<EditorLayout {...baseProps} />);
-    expect(screen.getAllByText("demo").length).toBeGreaterThan(0);
-  });
-
-  it("renders the mobile tab labels", () => {
-    render(<EditorLayout {...baseProps} />);
-    expect(screen.getByRole("button", { name: "Mục" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Xem trước" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Chỉnh sửa" })).toBeInTheDocument();
+    expect(screen.getByText("demo")).toBeInTheDocument();
   });
 
   it("shows 'Đang lưu…' while saving", () => {
@@ -73,7 +84,7 @@ describe("EditorLayout", () => {
     act(() => {
       useEditorStore.getState().setSaving(true);
     });
-    expect(screen.getAllByText("Đang lưu…").length).toBeGreaterThan(0);
+    expect(screen.getByText("Đang lưu…")).toBeInTheDocument();
   });
 
   it("shows 'Đã lưu lúc HH:mm' after a successful save", () => {
@@ -82,6 +93,77 @@ describe("EditorLayout", () => {
     act(() => {
       useEditorStore.getState().markSaved(at);
     });
-    expect(screen.getAllByText("Đã lưu lúc 09:05").length).toBeGreaterThan(0);
+    expect(screen.getByText("Đã lưu lúc 09:05")).toBeInTheDocument();
+  });
+
+  it("shows the distinct 'invalid document' message when autosave reports that error kind", async () => {
+    // The document fails the API's schema check the moment it's PATCHed;
+    // `useAutosave` runs the same check client-side first, so this drives
+    // the failure end-to-end through the real hook instead of stubbing it.
+    vi.useFakeTimers();
+    try {
+      render(<EditorLayout {...baseProps} />);
+      act(() => {
+        useEditorStore.setState({
+          document: { ...createDefaultDocument(), theme: undefined } as never,
+          dirty: true,
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(
+        screen.getByText(
+          "Nội dung chưa hợp lệ, chưa thể lưu — vui lòng kiểm tra lại mục đang chỉnh sửa.",
+        ),
+      ).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  describe("responsive single-mount layout", () => {
+    it("at desktop width, mounts exactly one three-pane layout with exactly one preview pane and no tab bar", () => {
+      mockViewport(true);
+      render(<EditorLayout {...baseProps} />);
+
+      expect(screen.getAllByTestId("preview-pane")).toHaveLength(1);
+      expect(screen.queryByRole("button", { name: "Mục" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Xem trước" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Chỉnh sửa" })).not.toBeInTheDocument();
+      // The section list and its own "+ Thêm mục" control are mounted once.
+      expect(screen.getAllByRole("group", { name: "Thêm mục" })).toHaveLength(1);
+    });
+
+    it("below 1024px, renders the tab bar and mounts only the active tab's pane", () => {
+      mockViewport(false);
+      render(<EditorLayout {...baseProps} />);
+
+      expect(screen.getByRole("button", { name: "Mục" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Xem trước" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Chỉnh sửa" })).toBeInTheDocument();
+
+      // Defaults to the "preview" tab: exactly one PreviewPane, no
+      // SectionList and no property-panel placeholder mounted alongside it.
+      expect(screen.getAllByTestId("preview-pane")).toHaveLength(1);
+      expect(screen.queryByRole("group", { name: "Thêm mục" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Chọn một mục để chỉnh sửa")).not.toBeInTheDocument();
+
+      act(() => {
+        screen.getByRole("button", { name: "Mục" }).click();
+      });
+      expect(screen.queryByTestId("preview-pane")).not.toBeInTheDocument();
+      expect(screen.getAllByRole("group", { name: "Thêm mục" })).toHaveLength(1);
+
+      act(() => {
+        screen.getByRole("button", { name: "Chỉnh sửa" }).click();
+      });
+      expect(screen.queryByTestId("preview-pane")).not.toBeInTheDocument();
+      expect(screen.queryByRole("group", { name: "Thêm mục" })).not.toBeInTheDocument();
+      expect(screen.getByText("Chọn một mục để chỉnh sửa")).toBeInTheDocument();
+    });
   });
 });

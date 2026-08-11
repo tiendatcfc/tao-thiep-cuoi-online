@@ -66,6 +66,10 @@ function SectionRow({ section }: { section: Section }) {
         className="cursor-grab touch-none px-1 text-gray-400"
         {...attributes}
         {...listeners}
+        onClick={(event) => {
+          event.stopPropagation();
+          listeners?.onClick?.(event);
+        }}
       >
         ⠿
       </button>
