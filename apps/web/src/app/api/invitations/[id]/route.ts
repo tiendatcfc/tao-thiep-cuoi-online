@@ -86,3 +86,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   return NextResponse.json({ savedAt: Date.now() });
 }
+
+/**
+ * Deletes an invitation the caller owns. `Guest`/`Wish`/`FormSubmission`
+ * rows cascade-delete via their `onDelete: Cascade` relation to
+ * `Invitation` in schema.prisma, so nothing else needs to be cleaned up
+ * here.
+ */
+export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Bạn cần đăng nhập." }, { status: 401 });
+  }
+
+  const invitation = await findOwnedInvitation(id, session.user.id);
+  if (!invitation) {
+    return NextResponse.json({ error: NOT_FOUND_MESSAGE }, { status: 404 });
+  }
+
+  await prisma.invitation.delete({ where: { id } });
+
+  return NextResponse.json({ ok: true });
+}

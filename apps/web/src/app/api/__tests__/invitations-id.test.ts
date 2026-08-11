@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 const { authMock } = vi.hoisted(() => ({ authMock: vi.fn() }));
 vi.mock("@/auth", () => ({ auth: authMock }));
 
-import { GET, PATCH } from "../invitations/[id]/route";
+import { DELETE, GET, PATCH } from "../invitations/[id]/route";
 
 let userId: string;
 let otherUserId: string;
@@ -234,5 +234,70 @@ describe("PATCH /api/invitations/[id]", () => {
     const res = await PATCH(jsonRequest({}, "PATCH"), { params: Promise.resolve({ id }) });
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe("DELETE /api/invitations/[id]", () => {
+  it("returns 401 when unauthenticated", async () => {
+    const { id } = await createTestInvitation();
+
+    const res = await DELETE(new Request("http://localhost/api/test", { method: "DELETE" }), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 with an identical body whether the invitation is missing or owned by someone else", async () => {
+    authMock.mockResolvedValue({ user: { id: userId } });
+    const missingRes = await DELETE(new Request("http://localhost/api/test", { method: "DELETE" }), {
+      params: Promise.resolve({ id: `no-such-id-${randomUUID()}` }),
+    });
+
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: otherUserId } });
+    const notOwnedRes = await DELETE(new Request("http://localhost/api/test", { method: "DELETE" }), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(missingRes.status).toBe(404);
+    expect(notOwnedRes.status).toBe(404);
+    const [missingBody, notOwnedBody] = await Promise.all([missingRes.json(), notOwnedRes.json()]);
+    expect(missingBody).toEqual(notOwnedBody);
+
+    // The not-owned invitation must still exist afterward — a 404 must
+    // never actually perform the delete.
+    const stillThere = await prisma.invitation.findUnique({ where: { id } });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it("returns 200, deletes the row, and cascades to its Guest/Wish/FormSubmission rows", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const guest = await prisma.guest.create({ data: { invitationId: id, name: "Khách mời test" } });
+    const wish = await prisma.wish.create({
+      data: { invitationId: id, guestName: "Khách mời test", message: "Chúc mừng!" },
+    });
+    const submission = await prisma.formSubmission.create({
+      data: { invitationId: id, sectionId: "form-section-test", data: { answer: "yes" } },
+    });
+
+    const res = await DELETE(new Request("http://localhost/api/test", { method: "DELETE" }), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(res.status).toBe(200);
+
+    const [invitationAfter, guestAfter, wishAfter, submissionAfter] = await Promise.all([
+      prisma.invitation.findUnique({ where: { id } }),
+      prisma.guest.findUnique({ where: { id: guest.id } }),
+      prisma.wish.findUnique({ where: { id: wish.id } }),
+      prisma.formSubmission.findUnique({ where: { id: submission.id } }),
+    ]);
+    expect(invitationAfter).toBeNull();
+    expect(guestAfter).toBeNull();
+    expect(wishAfter).toBeNull();
+    expect(submissionAfter).toBeNull();
   });
 });

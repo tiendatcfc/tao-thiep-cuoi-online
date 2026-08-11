@@ -8,7 +8,8 @@
     "test": "turbo test",
     "dev:init": "node --env-file=apps/web/.env.local apps/web/scripts/init-bucket.mjs",
     "seed:dev": "pnpm --filter @hpwd/db exec tsx scripts/seed-dev.ts",
-    "seed:music": "pnpm --filter @hpwd/db exec tsx scripts/seed-music.ts"
+    "seed:music": "pnpm --filter @hpwd/db exec tsx scripts/seed-music.ts",
+    "seed:templates": "pnpm --filter @hpwd/db exec tsx scripts/seed-templates.ts"
   },
   "devDependencies": {
     "turbo": "^2.10.9",
