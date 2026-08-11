@@ -37,6 +37,7 @@ return count
 `;
 
 declare module "ioredis" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- generic arity must match ioredis's own declaration for this merge to apply; the type param itself isn't needed in the method signature below.
   interface RedisCommander<Context> {
     rateLimitIncr(key: string, windowSec: number): Promise<number>;
   }
