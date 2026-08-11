@@ -38,7 +38,15 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
     window.HTMLMediaElement.prototype.pause = vi.fn() as unknown as HTMLMediaElement["pause"];
   });
 
-  it("never calls play() before the tap, and calls it once the envelope is opened", async () => {
+  // C1 fix: this used to need a `waitFor` here — `play()` only fired ~1s
+  // later, via `onAnimationComplete`/the safety net, two-plus React commits
+  // past the actual click. Strict WebKit (iOS Safari/WebViews) only honors
+  // `play()` as user-gesture-triggered while still inside the SAME call
+  // stack as the gesture event; by the time the old code called it, that
+  // window had already closed, so music silently never started on iOS.
+  // Asserting synchronously (no `await`/`waitFor` between the click and
+  // this assertion) is the actual, load-bearing proof.
+  it("never calls play() before the tap, and calls it SYNCHRONOUSLY on the tap itself (not via a later animation callback)", () => {
     const document = createDefaultDocument();
     document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
     document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: true };
@@ -56,7 +64,7 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
 
-    await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1), { timeout: 1000 });
+    expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
   it("respects music.playAfterOpen: false — the tap opens the invitation but never auto-starts audio", async () => {

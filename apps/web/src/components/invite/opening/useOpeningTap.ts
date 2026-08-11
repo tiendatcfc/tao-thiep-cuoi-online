@@ -28,8 +28,21 @@ export interface UseOpeningTapResult {
  * `onAnimationComplete` path already fires essentially immediately in that
  * case (duration-0 transitions still call it), so the safety net firing
  * ~400ms later in the case it's ever needed is harmless.
+ *
+ * `onTap` (C1 fix) is a THIRD, distinct callback from `onOpen`: it fires
+ * synchronously, as the very first statement inside `handleTap`, in the
+ * SAME call stack as the click event itself — nothing here defers it past
+ * a `setState`, a `setTimeout`, or an animation callback. `InvitePage` uses
+ * it to call `audio.play()` directly from the tap. Strict WebKit (iOS
+ * Safari/WebViews) only honors `play()` as "triggered by a user gesture"
+ * while still inside that same synchronous gesture-handling window —
+ * `onOpen`, which fires ~1s later via `onAnimationComplete` or the safety
+ * net, is well outside it, which is why music configured to start on open
+ * silently never started on iOS. `onTap` is optional so components that
+ * don't need it (tests, most call sites before this fix existed) don't
+ * have to pass one.
  */
-export function useOpeningTap(onOpen: () => void, animationMs: number): UseOpeningTapResult {
+export function useOpeningTap(onOpen: () => void, animationMs: number, onTap?: () => void): UseOpeningTapResult {
   const [tapped, setTapped] = useState(false);
   const firedRef = useRef(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -50,6 +63,9 @@ export function useOpeningTap(onOpen: () => void, animationMs: number): UseOpeni
 
   function handleTap() {
     if (tapped) return;
+    // Must run before `setTapped` (or anything else) — see this function's
+    // docstring on `onTap` for why the ordering/synchronicity matters.
+    onTap?.();
     setTapped(true);
     timeoutRef.current = setTimeout(fireOnce, animationMs + 400);
   }

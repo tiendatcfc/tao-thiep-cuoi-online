@@ -13,11 +13,12 @@ const TOTAL_DURATION_MS = 500;
  * tap, revealing the invitation underneath. `onOpen` fires once that fade
  * finishes (`onAnimationComplete`), not on the raw click.
  */
-export function FadeOpening({ opening, guestName, onOpen }: OpeningVariantProps) {
+export function FadeOpening({ opening, guestName, onOpen, onTap }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
   const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
     onOpen,
     reduceMotion ? 0 : TOTAL_DURATION_MS,
+    onTap,
   );
 
   return (

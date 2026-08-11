@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
+import { createRef } from "react";
 import type { Music } from "@hpwd/schema";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InviteContext } from "../InviteContext";
-import { MusicPlayer } from "../MusicPlayer";
+import { MusicPlayer, type MusicPlayerHandle } from "../MusicPlayer";
 
 // jsdom doesn't implement HTMLMediaElement's playback methods (play/pause
 // throw "not implemented" if called for real), so every test stubs them
@@ -129,6 +130,51 @@ describe("MusicPlayer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Bật nhạc" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Bật nhạc" })).toBeInTheDocument());
+  });
+
+  // C1: the ref-exposed `play()` is what `InvitePage` calls synchronously
+  // from the opening gate's raw tap handler, INSIDE the same call stack as
+  // the click — `startSignal`'s transition (tested above) fires later, via
+  // an effect after `onAnimationComplete`/the safety net, which is too late
+  // for strict WebKit (iOS) to still consider it user-gesture-triggered.
+  describe("imperative play() handle (C1)", () => {
+    it("calls audio.play() synchronously when ref.current.play() is invoked, with no state change or animation callback needed first", () => {
+      const ref = createRef<MusicPlayerHandle>();
+      render(
+        <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+          <MusicPlayer ref={ref} music={music()} startSignal={false} />
+        </InviteContext.Provider>,
+      );
+      expect(playSpy).not.toHaveBeenCalled();
+
+      act(() => {
+        ref.current?.play();
+      });
+
+      // Synchronous: no `await`, no `waitFor`, no timer advance between the
+      // call above and this assertion.
+      expect(playSpy).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Tắt nhạc" })).toBeInTheDocument();
+    });
+
+    it("does not throw when play() is called before the <audio> element exists yet (still resolving a library url)", () => {
+      const ref = createRef<MusicPlayerHandle>();
+      const fetchMock = vi.fn(() => new Promise(() => {})); // never resolves — url stays unresolved
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(
+        <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+          <MusicPlayer ref={ref} music={music({ source: "library", url: null, trackId: "t1" })} startSignal={false} />
+        </InviteContext.Provider>,
+      );
+
+      expect(() => {
+        act(() => {
+          ref.current?.play();
+        });
+      }).not.toThrow();
+      expect(playSpy).not.toHaveBeenCalled();
+    });
   });
 
   it("resolves a library track's url from GET /api/music by trackId", async () => {

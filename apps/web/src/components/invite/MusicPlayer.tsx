@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { Music } from "@hpwd/schema";
 import { useInviteContext } from "./InviteContext";
 
@@ -16,12 +16,27 @@ interface LibraryTrack {
 export interface MusicPlayerProps {
   music: Music;
   /**
-   * Flips false → true on the guest's tap during Task 13's opening-gate
-   * animation — that tap is the user-gesture browsers require before audio
-   * is allowed to autoplay. Only the *transition* triggers `audio.play()`;
-   * an already-true value at mount (or any later re-render) never does.
+   * Flips false → true once the opening gate has fully opened — the
+   * FALLBACK path for starting music, for anything that isn't a direct tap
+   * (`effect: "none"`), or a genuine "missed the gesture window" case. Only
+   * the *transition* triggers `audio.play()`; an already-true value at
+   * mount (or any later re-render) never does.
+   *
+   * By the time this fires (after the opening variant's own exit animation
+   * — see `OpeningGate`'s `onOpened`), strict WebKit (iOS Safari/WebViews)
+   * may no longer consider the call "triggered by a user gesture" and
+   * silently reject `play()` — that's what `MusicPlayerHandle.play` (via
+   * `ref`) exists to avoid: `InvitePage` calls it directly, synchronously,
+   * from the guest's raw tap (`OpeningGate`'s `onTap`), which IS still
+   * inside the gesture window. This prop stays as the fallback/non-gesture
+   * path; it does NOT reliably start music on iOS on its own.
    */
   startSignal: boolean;
+}
+
+export interface MusicPlayerHandle {
+  /** Imperative escape hatch for starting playback synchronously from within a real user-gesture call stack — see `startSignal`'s docstring above for why this exists at all. Safe to call before the `<audio>` element exists yet (e.g. `resolvedUrl` still resolving); it's a no-op until then. */
+  play: () => void;
 }
 
 /**
@@ -38,13 +53,18 @@ export interface MusicPlayerProps {
  *   `GET /api/music` by `music.trackId` on mount.
  *
  * Autoplay policy: `audio.play()` is only ever called (a) when `startSignal`
- * transitions false → true, gated off entirely in preview mode
- * (`isPreview` from `InviteContext`) so editors don't get surprise audio, or
- * (b) from the button's own click handler. Never via the `autoPlay`
- * attribute. A rejected play promise (the browser refusing anyway) just
- * rolls the UI back to paused — it never throws or crashes the page.
+ * transitions false → true (see its own docstring on why this alone is
+ * unreliable on iOS), (b) imperatively via `ref.current.play()` — see
+ * `MusicPlayerHandle` — or (c) from the button's own click handler. Never
+ * via the `autoPlay` attribute. Gated off entirely in preview mode
+ * (`isPreview` from `InviteContext`) so editors don't get surprise audio. A
+ * rejected play promise (the browser refusing anyway) just rolls the UI
+ * back to paused — it never throws or crashes the page.
  */
-export function MusicPlayer({ music, startSignal }: MusicPlayerProps) {
+export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(function MusicPlayer(
+  { music, startSignal },
+  ref,
+) {
   const { isPreview } = useInviteContext();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -96,6 +116,15 @@ export function MusicPlayer({ music, startSignal }: MusicPlayerProps) {
     audioRef.current?.pause();
     setPlaying(false);
   }, []);
+
+  // C1: exposes `playAudio` imperatively so `InvitePage` can call it
+  // synchronously from the opening gate's raw tap handler — see
+  // `MusicPlayerHandle`'s and `startSignal`'s docstrings above for why that
+  // matters on iOS. `audioRef.current` may still be `null` here if
+  // `resolvedUrl` hasn't resolved yet (an async library-track lookup) —
+  // `playAudio` already no-ops in that case, same as it would for any other
+  // caller.
+  useImperativeHandle(ref, () => ({ play: playAudio }), [playAudio]);
 
   // Fires `play()` exactly on the false→true transition, never on mount and
   // never again for a value that was already true.
@@ -164,4 +193,4 @@ export function MusicPlayer({ music, startSignal }: MusicPlayerProps) {
       </button>
     </>
   );
-}
+});

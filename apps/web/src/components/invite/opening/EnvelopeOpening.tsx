@@ -26,11 +26,12 @@ const TOTAL_DURATION_MS = 800;
  * Content inside the button uses `<span>`, not `<p>` — a `<button>`'s
  * content model only permits phrasing content, and `<p>` is block-level.
  */
-export function EnvelopeOpening({ opening, guestName, onOpen }: OpeningVariantProps) {
+export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
   const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
     onOpen,
     reduceMotion ? 0 : TOTAL_DURATION_MS,
+    onTap,
   );
   const t = (base: number) => (reduceMotion ? 0 : base);
 

@@ -16,11 +16,12 @@ const TOTAL_DURATION_MS = 650;
  * fades away once the panels are clear, calling `onOpen` from that final
  * fade's `onAnimationComplete`.
  */
-export function CurtainOpening({ opening, guestName, onOpen }: OpeningVariantProps) {
+export function CurtainOpening({ opening, guestName, onOpen, onTap }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
   const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
     onOpen,
     reduceMotion ? 0 : TOTAL_DURATION_MS,
+    onTap,
   );
   const t = (base: number) => (reduceMotion ? 0 : base);
 

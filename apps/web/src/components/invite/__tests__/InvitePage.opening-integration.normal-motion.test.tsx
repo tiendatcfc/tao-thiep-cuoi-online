@@ -41,7 +41,16 @@ describe("InvitePage / opening gate integration (real animation timing)", () => 
 
     fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
 
-    await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1), { timeout: 3000 });
-    expect(container.querySelector("canvas")).not.toBeNull();
+    // C1: play() now fires synchronously on the raw tap itself (see
+    // useOpeningTap's `onTap`), deliberately decoupled from the animation
+    // — that's the whole point of the fix (strict WebKit only honors
+    // `play()` as user-gesture-triggered inside this exact call stack, not
+    // ~1s later once the animation finishes). No `waitFor` needed for this
+    // assertion anymore.
+    expect(playSpy).toHaveBeenCalledTimes(1);
+    // The particle overlay is a separate concern, still correctly gated on
+    // the REAL envelope animation actually finishing (`onOpened`), which
+    // takes real time regardless of when audio started.
+    await waitFor(() => expect(container.querySelector("canvas")).not.toBeNull(), { timeout: 3000 });
   });
 });

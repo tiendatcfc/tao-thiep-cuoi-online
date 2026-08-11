@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, type CSSProperties } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
 import { fontFamilyStack } from "@/lib/fonts";
 import { InviteContext } from "./InviteContext";
-import { MusicPlayer } from "./MusicPlayer";
+import { MusicPlayer, type MusicPlayerHandle } from "./MusicPlayer";
 import { OpeningGate } from "./opening/OpeningGate";
 import { ParticlesOverlay } from "./ParticlesOverlay";
 import { SectionRenderer } from "./SectionRenderer";
@@ -45,6 +45,20 @@ export interface InvitePageProps {
  */
 export function InvitePage({ document, guestName, settings, isPreview, slug = null }: InvitePageProps) {
   const [opened, setOpened] = useState(false);
+  const musicPlayerRef = useRef<MusicPlayerHandle>(null);
+
+  // C1: called synchronously from the guest's raw tap on the opening gate
+  // (`OpeningGate`'s `onTap`) — see `useOpeningTap`'s docstring for why
+  // that synchronicity is the whole point. This is what actually starts
+  // music on iOS; `startSignal` below (fired later, after the opening
+  // animation) is the fallback for `effect: "none"` and anything else that
+  // isn't a direct tap.
+  function handleOpeningTap() {
+    if (document.music.playAfterOpen) {
+      musicPlayerRef.current?.play();
+    }
+  }
+
   const themeStyle = {
     "--primary": document.theme.primary,
     "--secondary": document.theme.secondary,
@@ -60,7 +74,12 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
         className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
         style={themeStyle}
       >
-        <OpeningGate opening={document.opening} guestName={guestName} onOpened={() => setOpened(true)}>
+        <OpeningGate
+          opening={document.opening}
+          guestName={guestName}
+          onOpened={() => setOpened(true)}
+          onTap={handleOpeningTap}
+        >
           <SectionRenderer document={document} />
         </OpeningGate>
         {/*
@@ -74,9 +93,15 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
          * `music.playAfterOpen` allows it — a couple can configure an
          * opening effect while still opting out of auto-starting audio,
          * leaving the player's own toggle button as the only way to start
-         * it.
+         * it. `ref` is the C1 path (see `handleOpeningTap` above) — both
+         * paths end up calling the exact same `playAudio`, just from
+         * different moments; whichever gets there first wins in practice.
          */}
-        <MusicPlayer music={document.music} startSignal={opened && document.music.playAfterOpen} />
+        <MusicPlayer
+          ref={musicPlayerRef}
+          music={document.music}
+          startSignal={opened && document.music.playAfterOpen}
+        />
         {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
         {settings.showBadge ? (
           <footer className="py-6 text-center text-xs text-gray-400">

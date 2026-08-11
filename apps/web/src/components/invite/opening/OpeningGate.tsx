@@ -12,11 +12,24 @@ export interface OpeningGateProps {
   guestName: string | null;
   /**
    * Fired exactly once, the moment the invitation becomes visible/usable —
-   * `InvitePage` uses this to flip `MusicPlayer`'s `startSignal`, since the
-   * guest's tap here is the browser-required user-gesture that unlocks
-   * autoplay.
+   * `InvitePage` uses this to flip `MusicPlayer`'s `startSignal`, its
+   * FALLBACK path for starting music (also the only path for anything that
+   * doesn't go through a tap — e.g. `effect: "none"`). By the time this
+   * fires (after the variant's exit animation, or the safety net), strict
+   * WebKit (iOS) may no longer consider it "within the user gesture" — see
+   * `onTap` below for the path that actually is.
    */
   onOpened: () => void;
+  /**
+   * C1 fix: fired synchronously on the guest's raw tap, inside the SAME
+   * call stack as the click event — before any animation runs. `InvitePage`
+   * uses this to call `audio.play()` directly, which is what strict WebKit
+   * requires for it to count as user-gesture-triggered playback. Optional:
+   * `effect: "none"` never taps at all (children are visible immediately),
+   * so this simply never fires in that case — `onOpened`'s startSignal path
+   * is the only option there regardless.
+   */
+  onTap?: () => void;
   children: ReactNode;
 }
 
@@ -44,7 +57,7 @@ export interface OpeningGateProps {
  * tap through an envelope on every re-render, and preview must never kick
  * off the guest-facing autoplay chain.
  */
-export function OpeningGate({ opening, guestName, onOpened, children }: OpeningGateProps) {
+export function OpeningGate({ opening, guestName, onOpened, onTap, children }: OpeningGateProps) {
   const { isPreview } = useInviteContext();
   const [opened, setOpened] = useState(opening.effect === "none");
   const firedRef = useRef(false);
@@ -69,13 +82,13 @@ export function OpeningGate({ opening, guestName, onOpened, children }: OpeningG
         {children}
       </div>
       {!opened && opening.effect === "envelope" ? (
-        <EnvelopeOpening opening={opening} guestName={guestName} onOpen={handleOpen} />
+        <EnvelopeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
       ) : null}
       {!opened && opening.effect === "curtain" ? (
-        <CurtainOpening opening={opening} guestName={guestName} onOpen={handleOpen} />
+        <CurtainOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
       ) : null}
       {!opened && opening.effect === "fade" ? (
-        <FadeOpening opening={opening} guestName={guestName} onOpen={handleOpen} />
+        <FadeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
       ) : null}
     </>
   );
