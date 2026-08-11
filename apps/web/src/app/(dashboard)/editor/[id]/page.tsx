@@ -3,6 +3,7 @@ import { prisma } from "@hpwd/db";
 import { InvitationDocumentSchema } from "@hpwd/schema";
 import { auth } from "@/auth";
 import { EditorLayout } from "@/components/editor/EditorLayout";
+import { parseInvitationSettings } from "@/lib/settings";
 
 /**
  * Editor entry point. The middleware in `auth.config.ts` already redirects
@@ -35,5 +36,12 @@ export default async function EditorPage({ params }: { params: Promise<{ id: str
     throw new Error(`Invitation ${id} has a document that fails schema validation`);
   }
 
-  return <EditorLayout invitationId={invitation.id} slug={invitation.slug} initialDocument={parsed.data} />;
+  return (
+    <EditorLayout
+      invitationId={invitation.id}
+      slug={invitation.slug}
+      initialDocument={parsed.data}
+      initialShowBadge={parseInvitationSettings(invitation.settings).showBadge}
+    />
+  );
 }

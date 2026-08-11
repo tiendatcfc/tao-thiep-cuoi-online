@@ -196,4 +196,43 @@ describe("PATCH /api/invitations/[id]", () => {
 
     expect(res.status).toBe(400);
   });
+
+  it("accepts {settings} alone, persisting it without touching document", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const before = await prisma.invitation.findUnique({ where: { id } });
+
+    const res = await PATCH(jsonRequest({ settings: { showBadge: false } }, "PATCH"), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(typeof body.savedAt).toBe("number");
+
+    const stored = await prisma.invitation.findUnique({ where: { id } });
+    expect(stored?.settings).toEqual({ showBadge: false });
+    expect(stored?.document).toEqual(before?.document);
+  });
+
+  it("returns 400 when settings.showBadge isn't a boolean", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const res = await PATCH(jsonRequest({ settings: { showBadge: "yes" } }, "PATCH"), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when the body has neither document nor settings", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const res = await PATCH(jsonRequest({}, "PATCH"), { params: Promise.resolve({ id }) });
+
+    expect(res.status).toBe(400);
+  });
 });

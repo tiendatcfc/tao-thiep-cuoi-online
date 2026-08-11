@@ -7,9 +7,21 @@ import { auth } from "@/auth";
 const NOT_FOUND_MESSAGE = "Không tìm thấy thiệp.";
 const INVALID_DOCUMENT_MESSAGE = "Dữ liệu thiệp không hợp lệ, vui lòng thử lại.";
 
-const patchBodySchema = z.object({
-  document: InvitationDocumentSchema,
-});
+const settingsSchema = z.object({ showBadge: z.boolean() }).strict();
+
+// `document` and `settings` are both optional so the autosave hook (which
+// only ever sends `document`) and `PublishDialog`'s badge toggle (which
+// only ever sends `settings`) can each PATCH just their own piece — but at
+// least one of the two must be present, or this would silently be a no-op
+// PATCH that still reports success.
+const patchBodySchema = z
+  .object({
+    document: InvitationDocumentSchema.optional(),
+    settings: settingsSchema.optional(),
+  })
+  .refine((data) => data.document !== undefined || data.settings !== undefined, {
+    message: INVALID_DOCUMENT_MESSAGE,
+  });
 
 /**
  * Owner-only fetch of the editor's working copy. 404 (never 403) whenever
@@ -80,10 +92,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: INVALID_DOCUMENT_MESSAGE }, { status: 400 });
   }
 
-  await prisma.invitation.update({
-    where: { id },
-    data: { document: parsed.data.document },
-  });
+  const data: { document?: typeof parsed.data.document; settings?: typeof parsed.data.settings } = {};
+  if (parsed.data.document !== undefined) data.document = parsed.data.document;
+  if (parsed.data.settings !== undefined) data.settings = parsed.data.settings;
+
+  await prisma.invitation.update({ where: { id }, data });
 
   return NextResponse.json({ savedAt: Date.now() });
 }

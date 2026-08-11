@@ -52,6 +52,7 @@ const baseProps = {
   invitationId: "inv-1",
   slug: "demo",
   initialDocument: createDefaultDocument(),
+  initialShowBadge: true,
 };
 
 describe("EditorLayout", () => {
@@ -69,11 +70,29 @@ describe("EditorLayout", () => {
     expect(screen.getByRole("tab", { name: "Hiệu ứng mở màn" })).toBeInTheDocument();
   });
 
-  it("renders a disabled Xuất bản button titled Sắp có", () => {
+  it("renders an enabled Xuất bản button that opens the publish dialog", () => {
     render(<EditorLayout {...baseProps} />);
     const button = screen.getByRole("button", { name: "Xuất bản" });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", "Sắp có");
+    expect(button).not.toBeDisabled();
+
+    expect(screen.queryByRole("dialog", { name: "Xuất bản thiệp" })).not.toBeInTheDocument();
+    act(() => {
+      button.click();
+    });
+    expect(screen.getByRole("dialog", { name: "Xuất bản thiệp" })).toBeInTheDocument();
+  });
+
+  it("closes the publish dialog from its own close button", () => {
+    render(<EditorLayout {...baseProps} />);
+    act(() => {
+      screen.getByRole("button", { name: "Xuất bản" }).click();
+    });
+    expect(screen.getByRole("dialog", { name: "Xuất bản thiệp" })).toBeInTheDocument();
+
+    act(() => {
+      screen.getByRole("button", { name: "Đóng" }).click();
+    });
+    expect(screen.queryByRole("dialog", { name: "Xuất bản thiệp" })).not.toBeInTheDocument();
   });
 
   it("shows the invitation slug in the header", () => {

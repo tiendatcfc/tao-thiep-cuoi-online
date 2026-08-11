@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { useEditorStore } from "@/stores/editor-store";
 import { EditorPanel } from "./EditorPanel";
 import { PreviewPane } from "./PreviewPane";
+import { PublishDialog } from "./PublishDialog";
 import { SectionList } from "./SectionList";
 import { type AutosaveErrorKind, useAutosave } from "./useAutosave";
 import { useMediaQuery } from "./useMediaQuery";
@@ -18,13 +19,12 @@ function formatSavedAt(at: number): string {
   return `${hh}:${mm}`;
 }
 
-function PublishButton() {
+function PublishButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
-      disabled
-      title="Sắp có"
-      className="cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-500"
+      onClick={onClick}
+      className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-rose-700"
     >
       Xuất bản
     </button>
@@ -74,6 +74,7 @@ export interface EditorLayoutProps {
   invitationId: string;
   slug: string;
   initialDocument: InvitationDocument;
+  initialShowBadge: boolean;
 }
 
 /**
@@ -83,7 +84,7 @@ export interface EditorLayoutProps {
  * on a phone-sized screen — which is also the size couples are most likely
  * to be editing from, alongside a laptop.
  */
-export function EditorLayout({ invitationId, slug, initialDocument }: EditorLayoutProps) {
+export function EditorLayout({ invitationId, slug, initialDocument, initialShowBadge }: EditorLayoutProps) {
   const setDocument = useEditorStore((state) => state.setDocument);
   useEffect(() => {
     setDocument(initialDocument);
@@ -95,6 +96,7 @@ export function EditorLayout({ invitationId, slug, initialDocument }: EditorLayo
 
   const autosave = useAutosave(invitationId);
   const [mobileTab, setMobileTab] = useState<"list" | "preview" | "edit">("preview");
+  const [publishOpen, setPublishOpen] = useState(false);
   // Exactly one of the two layouts below renders — never both. Rendering
   // both simultaneously and hiding one with CSS (the previous approach)
   // mounted `PreviewPane` — and the real `InvitePage` tree inside it —
@@ -109,7 +111,7 @@ export function EditorLayout({ invitationId, slug, initialDocument }: EditorLayo
           <p className="truncate text-sm font-semibold text-gray-900">{slug}</p>
           <div className="flex items-center gap-4">
             <SaveStatus />
-            <PublishButton />
+            <PublishButton onClick={() => setPublishOpen(true)} />
           </div>
         </header>
 
@@ -158,6 +160,13 @@ export function EditorLayout({ invitationId, slug, initialDocument }: EditorLayo
           </div>
         )}
       </div>
+      <PublishDialog
+        open={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        invitationId={invitationId}
+        slug={slug}
+        initialShowBadge={initialShowBadge}
+      />
     </AutosaveStatusContext.Provider>
   );
 }

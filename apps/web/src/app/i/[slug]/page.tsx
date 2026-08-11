@@ -1,26 +1,61 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { InvitationDocumentSchema } from "@hpwd/schema";
+import { InvitationDocumentSchema, type Section } from "@hpwd/schema";
 import { prisma } from "@hpwd/db";
-import { InvitePage, type InvitePageSettings } from "@/components/invite/InvitePage";
+import { InvitePage } from "@/components/invite/InvitePage";
+import { parseInvitationSettings } from "@/lib/settings";
 
-const DEFAULT_SETTINGS: InvitePageSettings = { showBadge: true };
+const DEFAULT_TAGLINE = "Trân trọng kính mời bạn đến dự lễ cưới của chúng tôi.";
+
+function findCoverSection(sections: Section[]): Extract<Section, { type: "cover" }> | null {
+  return sections.find((section): section is Extract<Section, { type: "cover" }> => section.type === "cover") ?? null;
+}
 
 /**
- * `Invitation.settings` is an untyped `Json` column (default
- * `{"showBadge": true}`) — this narrows it defensively rather than trusting
- * the DB shape, since a future settings field or a hand-edited row shouldn't
- * be able to crash the public page.
+ * Server-rendered `<title>`/`<meta>` for link previews (Zalo, Messenger,
+ * iMessage, ...) — the whole point of Task 17's OG image. Must never throw:
+ * an unpublished/missing slug or a malformed `publishedDocument` falls back
+ * to generic copy instead of taking down the page's `<head>` (the page body
+ * itself still 404s normally below).
  */
-function parseSettings(raw: unknown): InvitePageSettings {
-  if (
-    raw !== null &&
-    typeof raw === "object" &&
-    "showBadge" in raw &&
-    typeof (raw as { showBadge: unknown }).showBadge === "boolean"
-  ) {
-    return { showBadge: (raw as { showBadge: boolean }).showBadge };
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
+  const { slug } = await params;
+
+  try {
+    const invitation = await prisma.invitation.findUnique({ where: { slug } });
+    if (!invitation || invitation.status !== "published" || !invitation.publishedDocument) {
+      return {};
+    }
+
+    const parsed = InvitationDocumentSchema.safeParse(invitation.publishedDocument);
+    if (!parsed.success) return {};
+
+    const cover = findCoverSection(parsed.data.sections);
+    const groomName = cover?.props.groomName || "Chú rể";
+    const brideName = cover?.props.brideName || "Cô dâu";
+    const title = `${groomName} & ${brideName} — Thiệp cưới`;
+    const description = cover?.props.tagline || DEFAULT_TAGLINE;
+    const url = `/i/${slug}`;
+
+    return {
+      title,
+      description,
+      openGraph: {
+        title,
+        description,
+        url,
+        type: "website",
+        locale: "vi_VN",
+      },
+    };
+  } catch (error) {
+    console.error(`generateMetadata failed for invitation slug=${slug}:`, error);
+    return {};
   }
-  return DEFAULT_SETTINGS;
 }
 
 export default async function PublicInvitationPage({
@@ -76,7 +111,7 @@ export default async function PublicInvitationPage({
     <InvitePage
       document={document}
       guestName={guestName}
-      settings={parseSettings(invitation.settings)}
+      settings={parseInvitationSettings(invitation.settings)}
       isPreview={false}
       slug={slug}
     />
