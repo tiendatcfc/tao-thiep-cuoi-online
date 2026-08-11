@@ -78,6 +78,7 @@ export default async function PublicInvitationPage({
       guestName={guestName}
       settings={parseSettings(invitation.settings)}
       isPreview={false}
+      slug={slug}
     />
   );
 }

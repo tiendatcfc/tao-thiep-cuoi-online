@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeHtml } from "../sanitize";
+import { sanitizeHtml, sanitizePlainText } from "../sanitize";
 
 // A "live" anchor/script/etc tag is one that would actually parse as an
 // element when the sanitizer's output is mounted via
@@ -148,5 +148,41 @@ describe("sanitizeHtml — idempotency", () => {
     const once = sanitizeHtml('<a href="https://example.com">Link</a>');
     const twice = sanitizeHtml(once);
     expect(twice).toBe(once);
+  });
+});
+
+describe("sanitizePlainText — stored guest text (wishes)", () => {
+  it("leaves ordinary text (including Vietnamese diacritics) untouched", () => {
+    expect(sanitizePlainText("Chúc hai bạn trăm năm hạnh phúc!")).toBe(
+      "Chúc hai bạn trăm năm hạnh phúc!",
+    );
+  });
+
+  it("strips C0 control characters but keeps newlines and tabs", () => {
+    const withControlChars = "Hello" + String.fromCharCode(0, 1, 7) + "World\tTab\nLine";
+    expect(sanitizePlainText(withControlChars)).toBe("HelloWorld\tTab\nLine");
+  });
+
+  it("strips the DEL character (0x7F)", () => {
+    const withDel = "Hello" + String.fromCharCode(127) + "World";
+    expect(sanitizePlainText(withDel)).toBe("HelloWorld");
+  });
+
+  it("normalizes CRLF and lone CR to LF", () => {
+    expect(sanitizePlainText("Line1\r\nLine2\rLine3")).toBe("Line1\nLine2\nLine3");
+  });
+
+  it("collapses runs of 3+ newlines down to exactly 2", () => {
+    expect(sanitizePlainText("Para1\n\n\n\n\nPara2")).toBe("Para1\n\nPara2");
+  });
+
+  it("leaves exactly 2 consecutive newlines alone", () => {
+    expect(sanitizePlainText("Para1\n\nPara2")).toBe("Para1\n\nPara2");
+  });
+
+  it("never produces HTML-escaped output — this is plain text, not markup", () => {
+    expect(sanitizePlainText('<script>alert("hi")</script>')).toBe(
+      '<script>alert("hi")</script>',
+    );
   });
 });

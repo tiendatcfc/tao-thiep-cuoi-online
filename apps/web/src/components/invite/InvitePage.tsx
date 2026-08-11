@@ -15,6 +15,13 @@ export interface InvitePageProps {
   guestName: string | null;
   settings: InvitePageSettings;
   isPreview: boolean;
+  /**
+   * The invitation's public slug, needed by `WishesSection` to call the
+   * public wishes API. Optional (defaults to `null`) so existing callers —
+   * and the future in-editor preview, which has no published slug yet —
+   * don't need to pass one.
+   */
+  slug?: string | null;
 }
 
 /**
@@ -28,7 +35,7 @@ export interface InvitePageProps {
  * every section can reference `var(--primary)` etc. via Tailwind arbitrary
  * values without threading the theme through props.
  */
-export function InvitePage({ document, guestName, settings, isPreview }: InvitePageProps) {
+export function InvitePage({ document, guestName, settings, isPreview, slug = null }: InvitePageProps) {
   const themeStyle = {
     "--primary": document.theme.primary,
     "--secondary": document.theme.secondary,
@@ -36,7 +43,7 @@ export function InvitePage({ document, guestName, settings, isPreview }: InviteP
   } as CSSProperties;
 
   return (
-    <InviteContext.Provider value={{ guestName, isPreview }}>
+    <InviteContext.Provider value={{ guestName, isPreview, slug }}>
       <div
         className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
         style={themeStyle}

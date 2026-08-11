@@ -85,6 +85,34 @@ const SAFE_HREF_RE = /^(https?:\/\/|mailto:|\/)/i;
 // a re-pass; it can never promote anything into live markup.
 const KNOWN_ENTITY_RE = /^(amp;|lt;|gt;|quot;|#\d+;|#x[0-9a-fA-F]+;)/;
 
+/**
+ * Sanitizes free-text guest input (wish messages, guest names) that is
+ * stored and rendered as plain text — never `dangerouslySetInnerHTML` — so
+ * there is no markup to escape here, unlike `sanitizeHtml` above. Two
+ * concerns instead:
+ *
+ *   1. Control characters (C0 range + DEL) have no legitimate place in a
+ *      wedding wish and can corrupt terminals/logs/exports that later
+ *      display this text raw. `\t` and `\n` are kept since they're
+ *      expected in a multi-line message; `\r` is normalized into `\n`
+ *      first so Windows/old-Mac line endings don't survive as stray
+ *      characters once CR is stripped.
+ *   2. A guest pasting a wall of blank lines could otherwise stretch the
+ *      wishes list arbitrarily — runs of 3+ newlines collapse to exactly 2
+ *      (i.e. at most one fully blank line between paragraphs).
+ */
+export function sanitizePlainText(text: string): string {
+  const normalizedNewlines = text.replace(/\r\n?/g, "\n");
+  // C0 control chars (0x00-0x1F) minus \t (0x09) and \n (0x0A), plus DEL
+  // (0x7F). Written as explicit \uXXXX escapes rather than literal bytes so
+  // the source file itself stays plain ASCII and diff/grep-friendly.
+  const withoutControlChars = normalizedNewlines.replace(
+    /[\u0000-\u0008\u000B-\u001F\u007F]/g,
+    "",
+  );
+  return withoutControlChars.replace(/\n{3,}/g, "\n\n");
+}
+
 export function sanitizeHtml(html: string): string {
   let out = "";
   let i = 0;
