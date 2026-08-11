@@ -241,5 +241,41 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
         fetchSpy.mockRestore();
       }
     });
+
+    it("skips downloading the body at all when content-length is honestly declared oversized, even though the real body is tiny", async () => {
+      userId = await createUser();
+      // A real body far under the guard, but a `content-length` header that
+      // (honestly, per the server) declares it oversized — this only fails
+      // closed if the fast-path check actually reads the header; a version
+      // of the code that only checked the real downloaded byte count would
+      // wrongly let this tiny body through as a valid cover image.
+      const tinyBody = Buffer.from("tiny");
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(tinyBody, {
+          status: 200,
+          headers: { "content-type": "image/jpeg", "content-length": String(5 * 1024 * 1024) },
+        }),
+      );
+
+      try {
+        const slugWithDeclaredOversized = await createPublishedInvitationWithCover(
+          "https://photos.example.com/declared-huge.jpg",
+        );
+        const declaredOversizedResponse = await Image({
+          params: Promise.resolve({ slug: slugWithDeclaredOversized }),
+        });
+        const declaredOversizedBuffer = Buffer.from(await declaredOversizedResponse.arrayBuffer());
+
+        fetchSpy.mockRestore(); // the no-image comparison run below must not fetch at all
+
+        const slugWithNoImage = await createPublishedInvitationWithCover("");
+        const noImageResponse = await Image({ params: Promise.resolve({ slug: slugWithNoImage }) });
+        const noImageBuffer = Buffer.from(await noImageResponse.arrayBuffer());
+
+        expect(declaredOversizedBuffer.equals(noImageBuffer)).toBe(true);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
   });
 });

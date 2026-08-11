@@ -76,12 +76,20 @@ async function fetchCoverImageDataUri(url: string): Promise<string | null> {
   const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Not consumed — drain it so the underlying connection can be
+      // returned to the pool promptly instead of sitting open until GC.
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
 
     // Cheap fast path: skip downloading the body at all when the server
     // honestly declares an oversized payload up front.
     const declaredLength = Number(res.headers.get("content-length"));
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_COVER_IMAGE_BYTES) return null;
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_COVER_IMAGE_BYTES) {
+      await res.body?.cancel().catch(() => {});
+      return null;
+    }
 
     const buf = Buffer.from(await res.arrayBuffer());
     // Re-checked against the actual bytes regardless — a missing or

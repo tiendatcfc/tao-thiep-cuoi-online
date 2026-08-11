@@ -224,5 +224,27 @@ describe("PublishDialog", () => {
 
       expect(onClose).not.toHaveBeenCalled();
     });
+
+    // Coordinator review fix: EditorLayout passes `onClose={() =>
+    // setPublishOpen(false)}` — a fresh closure every render. Any unrelated
+    // parent re-render while the dialog is open (autosave's error state
+    // flipping, useMediaQuery crossing a breakpoint, ...) used to re-run the
+    // autofocus effect (keyed on `[open, onClose]`) and yank focus back to
+    // the close button mid-typing.
+    it("does not steal focus back to the close button when the parent re-renders with a new onClose identity", () => {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      const { rerender } = render(<PublishDialog {...baseProps} open onClose={() => {}} />);
+
+      const slugInput = screen.getByLabelText("Đường dẫn thiệp");
+      slugInput.focus();
+      expect(document.activeElement).toBe(slugInput);
+
+      // Simulate an unrelated parent re-render: `open` stays `true`, but
+      // `onClose` is a brand-new function identity (exactly what
+      // `EditorLayout`'s inline arrow function produces on every render).
+      rerender(<PublishDialog {...baseProps} open onClose={() => {}} />);
+
+      expect(document.activeElement).toBe(slugInput);
+    });
   });
 });

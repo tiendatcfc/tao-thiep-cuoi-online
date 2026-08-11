@@ -59,6 +59,14 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
   const [copied, setCopied] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Always-latest `onClose` without making it a dependency of the
+  // open/close-keyed effect below — see that effect's own comment for why
+  // this indirection exists at all.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return;
     setSlugInput(computeDefaultSlug(document, slug));
@@ -78,6 +86,15 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
   // promise. Re-queries focusable elements on every Tab press (rather than
   // once) so it stays correct across the form <-> success-view swap inside
   // the same open dialog.
+  //
+  // Deliberately keyed on `[open]` alone, NOT `[open, onClose]`: the parent
+  // (`EditorLayout`) passes `onClose={() => setPublishOpen(false)}` — a
+  // fresh closure every render — so any unrelated re-render while the
+  // dialog is open (autosave's `error` state flipping, `useMediaQuery`
+  // crossing a breakpoint, ...) would otherwise re-run this effect and
+  // yank focus back to the close button mid-typing. `onCloseRef` (above)
+  // supplies the current callback to `handleKeyDown` without the effect
+  // itself needing to depend on it.
   useEffect(() => {
     if (!open) return;
 
@@ -86,7 +103,7 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialogEl) return;
@@ -113,7 +130,7 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
 
     window.document.addEventListener("keydown", handleKeyDown);
     return () => window.document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
