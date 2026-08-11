@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
+import { findOwnedInvitation, NOT_FOUND_MESSAGE } from "@/lib/ownership";
 
 const patchInputSchema = z.object({
   isHidden: z.boolean(),
@@ -19,12 +20,16 @@ export async function PATCH(
     return NextResponse.json({ error: "Bạn cần đăng nhập." }, { status: 401 });
   }
 
-  const invitation = await prisma.invitation.findUnique({ where: { id } });
+  // C10: this route used to hand-roll its own findUnique + userId check and
+  // return a 403 for "belongs to someone else" — every other route
+  // (invitations/[id], invitations/[id]/publish) uses `findOwnedInvitation`,
+  // which deliberately makes "doesn't exist" and "isn't yours" both a 404,
+  // so a guessed id can't be used to probe which ids exist. Migrated for
+  // consistency; the wrong-owner case now returns the same 404 as a
+  // nonexistent invitation instead of a distinguishing 403.
+  const invitation = await findOwnedInvitation(id, session.user.id);
   if (!invitation) {
-    return NextResponse.json({ error: "Không tìm thấy thiệp." }, { status: 404 });
-  }
-  if (invitation.userId !== session.user.id) {
-    return NextResponse.json({ error: "Bạn không có quyền với thiệp này." }, { status: 403 });
+    return NextResponse.json({ error: NOT_FOUND_MESSAGE }, { status: 404 });
   }
 
   const wish = await prisma.wish.findUnique({ where: { id: wishId } });

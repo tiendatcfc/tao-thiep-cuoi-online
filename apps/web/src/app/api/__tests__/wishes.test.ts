@@ -309,7 +309,11 @@ describe("PATCH /api/invitations/[id]/wishes/[wishId]", () => {
     expect(res.status).toBe(401);
   });
 
-  it("returns 403 when the invitation belongs to a different user", async () => {
+  // C10: migrated to the shared `findOwnedInvitation` helper (same as every
+  // other owner-only route), which deliberately makes "belongs to someone
+  // else" indistinguishable from "doesn't exist" — both 404 — rather than
+  // the 403 this route used to hand-roll on its own.
+  it("returns 404 (indistinguishable from nonexistent) when the invitation belongs to a different user", async () => {
     const { id: invitationId } = await createTestInvitation();
     const wish = await prisma.wish.create({ data: { invitationId, guestName: "G", message: "M" } });
     authMock.mockResolvedValue({ user: { id: "someone-else-entirely" } });
@@ -318,7 +322,21 @@ describe("PATCH /api/invitations/[id]/wishes/[wishId]", () => {
       params: Promise.resolve({ id: invitationId, wishId: wish.id }),
     });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe("Không tìm thấy thiệp.");
+  });
+
+  it("returns 404 for a nonexistent invitation id, with the exact same message as the wrong-owner case", async () => {
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const res = await PATCH(jsonRequest({ isHidden: true }, "PATCH"), {
+      params: Promise.resolve({ id: "does-not-exist", wishId: "also-does-not-exist" }),
+    });
+
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.error).toBe("Không tìm thấy thiệp.");
   });
 
   it("returns 200 and toggles isHidden for the owner", async () => {
