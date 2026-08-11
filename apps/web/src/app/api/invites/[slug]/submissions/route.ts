@@ -42,16 +42,22 @@ function findFormSection(
   return section;
 }
 
-function fieldLabel(fields: FormField[], id: string): string {
-  return fields.find((f) => f.id === id)?.label ?? id;
-}
-
 /**
  * Turns the first issue from validating a submission's `data` against the
  * section's dynamically-built schema (`buildFormSchema`) into a Vietnamese
  * message. Traces the issue back to the declaring field's `label` when
  * possible (falling back to the field id, then a generic message) rather
  * than surfacing Zod's own English wording to a guest filling out a form.
+ *
+ * Distinguishes two genuinely different situations rather than collapsing
+ * both into "is required":
+ *   - nothing meaningful was provided (missing key, blank string, empty
+ *     array, an unchecked required checkbox) → "là bắt buộc" ("required")
+ *   - a value WAS supplied but doesn't satisfy the field's rules (out of
+ *     range, wrong type, bad enum value) → "không hợp lệ" ("invalid")
+ * Conflating these (e.g. a present-but-negative number reported as
+ * "required") would be actively misleading to whoever's filling the form
+ * out.
  */
 function formatValidationError(error: z.ZodError, fields: FormField[]): string {
   const issue = error.issues[0];
@@ -64,17 +70,36 @@ function formatValidationError(error: z.ZodError, fields: FormField[]): string {
 
   const fieldId = typeof issue.path[0] === "string" ? issue.path[0] : undefined;
   if (!fieldId) return GENERIC_INVALID_MESSAGE;
-  const label = fieldLabel(fields, fieldId);
+  const field = fields.find((f) => f.id === fieldId);
+  const label = field?.label ?? fieldId;
 
-  // `buildFormSchema` funnels every "nothing meaningful provided" case
-  // (absent key, blank string, empty array) down to `undefined` before the
-  // field's core schema runs, so a required field that's missing/blank
-  // always surfaces as `invalid_type` with `input: undefined` here —
-  // exactly the case this maps to "is required" rather than "is invalid".
-  if (issue.code === "invalid_type" && issue.input === undefined) {
-    return `Trường "${label}" là bắt buộc.`;
-  }
-  if (issue.code === "too_small") {
+  // `buildFormSchema` funnels every "nothing meaningfully provided" case
+  // (absent key, blank string, empty array) down to `undefined` before a
+  // required field's core schema runs, so a required field that's
+  // missing/blank always surfaces as `invalid_type` with `input: undefined`
+  // here.
+  const isMissingValue = issue.code === "invalid_type" && issue.input === undefined;
+
+  // A required option-less checkbox ("must be checked") is validated with
+  // `z.literal(true)`, so submitting it unchecked (`false` — a real,
+  // present value, not "missing") fails as an `invalid_value` issue rather
+  // than `invalid_type`. Still semantically "this is required".
+  const isUncheckedRequiredCheckbox =
+    field?.type === "checkbox" &&
+    field.options.length === 0 &&
+    field.required &&
+    issue.input === false;
+
+  // Defense in depth: a `too_small` issue whose *actual* input is an empty
+  // string/array also means "nothing was provided" — in practice
+  // `emptyToUndefined` intercepts these before a `too_small` check could
+  // ever fire, but this keeps the mapping correct if that ever changes.
+  const isEmptyTooSmall =
+    issue.code === "too_small" &&
+    ((typeof issue.input === "string" && issue.input.trim() === "") ||
+      (Array.isArray(issue.input) && issue.input.length === 0));
+
+  if (isMissingValue || isUncheckedRequiredCheckbox || isEmptyTooSmall) {
     return `Trường "${label}" là bắt buộc.`;
   }
 

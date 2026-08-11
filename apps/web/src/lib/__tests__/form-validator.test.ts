@@ -76,6 +76,28 @@ describe("buildFormSchema — number", () => {
     expect(schema.safeParse({ count: 1001 }).success).toBe(false);
     expect(schema.safeParse({ count: 1000 }).success).toBe(true);
   });
+
+  it("accepts a genuine number and a well-formed integer string", () => {
+    const schema = buildFormSchema([field({ id: "count", type: "number", required: false })]);
+    expect(schema.safeParse({ count: 3 }).success).toBe(true);
+    expect(schema.safeParse({ count: "3" }).success).toBe(true);
+  });
+
+  it("rejects type-confused values rather than silently coercing them (no more z.coerce.number())", () => {
+    // `z.coerce.number()` used `Number(...)` under the hood, which happily
+    // turns `true` into `1`, `[5]` into `5`, and `[]` into `0` — none of
+    // those are "a number was submitted", they're type confusion that a
+    // real validator must reject.
+    const schema = buildFormSchema([field({ id: "count", type: "number", required: false })]);
+    expect(schema.safeParse({ count: true }).success).toBe(false);
+    expect(schema.safeParse({ count: false }).success).toBe(false);
+    expect(schema.safeParse({ count: [5] }).success).toBe(false);
+    expect(schema.safeParse({ count: {} }).success).toBe(false);
+    expect(schema.safeParse({ count: "5abc" }).success).toBe(false);
+    expect(schema.safeParse({ count: "5.5" }).success).toBe(false);
+    expect(schema.safeParse({ count: Infinity }).success).toBe(false);
+    expect(schema.safeParse({ count: NaN }).success).toBe(false);
+  });
 });
 
 describe("buildFormSchema — date", () => {
@@ -172,10 +194,14 @@ describe("buildFormSchema — checkbox", () => {
     expect(schema.safeParse({}).success).toBe(true);
   });
 
-  it("requires the boolean checkbox key to be present when required", () => {
+  it("requires a required option-less checkbox to actually be checked — rejects false, absence; accepts true", () => {
+    // Overrides the original Task 11 resolution: "required" for a bare
+    // boolean checkbox must mean "checked", not merely "the key is
+    // present" — a validator that lets `{ agree: false }` through for a
+    // required consent checkbox isn't validating anything.
     const schema = buildFormSchema([field({ id: "agree", type: "checkbox", required: true, options: [] })]);
     expect(schema.safeParse({}).success).toBe(false);
-    expect(schema.safeParse({ agree: false }).success).toBe(true);
+    expect(schema.safeParse({ agree: false }).success).toBe(false);
     expect(schema.safeParse({ agree: true }).success).toBe(true);
   });
 });

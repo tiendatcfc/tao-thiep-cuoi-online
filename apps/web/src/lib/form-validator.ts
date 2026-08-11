@@ -30,6 +30,27 @@ function emptyToUndefined(value: unknown): unknown {
 }
 
 /**
+ * Guards the `number` field type against type confusion. `z.coerce.number()`
+ * runs everything through `Number(...)`, which happily turns `true` into
+ * `1`, `[5]` into `5`, and `[]` into `0` — none of those are "a number was
+ * submitted", they're a different type that happens to coerce cleanly.
+ *
+ * Only two shapes are accepted here: a genuine JS `number`, or a string
+ * that is *entirely* an optionally-negative run of digits (so `"5.5"` and
+ * `"5abc"` are rejected, not silently truncated/parsed). Anything else is
+ * passed through UNCHANGED so the `z.number()...` schema that follows
+ * rejects it itself with a normal `invalid_type` issue — this function
+ * only ever narrows what counts as "a number", it never coerces a
+ * non-numeric shape into one.
+ */
+const INTEGER_STRING_RE = /^-?\d+$/;
+function toNumberOrPassthrough(value: unknown): unknown {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && INTEGER_STRING_RE.test(value)) return Number(value);
+  return value;
+}
+
+/**
  * The "core" schema for a field's type — always built as if the field were
  * required (no `.optional()` anywhere). `buildFieldSchema` below is what
  * adds `.optional()` for non-required fields and wraps everything in the
@@ -46,7 +67,14 @@ function coreSchemaFor(field: FormField): z.ZodTypeAny {
       return z.string().trim().max(TEXT_MAX_LENGTH);
 
     case "number":
-      return z.coerce.number().int().min(NUMBER_MIN).max(NUMBER_MAX);
+      // `.finite()` explicitly rejects `Infinity`/`-Infinity`/`NaN` — all of
+      // which are, per `typeof`, real JS "number"s that `toNumberOrPassthrough`
+      // above lets straight through — regardless of whatever `.int()` alone
+      // would or wouldn't catch.
+      return z.preprocess(
+        toNumberOrPassthrough,
+        z.number().finite().int().min(NUMBER_MIN).max(NUMBER_MAX),
+      );
 
     case "date":
       return z.string().regex(DATE_RE);
@@ -79,8 +107,19 @@ function coreSchemaFor(field: FormField): z.ZodTypeAny {
 function buildFieldSchema(field: FormField): z.ZodTypeAny {
   let schema = coreSchemaFor(field);
 
-  if (field.required && field.type === "checkbox" && field.options.length > 0) {
-    schema = (schema as z.ZodArray<z.ZodTypeAny>).min(1);
+  if (field.type === "checkbox") {
+    if (field.options.length > 0) {
+      if (field.required) {
+        schema = (schema as z.ZodArray<z.ZodTypeAny>).min(1);
+      }
+    } else if (field.required) {
+      // A bare boolean checkbox (no options — e.g. "I agree"): "required"
+      // must mean it was actually checked, not merely that the key is
+      // present. `z.boolean()` (from `coreSchemaFor`) would happily accept
+      // `{ agree: false }`, which isn't "required" in any meaningful sense
+      // — swap in `z.literal(true)` so an unchecked box is rejected.
+      schema = z.literal(true);
+    }
   }
 
   if (!field.required) {

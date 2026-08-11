@@ -133,7 +133,7 @@ describe("POST /api/invites/[slug]/submissions", () => {
     expect(body.error.length).toBeGreaterThan(0);
   });
 
-  it("returns 400 when a required field (Tên) is missing", async () => {
+  it("returns 400 when a required field (Tên) is missing, with a 'là bắt buộc' message", async () => {
     const { slug, document, formSectionId } = await createTestInvitation();
     const section = getFormSection(document);
     const attendField = section.props.fields.find((f) => f.label === "Tham dự")!;
@@ -145,6 +145,49 @@ describe("POST /api/invites/[slug]/submissions", () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("Tên");
+    expect(body.error).toContain("là bắt buộc");
+  });
+
+  it("returns 400 with a 'không hợp lệ' (not 'là bắt buộc') message for a present-but-out-of-range number", async () => {
+    const { slug, document, formSectionId } = await createTestInvitation();
+    const section = getFormSection(document);
+    const guestsField = section.props.fields.find((f) => f.label === "Số người đi cùng")!;
+    const data = { ...validRsvpPayload(document), [guestsField.id]: -5 };
+
+    const res = await POST(jsonRequest({ sectionId: formSectionId, data }), {
+      params: Promise.resolve({ slug }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Số người đi cùng");
+    expect(body.error).toContain("không hợp lệ");
+    expect(body.error).not.toContain("là bắt buộc");
+  });
+
+  it("returns 400 for a required text field whose value is only a control character (empties out after sanitizing)", async () => {
+    const { slug, document, formSectionId } = await createTestInvitation();
+    const section = getFormSection(document);
+    const nameField = section.props.fields.find((f) => f.label === "Tên")!;
+    const attendField = section.props.fields.find((f) => f.label === "Tham dự")!;
+    // A lone control character (BEL, 0x07) is not whitespace, so it survives
+    // Zod's `.trim()`/emptiness check, but `sanitizePlainText` strips it
+    // down to an empty string — this is exactly the post-sanitize re-check
+    // at route.ts's `findEmptyRequiredStringField`.
+    const controlCharOnly = String.fromCharCode(7);
+
+    const res = await POST(
+      jsonRequest({
+        sectionId: formSectionId,
+        data: { [nameField.id]: controlCharOnly, [attendField.id]: "Có" },
+      }),
+      { params: Promise.resolve({ slug }) },
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Tên");
+    expect(body.error).toContain("là bắt buộc");
   });
 
   it("returns 400 for a radio value outside the declared options", async () => {
@@ -217,6 +260,28 @@ describe("POST /api/invites/[slug]/submissions", () => {
     const body = await res.json();
     const stored = await prisma.formSubmission.findUnique({ where: { id: body.submission.id } });
     expect(stored?.guestToken).toBe(guest.token);
+  });
+
+  it("stores guestToken as null (never 400s) for a real Guest token belonging to a DIFFERENT invitation", async () => {
+    // IDOR check: a guest token is only ever a courtesy link, scoped to the
+    // invitation it was issued for — a real, valid token from someone
+    // else's invitation must not get attached to this one's submission.
+    const { slug, formSectionId, document } = await createTestInvitation();
+    const otherInvitation = await createTestInvitation();
+    const foreignGuest = await prisma.guest.create({
+      data: { invitationId: otherInvitation.id, name: "Khách của thiệp khác" },
+    });
+    const data = validRsvpPayload(document);
+
+    const res = await POST(
+      jsonRequest({ sectionId: formSectionId, data, guestToken: foreignGuest.token }),
+      { params: Promise.resolve({ slug }) },
+    );
+
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    const stored = await prisma.formSubmission.findUnique({ where: { id: body.submission.id } });
+    expect(stored?.guestToken).toBeNull();
   });
 
   it("stores guestToken as null (never 400s) for a foreign or garbage guestToken", async () => {
