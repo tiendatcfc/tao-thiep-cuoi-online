@@ -203,6 +203,64 @@ describe("useAutosave", () => {
 
       expect(fetchMock).not.toHaveBeenCalled();
     });
+
+    it("aborts a still-in-flight save before flushing, so only the latest document can land", () => {
+      // Concrete race this guards against: edit1's debounce fires and PATCHes
+      // v1 (awaiting a response); edit2 arrives and arms its own 2s timer;
+      // the component unmounts before that timer elapses, so edit2 never
+      // reaches the serialisation queue on its own. Without aborting v1
+      // first, both v1 and the v2 keepalive flush would be in flight at
+      // once, and the server (last-write-wins, no ordering guarantee) could
+      // apply v1 *after* v2 — silently reverting to stale content with the
+      // tab already closed and nothing left to retry.
+      let capturedInit: RequestInit | undefined;
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        capturedInit = init;
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        });
+      });
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const { unmount } = renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // The first save (v1) is in flight; its response never resolves here.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(capturedInit?.signal?.aborted).toBe(false);
+
+      // A further edit (v2) lands before unmount — its own 2s debounce
+      // timer is armed but never gets the chance to elapse.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+
+      unmount();
+
+      // v1's request must have been aborted...
+      expect(capturedInit?.signal?.aborted).toBe(true);
+      // ...and exactly one more request — the keepalive flush — sent,
+      // carrying v2 (the latest document), not v1.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const [url, flushInit] = fetchMock.mock.calls[1];
+      expect(url).toBe(`/api/invitations/${INVITATION_ID}`);
+      expect(flushInit.keepalive).toBe(true);
+      const body = JSON.parse(flushInit.body as string);
+      expect(body.document.theme.primary).toBe("#222222");
+
+      // Aborting v1 is intentional, not a real failure — it must not be
+      // logged as one.
+      expect(consoleError).not.toHaveBeenCalled();
+      consoleError.mockRestore();
+    });
   });
 
   describe("client-side validation before sending", () => {

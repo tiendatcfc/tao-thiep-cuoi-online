@@ -17,6 +17,10 @@ const AUTOSAVE_DEBOUNCE_MS = 2000;
  */
 export type AutosaveErrorKind = "network" | "invalid" | null;
 
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError";
+}
+
 function buildInvitationPatchRequest(
   invitationId: string,
   document: InvitationDocument,
@@ -51,7 +55,12 @@ function buildInvitationPatchRequest(
  *    that moment silently drops the couple's last edits. The flush is
  *    fire-and-forget with `keepalive: true` (so it also survives a real
  *    page unload, if that's what triggered the unmount) — nothing here can
- *    react to its result after teardown anyway.
+ *    react to its result after teardown anyway. If a save is already in
+ *    flight at unmount time, it's `abort()`ed first: otherwise that older
+ *    request and the flush's newer one would both be in flight at once,
+ *    and the server (last-write-wins, no ordering guarantee) could apply
+ *    the older one *after* the newer one — silently reverting to stale
+ *    content with the tab already closed and nothing left to retry.
  *
  * 2. **Serialised saves.** Requests are never sent concurrently: if a save
  *    is requested while one is already in flight, it's queued
@@ -77,6 +86,7 @@ export function useAutosave(invitationId: string) {
     let inFlight = false;
     let pendingAgain = false;
     let revision = 0;
+    let activeAbortController: AbortController | null = null;
 
     function clearPendingTimer() {
       if (timerRef.current !== null) {
@@ -105,9 +115,13 @@ export function useAutosave(invitationId: string) {
 
       inFlight = true;
       const revisionAtSend = revision;
+      const controller = new AbortController();
+      activeAbortController = controller;
       useEditorStore.getState().setSaving(true);
       try {
-        const res = await fetch(...buildInvitationPatchRequest(invitationId, document));
+        const res = await fetch(
+          ...buildInvitationPatchRequest(invitationId, document, { signal: controller.signal }),
+        );
         if (!res.ok) throw new Error(`Autosave failed with status ${res.status}`);
         const body = (await res.json()) as { savedAt?: number };
         // If a newer edit landed while this request was in flight, this
@@ -117,14 +131,23 @@ export function useAutosave(invitationId: string) {
           useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
         }
         setError(null);
-      } catch {
-        // Leave `dirty: true` — the next mutation re-arms the debounce
-        // timer below, so this isn't a dead end. No retry loop is started
-        // here: without a further edit, nothing calls `performSave()` again.
-        setError("network");
+      } catch (err) {
+        // An abort is deliberate (the unmount flush below cancels an
+        // in-flight save on purpose) — not a real failure, so it must not
+        // be reported as one.
+        if (!isAbortError(err)) {
+          // Leave `dirty: true` — the next mutation re-arms the debounce
+          // timer below, so this isn't a dead end. No retry loop is
+          // started here: without a further edit, nothing calls
+          // `performSave()` again.
+          setError("network");
+        }
       } finally {
         useEditorStore.getState().setSaving(false);
         inFlight = false;
+        if (activeAbortController === controller) {
+          activeAbortController = null;
+        }
         if (pendingAgain) {
           pendingAgain = false;
           void performSave();
@@ -171,10 +194,21 @@ export function useAutosave(invitationId: string) {
       unsubscribe();
       window.removeEventListener("beforeunload", handleBeforeUnload);
 
-      // See "Flush on unmount" above: `beforeunload` doesn't cover the
-      // ordinary SPA-navigation-away-from-the-editor case, so a still-dirty
-      // document gets one last best-effort save attempt here instead of
-      // being silently dropped.
+      // See "Flush on unmount" above: a save already in flight can't be
+      // un-sent, but it CAN be aborted — without this, the flush below
+      // would race an older in-flight write against a newer one. Clearing
+      // `pendingAgain` first stops the aborted call's own `finally` block
+      // from re-firing a save of its own once it settles; the flush right
+      // after is this hook's one, sole, superseding save attempt.
+      if (activeAbortController) {
+        pendingAgain = false;
+        activeAbortController.abort();
+        activeAbortController = null;
+      }
+
+      // `beforeunload` doesn't cover the ordinary SPA-navigation-away-from-
+      // the-editor case, so a still-dirty document gets one last
+      // best-effort save attempt here instead of being silently dropped.
       const { dirty, document } = useEditorStore.getState();
       if (dirty && InvitationDocumentSchema.safeParse(document).success) {
         fetch(...buildInvitationPatchRequest(invitationId, document, { keepalive: true })).catch(() => {});
