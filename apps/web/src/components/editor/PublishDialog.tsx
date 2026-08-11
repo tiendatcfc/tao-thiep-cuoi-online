@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import type { InvitationDocument, Section } from "@hpwd/schema";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import type { InvitationDocument } from "@hpwd/schema";
+import { findCoverSection } from "@/lib/sections";
 import { toSlug } from "@/lib/slug";
 import { useEditorStore } from "@/stores/editor-store";
 
@@ -11,13 +12,11 @@ const SLUG_HINT =
 const GENERIC_PUBLISH_ERROR = "Xuất bản thất bại, vui lòng thử lại.";
 const COPY_CONFIRMATION_MS = 2000;
 
-function findCoverSection(document: InvitationDocument): Extract<Section, { type: "cover" }> | null {
-  return document.sections.find((section): section is Extract<Section, { type: "cover" }> => section.type === "cover") ?? null;
-}
+const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /** `toSlug(groomName + '-' + brideName)`, falling back to `toSlug(slug || 'thiep-cuoi')` when that's empty. */
 function computeDefaultSlug(document: InvitationDocument, currentSlug: string): string {
-  const cover = findCoverSection(document);
+  const cover = findCoverSection(document.sections);
   const fromNames = cover ? toSlug(`${cover.props.groomName}-${cover.props.brideName}`) : "";
   if (fromNames) return fromNames;
   return toSlug(currentSlug || "thiep-cuoi") || "thiep-cuoi";
@@ -58,6 +57,7 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
   const [error, setError] = useState<string | null>(null);
   const [publishedSlug, setPublishedSlug] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -71,6 +71,49 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
     // change while already open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Basic focus trap + Escape-to-close. Declares `role="dialog"
+  // aria-modal="true"` above, which is a promise to assistive tech that
+  // focus stays inside while open — this is what actually keeps that
+  // promise. Re-queries focusable elements on every Tab press (rather than
+  // once) so it stays correct across the form <-> success-view swap inside
+  // the same open dialog.
+  useEffect(() => {
+    if (!open) return;
+
+    const dialogEl = dialogRef.current;
+    dialogEl?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR)?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogEl) return;
+
+      const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+        (el) => !el.hasAttribute("disabled"),
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+
+      // `document` (the component's own state variable, shadowing the DOM
+      // global of the same name) is why this reaches through `window.` —
+      // `window.document` is always the real DOM document regardless of
+      // what a same-named local variable is doing.
+      if (event.shiftKey && window.document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && window.document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    window.document.addEventListener("keydown", handleKeyDown);
+    return () => window.document.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -137,6 +180,7 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="Xuất bản thiệp"

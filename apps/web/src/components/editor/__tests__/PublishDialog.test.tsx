@@ -163,4 +163,66 @@ describe("PublishDialog", () => {
       }),
     );
   });
+
+  // Coordinator review fix: role="dialog" aria-modal="true" is a promise
+  // that focus stays inside while open — these prove the promise is kept.
+  describe("keyboard behavior (coordinator review fix)", () => {
+    it("calls onClose when Escape is pressed", () => {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      const onClose = vi.fn();
+      render(<PublishDialog {...baseProps} open onClose={onClose} />);
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("focuses something inside the dialog as soon as it opens", () => {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
+
+      expect(screen.getByRole("dialog")).toContainElement(document.activeElement as HTMLElement);
+    });
+
+    it("traps forward Tab: from the last focusable element it wraps to the first", () => {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
+
+      const closeButton = screen.getByRole("button", { name: "Đóng" });
+      const submitButton = screen.getByRole("button", { name: "Xuất bản" });
+      submitButton.focus();
+      expect(document.activeElement).toBe(submitButton);
+
+      fireEvent.keyDown(document, { key: "Tab" });
+
+      expect(document.activeElement).toBe(closeButton);
+    });
+
+    it("traps backward Shift+Tab: from the first focusable element it wraps to the last", () => {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
+
+      const closeButton = screen.getByRole("button", { name: "Đóng" });
+      const submitButton = screen.getByRole("button", { name: "Xuất bản" });
+      closeButton.focus();
+      expect(document.activeElement).toBe(closeButton);
+
+      fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+      expect(document.activeElement).toBe(submitButton);
+    });
+
+    it("does not trap Tab presses once the dialog is closed", () => {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      const onClose = vi.fn();
+      const { rerender } = render(<PublishDialog {...baseProps} open onClose={onClose} />);
+      rerender(<PublishDialog {...baseProps} open={false} onClose={onClose} />);
+
+      // No listener left attached — pressing Escape after close must not
+      // call onClose again (would indicate a leaked event listener).
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
 });

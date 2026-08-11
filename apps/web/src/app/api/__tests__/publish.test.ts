@@ -18,6 +18,7 @@ vi.mock("@/auth", () => ({ auth: authMock }));
 const { revalidatePathMock } = vi.hoisted(() => ({ revalidatePathMock: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: revalidatePathMock }));
 
+import { PATCH } from "../invitations/[id]/route";
 import { POST } from "../invitations/[id]/publish/route";
 
 let userId: string;
@@ -203,7 +204,7 @@ describe("POST /api/invitations/[id]/publish", () => {
     expect(revalidatePathMock).toHaveBeenCalledWith(`/i/${newSlug}`);
   });
 
-  it("editing the draft after publishing does not change the live publishedDocument", async () => {
+  it("editing the draft after publishing, through the real PATCH handler, does not change the live publishedDocument", async () => {
     const document = createDefaultDocument();
     const { id } = await createTestInvitation({ document });
     authMock.mockResolvedValue({ user: { id: userId } });
@@ -215,12 +216,22 @@ describe("POST /api/invitations/[id]/publish", () => {
     const afterPublish = await prisma.invitation.findUnique({ where: { id } });
     const publishedSnapshot = afterPublish?.publishedDocument;
 
-    // Edit the draft directly (bypassing the PATCH route, which is already
-    // covered elsewhere — this test only cares that publish's snapshot is
-    // truly independent from whatever `document` becomes afterward).
+    // Edit the draft through the REAL autosave endpoint (not a raw prisma
+    // write) — this is the task's dominant property (a future PATCH change
+    // that started also writing `publishedDocument` would slip past a test
+    // that bypasses the handler entirely), so it has to go through the
+    // actual route the editor's autosave hits.
     const editedDocument = createDefaultDocument();
     editedDocument.theme.primary = "#FEDCBA";
-    await prisma.invitation.update({ where: { id }, data: { document: editedDocument as never } });
+    const patchRes = await PATCH(
+      new Request("http://localhost/api/test", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ document: editedDocument }),
+      }),
+      { params: Promise.resolve({ id }) },
+    );
+    expect(patchRes.status).toBe(200);
 
     const afterEdit = await prisma.invitation.findUnique({ where: { id } });
     expect(afterEdit?.publishedDocument).toEqual(publishedSnapshot);

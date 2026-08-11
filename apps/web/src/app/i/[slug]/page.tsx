@@ -1,15 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { InvitationDocumentSchema, type Section } from "@hpwd/schema";
+import { InvitationDocumentSchema } from "@hpwd/schema";
 import { prisma } from "@hpwd/db";
 import { InvitePage } from "@/components/invite/InvitePage";
+import { findCoverSection } from "@/lib/sections";
 import { parseInvitationSettings } from "@/lib/settings";
 
 const DEFAULT_TAGLINE = "Trân trọng kính mời bạn đến dự lễ cưới của chúng tôi.";
-
-function findCoverSection(sections: Section[]): Extract<Section, { type: "cover" }> | null {
-  return sections.find((section): section is Extract<Section, { type: "cover" }> => section.type === "cover") ?? null;
-}
 
 /**
  * Server-rendered `<title>`/`<meta>` for link previews (Zalo, Messenger,

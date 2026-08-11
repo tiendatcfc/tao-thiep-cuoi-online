@@ -4,8 +4,9 @@ import { z } from "zod";
 import { Prisma, prisma } from "@hpwd/db";
 import { InvitationDocumentSchema } from "@hpwd/schema";
 import { auth } from "@/auth";
+import { findOwnedInvitation, NOT_FOUND_MESSAGE } from "@/lib/ownership";
 
-const NOT_FOUND_MESSAGE = "Không tìm thấy thiệp.";
+const MALFORMED_BODY_MESSAGE = "Yêu cầu không hợp lệ, vui lòng thử lại.";
 const SLUG_INVALID_MESSAGE =
   "Đường dẫn chỉ được chứa chữ thường không dấu, số và dấu gạch ngang, độ dài 3-60 ký tự.";
 const SLUG_TAKEN_MESSAGE = "Đường dẫn này đã được sử dụng cho thiệp khác, vui lòng chọn đường dẫn khác.";
@@ -20,19 +21,6 @@ const SLUG_REGEX = /^[a-z0-9-]{3,60}$/;
 const publishBodySchema = z.object({
   slug: z.string().regex(SLUG_REGEX),
 });
-
-/**
- * Owner-only fetch, identical rationale to `[id]/route.ts`'s helper: 404
- * (never 403) whenever the invitation doesn't exist OR belongs to a
- * different user, so a guessed id can't be used to probe which ids exist.
- */
-async function findOwnedInvitation(id: string, ownerId: string) {
-  const invitation = await prisma.invitation.findUnique({ where: { id } });
-  if (!invitation || invitation.userId !== ownerId) {
-    return null;
-  }
-  return invitation;
-}
 
 /**
  * Publishes the current draft: validates the requested slug (format +
@@ -64,7 +52,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: SLUG_INVALID_MESSAGE }, { status: 400 });
+    return NextResponse.json({ error: MALFORMED_BODY_MESSAGE }, { status: 400 });
   }
 
   const parsedBody = publishBodySchema.safeParse(body);
@@ -106,6 +94,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     throw error;
   }
 
+  // Out of scope (coordinator review, Task 17): if this publish also
+  // *changed* the slug, the invitation's OLD slug's cached page (if it was
+  // ever published under a different slug before) is left un-revalidated.
+  // That stale page would 404 correctly once Next's normal cache expiry
+  // catches up (the row no longer matches that slug), so it's not a
+  // correctness bug — just a same-day staleness window this task doesn't
+  // address (no unpublish/rename flow exists yet to make this worth solving
+  // now).
   revalidatePath(`/i/${slug}`);
 
   return NextResponse.json({ slug, publishedAt });

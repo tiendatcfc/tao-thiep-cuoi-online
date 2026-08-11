@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 import { prisma } from "@hpwd/db";
-import { InvitationDocumentSchema, type Section } from "@hpwd/schema";
+import { InvitationDocumentSchema } from "@hpwd/schema";
+import { loadOgHeadingFont, OG_HEADING_FONT_NAME, type OgFontDescriptor } from "@/lib/og-font";
+import { findCoverSection } from "@/lib/sections";
 
 // Default (Node.js) runtime — deliberately NOT `export const runtime = "edge"`:
 // this route needs Prisma, which doesn't run on the edge runtime.
@@ -17,6 +19,7 @@ interface OgContent {
   groomName: string;
   brideName: string;
   formattedDate: string | null;
+  /** A `data:` URI (already-fetched bytes), never a remote URL — see `fetchCoverImageDataUri`. */
   coverImage: string | null;
   primary: string;
   background: string;
@@ -30,10 +33,6 @@ const FALLBACK_CONTENT: OgContent = {
   primary: FALLBACK_PRIMARY,
   background: FALLBACK_BACKGROUND,
 };
-
-function findCoverSection(sections: Section[]): Extract<Section, { type: "cover" }> | null {
-  return sections.find((section): section is Extract<Section, { type: "cover" }> => section.type === "cover") ?? null;
-}
 
 function formatVietnameseDate(iso: string): string | null {
   const date = new Date(iso);
@@ -50,32 +49,49 @@ function isAbsoluteHttpUrl(value: string): boolean {
   }
 }
 
-const IMAGE_REACHABILITY_TIMEOUT_MS = 2000;
+const IMAGE_FETCH_TIMEOUT_MS = 2000;
+// Cover photos are user-uploaded via the editor's own upload flow (already
+// size-limited there); this is a second, independent ceiling specifically
+// for what this route is willing to inline as a base64 data URI — a very
+// large image would bloat both the fetch and the resulting PNG's satori
+// layout cost for no visual benefit at 1200x630.
+const MAX_COVER_IMAGE_BYTES = 4 * 1024 * 1024;
 
 /**
- * Satori (the renderer behind `ImageResponse`) fetches `<img src>` itself
- * during layout, but — verified empirically, see the Task 17 report —
- * it swallows a failed fetch internally (logs and treats it as "no image")
- * rather than throwing, and `ImageResponse`'s constructor itself never
- * throws synchronously either (it defers all rendering into a lazily-read
- * `ReadableStream`). That means a `try/catch` around `new ImageResponse(...)`
- * can NOT detect a dead cover-image URL — by the time any error would
- * surface, this function has already returned a response, and satori has
- * already silently rendered the "photo" layer as blank while still applying
- * the white-text-on-dark-overlay treatment meant for an actual photo,
- * producing washed-out, barely-legible text instead of the intended
- * fallback. So reachability has to be checked proactively, before deciding
- * whether to render the photo variant at all, not reactively after a
- * satori render that won't actually fail loudly.
+ * Fetches the cover image exactly once and returns it as a `data:` URI, or
+ * `null` on any failure (unreachable, non-OK, oversized). This used to be
+ * two separate fetches of the same URL: a reachability probe here, then a
+ * second fetch by satori itself when rendering `<img src={url}>`. That had
+ * two problems — a TOCTOU gap (the URL can stop responding, expire, or hit
+ * a rate limit between the two fetches, reproducing the exact
+ * washed-out-text bug a reachability-only probe was meant to fix, just
+ * through a narrower window) and a wasted duplicate download. Fetching once
+ * and handing satori the raw bytes (as a data URI, which satori decodes
+ * locally without any network access — see the compiled `@vercel/og`
+ * bundle's `vt()` image loader) removes both: there is no second fetch to
+ * race against, and no duplicate bandwidth cost.
  */
-async function isImageReachable(url: string): Promise<boolean> {
+async function fetchCoverImageDataUri(url: string): Promise<string | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), IMAGE_REACHABILITY_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: controller.signal });
-    return res.ok;
+    if (!res.ok) return null;
+
+    // Cheap fast path: skip downloading the body at all when the server
+    // honestly declares an oversized payload up front.
+    const declaredLength = Number(res.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_COVER_IMAGE_BYTES) return null;
+
+    const buf = Buffer.from(await res.arrayBuffer());
+    // Re-checked against the actual bytes regardless — a missing or
+    // dishonest `content-length` header must not bypass the guard.
+    if (buf.byteLength > MAX_COVER_IMAGE_BYTES) return null;
+
+    const contentType = res.headers.get("content-type") || "image/jpeg";
+    return `data:${contentType};base64,${buf.toString("base64")}`;
   } catch {
-    return false;
+    return null;
   } finally {
     clearTimeout(timeout);
   }
@@ -84,10 +100,10 @@ async function isImageReachable(url: string): Promise<boolean> {
 /**
  * Loads whatever this slug's published cover section has to offer for the
  * share-preview image. Never throws — any failure (missing slug, draft
- * status, corrupt `publishedDocument`, DB unreachable) degrades to
- * `FALLBACK_CONTENT` so the route below always has something renderable,
- * matching `page.tsx`'s "must never take the page down" stance for
- * link-preview metadata.
+ * status, corrupt `publishedDocument`, DB unreachable, cover image
+ * unfetchable) degrades to `FALLBACK_CONTENT`/`null` so the route below
+ * always has something renderable, matching `page.tsx`'s "must never take
+ * the page down" stance for link-preview metadata.
  */
 async function loadOgContent(slug: string): Promise<OgContent> {
   try {
@@ -102,9 +118,7 @@ async function loadOgContent(slug: string): Promise<OgContent> {
     const cover = findCoverSection(parsed.data.sections);
     const candidateImage = cover?.props.coverImage;
     const coverImage =
-      candidateImage && isAbsoluteHttpUrl(candidateImage) && (await isImageReachable(candidateImage))
-        ? candidateImage
-        : null;
+      candidateImage && isAbsoluteHttpUrl(candidateImage) ? await fetchCoverImageDataUri(candidateImage) : null;
 
     return {
       groomName: cover?.props.groomName || FALLBACK_GROOM_NAME,
@@ -123,15 +137,20 @@ async function loadOgContent(slug: string): Promise<OgContent> {
 /**
  * Cover photo (if any) as a full-bleed background with a dark overlay so the
  * white text stays legible over any photo; falls back to a flat brand-color
- * card when there's no usable cover photo. `next/font/google` is unusable in
- * this environment (see `public/fonts/README.md`) and no self-hosted
- * WOFF/TTF files exist yet either, so this intentionally passes no `fonts`
- * option — satori/`ImageResponse` render with their bundled default font.
- * Vietnamese diacritics are NOT fully covered by that default (verified by
- * rendering — see the Task 17 report), so this is a known, documented
- * limitation until self-hosted fonts land, not a silent bug.
+ * card when there's no usable cover photo.
+ *
+ * Font: no self-hosted WOFF/TTF files existed at all when this route was
+ * first written, so it rendered with satori's bundled default font (no
+ * Vietnamese diacritic coverage). `loadOgHeadingFont` (see `lib/og-font.ts`)
+ * now checks for a self-hosted TTF/WOFF1 copy — **not** the WOFF2 files
+ * `public/fonts/*.woff2` used by the site's own CSS, which satori cannot
+ * parse at all — and this falls back to the exact same "sans-serif,
+ * whatever satori bundles" behavior as before whenever that file doesn't
+ * exist yet (or isn't a format satori can read). Vietnamese diacritics stay
+ * incomplete until that TTF/WOFF1 file actually exists — see the Task 17
+ * report for what that looks like today.
  */
-function renderCard(content: OgContent, includeCoverImage: boolean) {
+function renderCard(content: OgContent, includeCoverImage: boolean, fontFamily: string) {
   return (
     <div
       style={{
@@ -140,7 +159,7 @@ function renderCard(content: OgContent, includeCoverImage: boolean) {
         height: "100%",
         position: "relative",
         backgroundColor: content.background,
-        fontFamily: "sans-serif",
+        fontFamily,
       }}
     >
       {includeCoverImage && content.coverImage ? (
@@ -199,26 +218,32 @@ function renderBrandedFallback() {
   );
 }
 
+function fontsOption(font: OgFontDescriptor | null) {
+  return font ? [font] : undefined;
+}
+
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const content = await loadOgContent(slug);
+  const [content, headingFont] = await Promise.all([loadOgContent(slug), loadOgHeadingFont()]);
+  const fontFamily = headingFont ? OG_HEADING_FONT_NAME : "sans-serif";
+  const fonts = fontsOption(headingFont);
 
-  // `loadOgContent` already confirmed `content.coverImage` (if set) responded
-  // OK to a real fetch, so this is expected to succeed — the try/catch is
-  // just defense-in-depth against anything else going wrong in the render
-  // (a transient failure on satori's own re-fetch of the same URL a moment
-  // later, an unsupported image format, ...), falling back to the no-photo
-  // card rather than letting it take down the whole OG image.
+  // `loadOgContent` already fetched and validated `content.coverImage` (if
+  // set) as real, already-decoded bytes (a data URI, not a remote URL), so
+  // this is expected to succeed — the try/catch is defense-in-depth against
+  // anything else going wrong in the render (an unsupported image format
+  // satori's own decoder rejects, ...), falling back to the no-photo card
+  // rather than letting it take down the whole OG image.
   if (content.coverImage) {
     try {
-      return new ImageResponse(renderCard(content, true), { ...size });
+      return new ImageResponse(renderCard(content, true, fontFamily), { ...size, fonts });
     } catch (error) {
       console.error(`opengraph-image: cover image render failed for slug=${slug}:`, error);
     }
   }
 
   try {
-    return new ImageResponse(renderCard(content, false), { ...size });
+    return new ImageResponse(renderCard(content, false, fontFamily), { ...size, fonts });
   } catch (error) {
     // Last-resort fallback: even the plain (no-photo) card failed to
     // render. This must still produce a valid image rather than a 500 —

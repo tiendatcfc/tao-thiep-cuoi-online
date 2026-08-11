@@ -3,8 +3,8 @@ import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { InvitationDocumentSchema } from "@hpwd/schema";
 import { auth } from "@/auth";
+import { findOwnedInvitation, NOT_FOUND_MESSAGE } from "@/lib/ownership";
 
-const NOT_FOUND_MESSAGE = "Không tìm thấy thiệp.";
 const INVALID_DOCUMENT_MESSAGE = "Dữ liệu thiệp không hợp lệ, vui lòng thử lại.";
 
 const settingsSchema = z.object({ showBadge: z.boolean() }).strict();
@@ -22,20 +22,6 @@ const patchBodySchema = z
   .refine((data) => data.document !== undefined || data.settings !== undefined, {
     message: INVALID_DOCUMENT_MESSAGE,
   });
-
-/**
- * Owner-only fetch of the editor's working copy. 404 (never 403) whenever
- * the invitation doesn't exist OR belongs to a different user — the two
- * cases are indistinguishable to the caller on purpose, so a guessed id
- * can't be used to probe which ids exist.
- */
-async function findOwnedInvitation(id: string, ownerId: string) {
-  const invitation = await prisma.invitation.findUnique({ where: { id } });
-  if (!invitation || invitation.userId !== ownerId) {
-    return null;
-  }
-  return invitation;
-}
 
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
