@@ -90,8 +90,56 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: "Mở thiệp" })).not.toBeInTheDocument());
     expect(playSpy).not.toHaveBeenCalled();
 
-    // The player itself is still fully usable via its own toggle button.
-    fireEvent.click(screen.getByRole("button", { name: "Bật nhạc" }));
+    // The player itself is still fully usable via its own toggle button —
+    // `findByRole` (not `getByRole`) because the button only becomes
+    // interactive (C7) once `InvitePage`'s own `opened` state cascades
+    // through, a render pass behind `OpeningGate`'s own internal state
+    // flip this test already waited for above.
+    fireEvent.click(await screen.findByRole("button", { name: "Bật nhạc" }));
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // C7: MusicPlayer's button is `fixed`/`z-50`, rendered as a sibling of
+  // `OpeningGate` (never inside its `inert` wrapper) — without gating it on
+  // `opened`, it sat visually ABOVE the (z-30) opening overlay and stayed
+  // fully tappable/focusable even before the guest had opened anything.
+  it("hides/disables the music toggle button until the gate is opened, then makes it usable", async () => {
+    const document = createDefaultDocument();
+    document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
+    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: false };
+
+    const { container } = render(
+      <InvitePage
+        document={document}
+        guestName="Nguyễn Văn An"
+        settings={{ showBadge: false }}
+        isPreview={false}
+      />,
+    );
+
+    // Not exposed to assistive tech, not focusable, and clicking it must
+    // not start playback while the gate is still closed — the button
+    // exists in the DOM (kept mounted per MusicPlayer's own contract) but
+    // is fully withdrawn from interaction. Queried directly by attribute
+    // (not `getByRole`'s name matching) because `aria-hidden="true"` makes
+    // the accessible-name computation itself come back empty, which is
+    // exactly the "removed from the a11y tree" behavior being asserted.
+    const buttonBeforeOpen = container.querySelector('button[aria-label="Bật nhạc"]');
+    expect(buttonBeforeOpen).not.toBeNull();
+    if (!buttonBeforeOpen) throw new Error("unreachable");
+    expect(buttonBeforeOpen).toHaveAttribute("aria-hidden", "true");
+    expect(buttonBeforeOpen).toHaveAttribute("tabindex", "-1");
+    expect(buttonBeforeOpen).toBeDisabled();
+    fireEvent.click(buttonBeforeOpen);
+    expect(playSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Mở thiệp" })).not.toBeInTheDocument());
+
+    const buttonAfterOpen = await screen.findByRole("button", { name: "Bật nhạc" });
+    expect(buttonAfterOpen).toHaveAttribute("aria-hidden", "false");
+    expect(buttonAfterOpen).not.toBeDisabled();
+    fireEvent.click(buttonAfterOpen);
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 });

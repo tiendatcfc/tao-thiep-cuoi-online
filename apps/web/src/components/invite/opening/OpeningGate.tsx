@@ -68,6 +68,25 @@ export function OpeningGate({ opening, guestName, onOpened, onTap, children }: O
     onOpened();
   }, [opened, isPreview, onOpened]);
 
+  // C7 fix: `children` stay mounted (in normal document flow) under
+  // `inert` while the gate is closed — `inert` blocks focus and click, but
+  // NOT scroll, so a guest could swipe/scroll the page behind the (fixed,
+  // full-screen) opening overlay. That both lets them see content they
+  // haven't "opened" yet and burns the scroll-triggered reveal animations
+  // (`once: true`) on sections they never consciously scrolled past,
+  // leaving those sections permanently already-revealed once the gate does
+  // open. Locking `document.body`'s scroll while closed prevents both.
+  // Never applied in preview (isPreview short-circuits below anyway) or
+  // once opened.
+  useEffect(() => {
+    if (isPreview || opened) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isPreview, opened]);
+
   if (isPreview) {
     return <>{children}</>;
   }

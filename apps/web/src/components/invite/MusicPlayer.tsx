@@ -32,6 +32,18 @@ export interface MusicPlayerProps {
    * path; it does NOT reliably start music on iOS on its own.
    */
   startSignal: boolean;
+  /**
+   * C7 fix: whether the guest can currently see/tap the toggle button.
+   * Defaults to `true` — every existing caller (including every test) that
+   * doesn't pass this keeps working unchanged. `InvitePage` passes
+   * `opened || isPreview`: this button is `fixed`, `z-50`, and rendered as
+   * a SIBLING of `OpeningGate`'s overlay (never inside its `inert` wrapper,
+   * by design — see `InvitePage`'s own comment on why `MusicPlayer` must
+   * stay mounted throughout), so without this it sat visually ABOVE the
+   * `z-30` opening overlay and stayed fully tappable/focusable even before
+   * the guest had opened anything.
+   */
+  interactive?: boolean;
 }
 
 export interface MusicPlayerHandle {
@@ -62,7 +74,7 @@ export interface MusicPlayerHandle {
  * back to paused — it never throws or crashes the page.
  */
 export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(function MusicPlayer(
-  { music, startSignal },
+  { music, startSignal, interactive = true },
   ref,
 ) {
   const { isPreview } = useInviteContext();
@@ -173,8 +185,19 @@ export const MusicPlayer = forwardRef<MusicPlayerHandle, MusicPlayerProps>(funct
       <button
         type="button"
         onClick={handleToggle}
+        // C7 fix: `disabled` (blocks click) + `tabIndex={-1}` (removes it
+        // from keyboard tab order) + `aria-hidden` (removes it from the
+        // accessibility tree) + `invisible` (hides it, but — unlike
+        // `hidden`/`display:none` — keeps its layout box, so nothing shifts
+        // when it reappears) together fully withdraw the button from
+        // interaction while the opening overlay is still covering it.
+        disabled={!interactive}
+        tabIndex={interactive ? 0 : -1}
+        aria-hidden={!interactive}
         aria-label={playing ? "Tắt nhạc" : "Bật nhạc"}
-        className="fixed bottom-4 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--primary)] text-white shadow-lg transition-transform active:scale-95"
+        className={`fixed bottom-4 right-4 z-50 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--primary)] text-white shadow-lg transition-transform active:scale-95 ${
+          interactive ? "" : "invisible"
+        }`}
       >
         <svg
           viewBox="0 0 24 24"

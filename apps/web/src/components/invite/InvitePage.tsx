@@ -96,11 +96,20 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
          * it. `ref` is the C1 path (see `handleOpeningTap` above) — both
          * paths end up calling the exact same `playAudio`, just from
          * different moments; whichever gets there first wins in practice.
+         *
+         * `interactive` (C7 fix): this button is `fixed`/`z-50`, ABOVE the
+         * opening overlay's `z-30` — without gating it on `opened`, it sat
+         * fully tappable/focusable on top of the still-closed gate.
+         * `isPreview` is included because `OpeningGate` never calls
+         * `onOpened` in preview mode (see its own docstring), so `opened`
+         * would otherwise never become `true` there and the editor's own
+         * preview would lose the button.
          */}
         <MusicPlayer
           ref={musicPlayerRef}
           music={document.music}
           startSignal={opened && document.music.playAfterOpen}
+          interactive={opened || isPreview}
         />
         {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
         {settings.showBadge ? (

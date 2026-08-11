@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { Opening } from "@hpwd/schema";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { InviteContext } from "../InviteContext";
 import { OpeningGate } from "../opening/OpeningGate";
 
@@ -113,5 +113,59 @@ describe("OpeningGate", () => {
   it("renders the fade overlay for effect: 'fade'", () => {
     renderGate(opening({ effect: "fade" }), vi.fn());
     expect(screen.getByRole("button", { name: "Mở thiệp" })).toBeInTheDocument();
+  });
+
+  // C7: `children` stay mounted (in normal flow) under `inert` while the
+  // gate is closed — `inert` blocks focus/click, but NOT scroll, so a guest
+  // could swipe/scroll the (fixed, full-screen) overlay away and interact
+  // with — or scroll past, burning the `once: true` reveal animations on —
+  // content they never consciously "opened".
+  describe("body scroll lock while closed (C7)", () => {
+    afterEach(() => {
+      document.body.style.overflow = "";
+    });
+
+    it("locks document.body scroll while the overlay is showing", () => {
+      renderGate(opening(), vi.fn());
+      expect(document.body.style.overflow).toBe("hidden");
+    });
+
+    it("restores the previous overflow value once the guest opens the invitation", async () => {
+      const { container } = renderGate(opening(), vi.fn());
+      expect(document.body.style.overflow).toBe("hidden");
+
+      fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
+
+      await waitFor(() => expect(container.querySelector('[aria-hidden="false"]')).not.toBeNull(), {
+        timeout: 3000,
+      });
+      expect(document.body.style.overflow).toBe("");
+    });
+
+    it("restores the previous overflow value on unmount", () => {
+      const { unmount } = renderGate(opening(), vi.fn());
+      expect(document.body.style.overflow).toBe("hidden");
+
+      unmount();
+
+      expect(document.body.style.overflow).toBe("");
+    });
+
+    it("never locks scroll for effect: 'none' (children visible immediately, nothing to scroll behind)", () => {
+      render(
+        <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+          <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={vi.fn()}>
+            <div>Nội dung thiệp</div>
+          </OpeningGate>
+        </InviteContext.Provider>,
+      );
+
+      expect(document.body.style.overflow).not.toBe("hidden");
+    });
+
+    it("never locks scroll in preview mode", () => {
+      renderGate(opening(), vi.fn(), { isPreview: true });
+      expect(document.body.style.overflow).not.toBe("hidden");
+    });
   });
 });
