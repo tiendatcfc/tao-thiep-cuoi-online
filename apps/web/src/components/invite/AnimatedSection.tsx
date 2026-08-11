@@ -11,6 +11,25 @@ interface AnimatedSectionProps {
 }
 
 /**
+ * Animation variant configurations, hoisted to module scope to avoid
+ * reallocation on every render.
+ */
+const ANIMATION_VARIANTS = {
+  fade: {
+    initial: { opacity: 0 },
+    whileInView: { opacity: 1 },
+  },
+  "slide-up": {
+    initial: { opacity: 0, y: 40 },
+    whileInView: { opacity: 1, y: 0 },
+  },
+  zoom: {
+    initial: { opacity: 0, scale: 0.92 },
+    whileInView: { opacity: 1, scale: 1 },
+  },
+} as const;
+
+/**
  * Wraps children with scroll-triggered animations (framer-motion's `whileInView`).
  * Respects `prefers-reduced-motion` and handles null children cleanly.
  *
@@ -20,11 +39,15 @@ interface AnimatedSectionProps {
  * - `preset: 'zoom'`: {opacity: 0, scale: 0.92}→{opacity: 1, scale: 1}
  *
  * `prefers-reduced-motion` always renders children without a motion wrapper.
+ *
+ * Empty wrappers (sections rendering null) are hidden via CSS `:empty` selector
+ * to prevent phantom DOM nodes. Sections that don't render content have their
+ * wrapper collapse out of layout entirely.
  */
 export function AnimatedSection({ animation, children }: AnimatedSectionProps) {
   const shouldReduceMotion = useReducedMotion();
 
-  // If children is null/false, return null (don't create an empty wrapper)
+  // If children is null/false (direct caller edge case), return null
   if (!children) {
     return null;
   }
@@ -35,27 +58,13 @@ export function AnimatedSection({ animation, children }: AnimatedSectionProps) {
   }
 
   const durationSeconds = animation.durationMs / 1000;
-
-  const animationVariants = {
-    fade: {
-      initial: { opacity: 0 },
-      whileInView: { opacity: 1 },
-    },
-    "slide-up": {
-      initial: { opacity: 0, y: 40 },
-      whileInView: { opacity: 1, y: 0 },
-    },
-    zoom: {
-      initial: { opacity: 0, scale: 0.92 },
-      whileInView: { opacity: 1, scale: 1 },
-    },
-  };
-
-  const variant = animationVariants[animation.preset];
+  const variant = ANIMATION_VARIANTS[animation.preset];
 
   return (
     <motion.div
       data-animate={animation.preset}
+      data-duration={animation.durationMs}
+      className="empty:hidden"
       initial={variant.initial}
       whileInView={variant.whileInView}
       transition={{
