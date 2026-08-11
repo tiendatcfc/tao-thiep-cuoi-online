@@ -3,7 +3,9 @@ import { createDefaultDocument } from "@hpwd/schema";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
+import { AutosaveStatusContext } from "../AutosaveStatusContext";
 import { PublishDialog } from "../PublishDialog";
+import type { AutosaveErrorKind } from "../useAutosave";
 
 function documentWithCoverNames(groomName: string, brideName: string) {
   const doc = createDefaultDocument();
@@ -162,6 +164,91 @@ describe("PublishDialog", () => {
         body: JSON.stringify({ settings: { showBadge: false } }),
       }),
     );
+  });
+
+  // C2: publishing used to POST straight away, and the server re-reads
+  // `invitation.document` from the DB — up to AUTOSAVE_DEBOUNCE_MS (2s)
+  // behind the live editor. `flush()` (from AutosaveStatusContext) must be
+  // awaited BEFORE the publish request fires, and its outcome must gate
+  // whether that request happens at all.
+  describe("flushes the pending autosave before publishing (C2)", () => {
+    function renderWithFlush(flush: () => Promise<AutosaveErrorKind>) {
+      resetStore(documentWithCoverNames("Minh", "Lan"));
+      return render(
+        <AutosaveStatusContext.Provider value={{ error: null, flush }}>
+          <PublishDialog {...baseProps} open onClose={vi.fn()} />
+        </AutosaveStatusContext.Provider>,
+      );
+    }
+
+    it("awaits flush() before sending the publish request", async () => {
+      let resolveFlush!: (value: AutosaveErrorKind) => void;
+      const flush = vi.fn(
+        () =>
+          new Promise<AutosaveErrorKind>((resolve) => {
+            resolveFlush = resolve;
+          }),
+      );
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ slug: "minh-lan" }) });
+      renderWithFlush(flush);
+
+      fireEvent.click(screen.getByRole("button", { name: "Xuất bản" }));
+
+      expect(flush).toHaveBeenCalledTimes(1);
+      // The real proof this is actually AWAITED, not fire-and-forget: no
+      // publish request yet while flush's promise is still pending.
+      expect(fetchMock).not.toHaveBeenCalled();
+      // ...and the button is disabled meanwhile (blocks a second submit
+      // while the flush is in flight).
+      expect(screen.getByRole("button", { name: "Đang xuất bản…" })).toBeDisabled();
+
+      resolveFlush(null);
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/invitations/inv-1/publish",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("refuses to publish and shows the invalid-document message when flush() reports the document is invalid, without ever calling the publish route", async () => {
+      const flush = vi.fn().mockResolvedValue("invalid" as AutosaveErrorKind);
+      renderWithFlush(flush);
+
+      fireEvent.click(screen.getByRole("button", { name: "Xuất bản" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("Nội dung thiệp hiện tại chưa hợp lệ, vui lòng kiểm tra lại trước khi xuất bản."),
+        ).toBeInTheDocument(),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses to publish when flush() itself fails (network), rather than publishing a possibly-stale version", async () => {
+      const flush = vi.fn().mockResolvedValue("network" as AutosaveErrorKind);
+      renderWithFlush(flush);
+
+      fireEvent.click(screen.getByRole("button", { name: "Xuất bản" }));
+
+      await waitFor(() =>
+        expect(screen.getByText("Xuất bản thất bại, vui lòng thử lại.")).toBeInTheDocument(),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("proceeds to publish once flush() resolves successfully (null)", async () => {
+      const flush = vi.fn().mockResolvedValue(null as AutosaveErrorKind);
+      fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ slug: "minh-lan" }) });
+      renderWithFlush(flush);
+
+      fireEvent.click(screen.getByRole("button", { name: "Xuất bản" }));
+
+      await screen.findByText("Thiệp của bạn đã được xuất bản!");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/invitations/inv-1/publish",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 
   // Coordinator review fix: role="dialog" aria-modal="true" is a promise

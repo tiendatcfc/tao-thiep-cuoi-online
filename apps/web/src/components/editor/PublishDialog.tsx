@@ -5,11 +5,19 @@ import type { InvitationDocument } from "@hpwd/schema";
 import { findCoverSection } from "@/lib/sections";
 import { toSlug } from "@/lib/slug";
 import { useEditorStore } from "@/stores/editor-store";
+import { useAutosaveStatusContext } from "./AutosaveStatusContext";
 
 const SLUG_REGEX = /^[a-z0-9-]{3,60}$/;
 const SLUG_HINT =
   "Đường dẫn chỉ được chứa chữ thường không dấu, số và dấu gạch ngang, độ dài 3-60 ký tự.";
 const GENERIC_PUBLISH_ERROR = "Xuất bản thất bại, vui lòng thử lại.";
+// C2: matches the server's own `INVALID_DOCUMENT_MESSAGE`
+// (api/invitations/[id]/publish/route.ts) word-for-word — whether the
+// couple hits this because `flush()` caught it here first, or because it
+// somehow slipped past that and the server's own belt-and-suspenders check
+// caught it instead, they see the exact same message either way.
+const INVALID_DOCUMENT_MESSAGE =
+  "Nội dung thiệp hiện tại chưa hợp lệ, vui lòng kiểm tra lại trước khi xuất bản.";
 const COPY_CONFIRMATION_MS = 2000;
 
 const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -51,6 +59,7 @@ export interface PublishDialogProps {
  */
 export function PublishDialog({ open, onClose, invitationId, slug, initialShowBadge }: PublishDialogProps) {
   const document = useEditorStore((state) => state.document);
+  const { flush } = useAutosaveStatusContext();
   const [slugInput, setSlugInput] = useState("");
   const [showBadge, setShowBadge] = useState(initialShowBadge);
   const [publishing, setPublishing] = useState(false);
@@ -160,6 +169,28 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
     setPublishing(true);
     setError(null);
     try {
+      // C2: the publish route re-reads `invitation.document` from the DB —
+      // whatever the LAST autosave PATCH persisted, not whatever's in the
+      // store right now. Autosave debounces for 2s, so publishing inside
+      // that window (a very normal thing to do right after a last-minute
+      // edit) used to silently publish the pre-edit content while reporting
+      // success. `flush()` forces that pending save through and waits for
+      // its real outcome before the publish request is even sent — the
+      // `publishing` state above already disables the submit button and
+      // blocks a second submit while this is in flight.
+      const flushResult = await flush();
+      if (flushResult === "invalid") {
+        setError(INVALID_DOCUMENT_MESSAGE);
+        return;
+      }
+      if (flushResult === "network") {
+        // Couldn't confirm the latest edits actually reached the server —
+        // publishing now would risk publishing a stale version anyway, so
+        // this refuses rather than proceeding optimistically.
+        setError(GENERIC_PUBLISH_ERROR);
+        return;
+      }
+
       const res = await fetch(`/api/invitations/${invitationId}/publish`, {
         method: "POST",
         headers: { "content-type": "application/json" },

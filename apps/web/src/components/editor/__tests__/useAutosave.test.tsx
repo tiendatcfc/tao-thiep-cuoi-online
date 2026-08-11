@@ -309,6 +309,125 @@ describe("useAutosave", () => {
     });
   });
 
+  // C2/C5: `flush()` is the explicit-save escape hatch both PublishDialog
+  // (flush the live document before publishing — see PublishDialog.test.tsx)
+  // and the "Thử lưu lại" manual retry button (EditorLayout) need: force an
+  // immediate save and get back its REAL outcome, rather than firing and
+  // forgetting like the unmount flush does.
+  describe("flush()", () => {
+    it("resolves null without any network call when the document is already clean", async () => {
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+
+      const outcome = await result.current.flush();
+
+      expect(outcome).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("sends the PATCH immediately (bypassing the 2s debounce) and resolves once it succeeds", async () => {
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const outcome = await result.current.flush();
+
+      expect(outcome).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(useEditorStore.getState().dirty).toBe(false);
+      // The pending debounce timer must not ALSO fire afterwards.
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("resolves 'invalid' without sending a PATCH when the document is currently invalid", async () => {
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      const invalidDoc = { ...createDefaultDocument(), theme: undefined } as unknown as InvitationDocument;
+      act(() => {
+        useEditorStore.setState({ document: invalidDoc, dirty: true });
+      });
+
+      const outcome = await result.current.flush();
+
+      expect(outcome).toBe("invalid");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("resolves 'network' when the flushed PATCH itself fails", async () => {
+      fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({ error: "fail" }) });
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+
+      const outcome = await result.current.flush();
+
+      expect(outcome).toBe("network");
+    });
+
+    it("joins an already-in-flight save instead of firing a second CONCURRENT request, then genuinely re-saves once it settles (so the latest document still lands) and resolves with that real outcome", async () => {
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>((resolve) => {
+        resolveFirst = resolve;
+      });
+      fetchMock.mockImplementationOnce(() => firstResponse);
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(useEditorStore.getState().saving).toBe(true);
+
+      // flush() is called WHILE the debounce-triggered save above is still
+      // in flight — it must not fire a second CONCURRENT request (no two
+      // requests in flight at once — same invariant "serialised saves"
+      // above already covers). It's still expected to trigger one real
+      // follow-up request once the first settles, exactly like a second
+      // edit arriving mid-flight would (this IS that same queuing
+      // mechanism) — otherwise flush() couldn't guarantee the document as
+      // of the flush call is what actually gets persisted.
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 222 }) });
+      const flushPromise = result.current.flush();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111 }) });
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+      const outcome = await flushPromise;
+
+      expect(outcome).toBeNull();
+      // Never more than one request in flight at a time, but two total:
+      // the original debounced save, then flush's follow-up once it
+      // settled.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(useEditorStore.getState().dirty).toBe(false);
+      expect(useEditorStore.getState().lastSavedAt).toBe(222);
+    });
+
+    it("does not send a keepalive PATCH again on unmount right after a successful flush (nothing left dirty)", async () => {
+      const { result, unmount } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+
+      await result.current.flush();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      unmount();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe("serialised saves", () => {
     it("queues an edit that arrives mid-flight instead of firing a second concurrent PATCH, sends it immediately once the first settles with the latest document, and never lets the stale first response clear dirty", async () => {
       let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;

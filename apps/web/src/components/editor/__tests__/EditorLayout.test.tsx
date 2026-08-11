@@ -146,6 +146,64 @@ describe("EditorLayout", () => {
     }
   });
 
+  // C5: the old "Lưu thất bại — sẽ thử lại" copy was a lie (useAutosave
+  // starts no retry loop on a network failure) and rendered with the exact
+  // same styling as the success state, so a couple could easily miss it.
+  describe("network failure (C5)", () => {
+    it("shows an honest failure message (no false 'will retry automatically' claim), styled distinctly from the success state, with a manual retry action", async () => {
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "boom" }) });
+        render(<EditorLayout {...baseProps} />);
+        act(() => {
+          useEditorStore.getState().updateTheme({ primary: "#111111" });
+        });
+
+        await act(async () => {
+          vi.advanceTimersByTime(2000);
+        });
+
+        const status = screen.getByText("Lưu thất bại — vui lòng thử lưu lại.", { exact: false });
+        expect(status).toBeInTheDocument();
+        // Must not claim an automatic retry that doesn't exist.
+        expect(screen.queryByText(/sẽ thử lại/)).not.toBeInTheDocument();
+        // Distinct from the (gray) success-state styling.
+        expect(status.className).toMatch(/text-red-700/);
+        expect(status.className).not.toMatch(/text-gray-500/);
+
+        expect(screen.getByRole("button", { name: "Thử lưu lại" })).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clicking 'Thử lưu lại' forces an immediate retry and clears the failure once it succeeds", async () => {
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockResolvedValue({ ok: false, json: async () => ({ error: "boom" }) });
+        render(<EditorLayout {...baseProps} />);
+        act(() => {
+          useEditorStore.getState().updateTheme({ primary: "#111111" });
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(2000);
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        fetchMock.mockResolvedValue({ ok: true, json: async () => ({ savedAt: Date.now() }) });
+        await act(async () => {
+          screen.getByRole("button", { name: "Thử lưu lại" }).click();
+        });
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(screen.queryByText("Lưu thất bại — vui lòng thử lưu lại.", { exact: false })).not.toBeInTheDocument();
+        expect(screen.getByText(/^Đã lưu lúc \d{2}:\d{2}$/)).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("responsive single-mount layout", () => {
     it("at desktop width, mounts exactly one three-pane layout with exactly one preview pane and no tab bar", () => {
       mockViewport(true);

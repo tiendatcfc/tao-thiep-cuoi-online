@@ -1,13 +1,14 @@
 "use client";
 
 import type { InvitationDocument } from "@hpwd/schema";
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useEditorStore } from "@/stores/editor-store";
+import { AutosaveStatusContext, useAutosaveStatusContext } from "./AutosaveStatusContext";
 import { EditorPanel } from "./EditorPanel";
 import { PreviewPane } from "./PreviewPane";
 import { PublishDialog } from "./PublishDialog";
 import { SectionList } from "./SectionList";
-import { type AutosaveErrorKind, useAutosave } from "./useAutosave";
+import { useAutosave } from "./useAutosave";
 import { useMediaQuery } from "./useMediaQuery";
 
 const DESKTOP_QUERY = "(min-width: 1024px)";
@@ -31,43 +32,82 @@ function PublishButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+/**
+ * C5: "Lưu thất bại — sẽ thử lại" (was "network" error's copy) was a lie —
+ * `useAutosave` starts no retry loop on a network failure; without a
+ * further edit (or this button), the document just sits `dirty` forever.
+ * The manual retry calls the same `flush()` `PublishDialog` uses (C2) to
+ * force an immediate save and surface its real outcome.
+ */
+function RetryButton() {
+  const { flush } = useAutosaveStatusContext();
+  const [retrying, setRetrying] = useState(false);
+
+  async function handleRetry() {
+    setRetrying(true);
+    try {
+      await flush();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleRetry}
+      disabled={retrying}
+      className="text-xs font-medium text-red-700 underline underline-offset-2 hover:text-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {retrying ? "Đang thử lại…" : "Thử lưu lại"}
+    </button>
+  );
+}
+
 function SaveStatus() {
   const saving = useEditorStore((state) => state.saving);
   const lastSavedAt = useEditorStore((state) => state.lastSavedAt);
   const { error } = useAutosaveStatusContext();
 
-  let text = "";
   if (saving) {
-    text = "Đang lưu…";
-  } else if (error === "invalid") {
+    return (
+      <span role="status" className="text-xs text-gray-500">
+        Đang lưu…
+      </span>
+    );
+  }
+
+  if (error === "invalid") {
     // Distinct from the network-failure message on purpose: whole-document
     // validation means retrying against the network can never succeed here
     // — the fix has to happen in whatever field is currently invalid, not
-    // by waiting it out.
-    text = "Nội dung chưa hợp lệ, chưa thể lưu — vui lòng kiểm tra lại mục đang chỉnh sửa.";
-  } else if (error === "network") {
-    text = "Lưu thất bại — sẽ thử lại";
-  } else if (lastSavedAt) {
-    text = `Đã lưu lúc ${formatSavedAt(lastSavedAt)}`;
+    // by waiting it out (so no retry button here — there's nothing a retry
+    // could fix).
+    return (
+      <span role="status" className="text-xs font-medium text-red-700">
+        Nội dung chưa hợp lệ, chưa thể lưu — vui lòng kiểm tra lại mục đang chỉnh sửa.
+      </span>
+    );
+  }
+
+  if (error === "network") {
+    // C5: visually distinct from the (gray, unremarkable) success state
+    // below — a couple silently losing edits because they never noticed a
+    // gray status line change is exactly the failure mode this exists to
+    // prevent.
+    return (
+      <span role="status" className="flex items-center gap-2 text-xs font-medium text-red-700">
+        Lưu thất bại — vui lòng thử lưu lại.
+        <RetryButton />
+      </span>
+    );
   }
 
   return (
     <span role="status" className="text-xs text-gray-500">
-      {text}
+      {lastSavedAt ? `Đã lưu lúc ${formatSavedAt(lastSavedAt)}` : ""}
     </span>
   );
-}
-
-/**
- * `useAutosave`'s `{ error }` isn't in the store (see the hook's own
- * comment for why), but both the desktop header and the mobile tab bar
- * need it, and mounting `useAutosave` twice would schedule two competing
- * PATCHes. This tiny context lets `EditorLayout` own the single hook
- * instance and hand the result down to both status displays.
- */
-const AutosaveStatusContext = createContext<{ error: AutosaveErrorKind }>({ error: null });
-function useAutosaveStatusContext() {
-  return useContext(AutosaveStatusContext);
 }
 
 export interface EditorLayoutProps {
