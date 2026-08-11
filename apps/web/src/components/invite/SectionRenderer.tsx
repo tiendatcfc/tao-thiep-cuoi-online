@@ -10,6 +10,7 @@ import { StorySection } from "./sections/StorySection";
 import { TextSection } from "./sections/TextSection";
 import { VideoSection } from "./sections/VideoSection";
 import { WishesSection } from "./sections/WishesSection";
+import { AnimatedSection } from "./AnimatedSection";
 
 /**
  * One component per `SectionType`, each typed to the exact props shape for
@@ -40,7 +41,11 @@ const registry: { [K in SectionType]: ComponentType<{ section: Extract<Section, 
  */
 function renderSection(section: Section) {
   const Component = registry[section.type] as ComponentType<{ section: Section }>;
-  return <Component key={section.id} section={section} />;
+  return (
+    <AnimatedSection key={section.id} animation={section.animation}>
+      <Component section={section} />
+    </AnimatedSection>
+  );
 }
 
 export function SectionRenderer({ document }: { document: InvitationDocument }) {
