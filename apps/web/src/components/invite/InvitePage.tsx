@@ -1,10 +1,12 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
 import { InviteContext } from "./InviteContext";
 import { MusicPlayer } from "./MusicPlayer";
+import { OpeningGate } from "./opening/OpeningGate";
+import { ParticlesOverlay } from "./ParticlesOverlay";
 import { SectionRenderer } from "./SectionRenderer";
 
 export interface InvitePageSettings {
@@ -37,6 +39,7 @@ export interface InvitePageProps {
  * values without threading the theme through props.
  */
 export function InvitePage({ document, guestName, settings, isPreview, slug = null }: InvitePageProps) {
+  const [opened, setOpened] = useState(false);
   const themeStyle = {
     "--primary": document.theme.primary,
     "--secondary": document.theme.secondary,
@@ -49,15 +52,18 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
         className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
         style={themeStyle}
       >
-        <SectionRenderer document={document} />
+        <OpeningGate opening={document.opening} guestName={guestName} onOpened={() => setOpened(true)}>
+          <SectionRenderer document={document} />
+        </OpeningGate>
         {/*
-         * TODO(Task 13): the opening-gate overlay owns the guest's tap and
-         * will flip this to a real `startSignal` state (false -> true) once
-         * it fires `onOpened`. Hardcoded `false` for now — never true, so
-         * `MusicPlayer` never auto-starts — but the player is already fully
-         * usable via its own toggle button.
+         * `MusicPlayer` renders here as a sibling of `OpeningGate`, never
+         * inside it, so it stays mounted for the whole lifetime of the page
+         * — its rising-edge autoplay detector seeds itself from the
+         * *initial* `startSignal` value, so a remount with `startSignal`
+         * already `true` would silently never autoplay.
          */}
-        <MusicPlayer music={document.music} startSignal={false} />
+        <MusicPlayer music={document.music} startSignal={opened} />
+        {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
         {settings.showBadge ? (
           <footer className="py-6 text-center text-xs text-gray-400">
             <Link href="/" className="hover:underline">

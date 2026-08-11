@@ -16,6 +16,7 @@
     "@hpwd/db": "workspace:^",
     "@hpwd/schema": "workspace:^",
     "@prisma/client": "^6.19.3",
+    "framer-motion": "^13.1.0",
     "ioredis": "^6.0.0",
     "next": "15.5.23",
     "next-auth": "5.0.0-beta.32",

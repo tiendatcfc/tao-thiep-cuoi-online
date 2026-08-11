@@ -68,7 +68,7 @@ describe("InvitePage / SectionRenderer", () => {
   it("shows a 'Kính mời' line with the guest name when one is provided", () => {
     const document = createDefaultDocument();
 
-    render(
+    const { container } = render(
       <InvitePage
         document={document}
         guestName="Nguyễn Văn An"
@@ -77,18 +77,25 @@ describe("InvitePage / SectionRenderer", () => {
       />,
     );
 
-    expect(screen.getByText(/Kính mời/)).toBeInTheDocument();
-    expect(screen.getByText(/Nguyễn Văn An/)).toBeInTheDocument();
+    // Scoped to the cover section: the default document's opening effect
+    // ('envelope') also shows its own "Kính mời: {guestName}" line on the
+    // still-closed envelope overlay, so an unscoped query would match twice.
+    const cover = container.querySelector('[data-section="cover"]');
+    if (!cover) throw new Error("cover section did not render");
+    expect(within(cover as HTMLElement).getByText(/Kính mời/)).toBeInTheDocument();
+    expect(within(cover as HTMLElement).getByText(/Nguyễn Văn An/)).toBeInTheDocument();
   });
 
   it("omits the 'Kính mời' line when there is no guest name", () => {
     const document = createDefaultDocument();
 
-    render(
+    const { container } = render(
       <InvitePage document={document} guestName={null} settings={settings} isPreview={false} />,
     );
 
-    expect(screen.queryByText(/Kính mời/)).not.toBeInTheDocument();
+    const cover = container.querySelector('[data-section="cover"]');
+    if (!cover) throw new Error("cover section did not render");
+    expect(within(cover as HTMLElement).queryByText(/Kính mời/)).not.toBeInTheDocument();
   });
 
   it("shows the HPWD badge only when settings.showBadge is true", () => {
