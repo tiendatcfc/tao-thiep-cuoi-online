@@ -38,6 +38,32 @@ function requireEnv(name) {
   return value;
 }
 
+/**
+ * `PutBucketCors` 501ing with "NotImplemented" is expected against local
+ * MinIO (it doesn't implement the per-bucket S3 CORS API — see the comment
+ * at the call site) but is NOT exclusive to that: if Cloudflare R2 ever
+ * rejects this exact request shape with the same code, swallowing on the
+ * error code alone would warn, resolve, and exit 0 — shipping a production
+ * bucket with no CORS configured, surfacing only later as a real user's
+ * upload failing preflight in the browser.
+ *
+ * So the swallow additionally requires an explicit "this is a
+ * known-CORS-unsupported dev backend" signal: either `R2_ENDPOINT` points
+ * at localhost (this repo's MinIO setup), or `ALLOW_CORS_UNSUPPORTED=1` is
+ * set by hand. Anything else — including a "NotImplemented" from a
+ * non-local endpoint — rethrows and fails the script loudly rather than
+ * silently shipping without CORS.
+ */
+function isKnownCorsUnsupportedBackend(endpointUrl) {
+  if (process.env.ALLOW_CORS_UNSUPPORTED === "1") return true;
+  try {
+    const hostname = new URL(endpointUrl).hostname;
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 const endpoint = requireEnv("R2_ENDPOINT");
 const bucket = requireEnv("R2_BUCKET");
 const accessKeyId = requireEnv("R2_ACCESS_KEY_ID");
@@ -117,8 +143,9 @@ async function main() {
   // *server* level instead, controlled by `api.cors_allow_origin`, which
   // defaults to `*` (verified with a real cross-origin `curl` OPTIONS
   // preflight, PUT, and GET straight against a presigned URL — see
-  // task-16-report.md). So this 501 is expected and swallowed for MinIO
-  // specifically; any other error still fails the script.
+  // task-16-report.md). See `isKnownCorsUnsupportedBackend` above for why
+  // this 501 is only swallowed for a known-local backend, not on the error
+  // code alone.
   try {
     await client.send(
       new PutBucketCorsCommand({
@@ -141,11 +168,14 @@ async function main() {
         `update PRODUCTION_ORIGIN_PLACEHOLDER in this script and re-run once the real production domain is known).`
     );
   } catch (err) {
-    if (err?.Code === "NotImplemented" || err?.name === "NotImplemented") {
+    const isNotImplemented = err?.Code === "NotImplemented" || err?.name === "NotImplemented";
+    if (isNotImplemented && isKnownCorsUnsupportedBackend(endpoint)) {
       console.warn(
-        `Bucket-level CORS is not implemented by this storage backend (expected for local MinIO) — ` +
-          `relying on its server-level "api.cors_allow_origin" config (default "*") instead. ` +
-          `This command IS required and will succeed against production Cloudflare R2.`
+        `CORS was NOT configured on "${bucket}": this storage backend does not implement the bucket-level S3 CORS ` +
+          `API (expected for local MinIO — allowed here because R2_ENDPOINT is local, or ALLOW_CORS_UNSUPPORTED=1 ` +
+          `was set). Relying on MinIO's server-level "api.cors_allow_origin" default ("*") instead — verified ` +
+          `working with a real cross-origin PUT (see task-16-report.md). Production Cloudflare R2 DOES require ` +
+          `this to succeed: do not set ALLOW_CORS_UNSUPPORTED against a production R2_ENDPOINT.`
       );
     } else {
       throw err;

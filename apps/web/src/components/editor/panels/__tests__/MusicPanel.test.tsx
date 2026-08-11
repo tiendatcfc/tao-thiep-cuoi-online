@@ -73,6 +73,19 @@ describe("MusicPanel", () => {
     expect(music.url).toBeNull();
   });
 
+  it("switching from 'Thư viện' (with a track chosen) to 'Đường dẫn' clears the stale library url too — symmetric with the reverse direction", () => {
+    resetStore({ source: "library", url: "https://cdn.test/some-library-track.mp3", trackId: "t1" });
+    render(<MusicPanel />);
+
+    fireEvent.change(screen.getByLabelText("Nguồn nhạc"), { target: { value: "url" } });
+
+    const music = useEditorStore.getState().document.music;
+    expect(music.source).toBe("upload");
+    expect(music.trackId).toBeNull();
+    expect(music.url).toBeNull();
+    expect(screen.getByLabelText("Đường dẫn tệp nhạc")).toHaveValue("");
+  });
+
   it("switching to 'Thư viện' fetches /api/music and lists the tracks", async () => {
     render(<MusicPanel />);
     fireEvent.change(screen.getByLabelText("Nguồn nhạc"), { target: { value: "library" } });

@@ -128,7 +128,11 @@ export function MusicPanel() {
       // URL instead of the (not yet chosen) library track.
       updateMusic({ source: "library", url: null });
     } else {
-      updateMusic({ source: "upload", trackId: null });
+      // Symmetric with the "library" branch above: clear a stale `url`
+      // left over from a previously-*chosen* library track too, so the
+      // "Đường dẫn tệp nhạc" field starts empty rather than pre-filled
+      // with someone else's library track URL.
+      updateMusic({ source: "upload", trackId: null, url: null });
     }
   }
 

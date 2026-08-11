@@ -43,13 +43,28 @@ export interface ImageFieldProps {
 
 type Status = "idle" | "uploading" | "error";
 
+/**
+ * A malformed-but-decodable file can make the browser fire `onload` (a
+ * "successful" decode) while still reporting `naturalWidth`/`naturalHeight`
+ * of `0` — `onerror` alone isn't a reliable signal here. `AlbumImageSchema`
+ * requires `.int().positive()`, and a `0` slipping through makes the whole
+ * document fail `InvitationDocumentSchema.parse` with no indication of
+ * which field is at fault (the exact failure mode client-side validation
+ * exists to prevent) — so this treats `< 1` on either axis as a decode
+ * failure, same as `onerror`, rather than resolving with a degenerate size.
+ */
 function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      const { naturalWidth: width, naturalHeight: height } = img;
       URL.revokeObjectURL(objectUrl);
+      if (width < 1 || height < 1) {
+        reject(new Error("Không đọc được kích thước ảnh."));
+        return;
+      }
+      resolve({ width, height });
     };
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);

@@ -14,6 +14,33 @@ function makeFile(name: string, sizeBytes: number, type: string): File {
   return file;
 }
 
+/**
+ * jsdom doesn't actually decode images, so `new Image()` never fires
+ * `onload`/`onerror` on its own. This stubs the global `Image` constructor
+ * to simulate a *successful* decode (real browsers do call `onload`, not
+ * `onerror`, for a malformed-but-parseable file) reporting the given
+ * `naturalWidth`/`naturalHeight` — including the degenerate `0×0` case
+ * `readImageDimensions` needs to treat as a failure on its own, since the
+ * browser itself won't.
+ */
+function stubImageWithNaturalSize(width: number, height: number) {
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    naturalWidth = width;
+    naturalHeight = height;
+    set src(_value: string) {
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+  vi.stubGlobal("Image", FakeImage as unknown as typeof Image);
+  vi.stubGlobal("URL", {
+    ...URL,
+    createObjectURL: vi.fn(() => "blob:fake"),
+    revokeObjectURL: vi.fn(),
+  });
+}
+
 describe("ImageField", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -116,6 +143,41 @@ describe("ImageField", () => {
       expect(screen.getByText("Không thể tải ảnh lên, vui lòng thử lại.")).toBeInTheDocument();
     });
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("passes positive naturalWidth/naturalHeight through to onUploaded on a normal image", async () => {
+    stubImageWithNaturalSize(1200, 800);
+    const onChange = vi.fn();
+    const onUploaded = vi.fn();
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse(200, { uploadUrl: "https://storage.test/signed-put", publicUrl: "https://cdn.test/a.jpg", assetId: "a" }),
+      )
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+    render(<ImageField label="Ảnh" value="" onChange={onChange} onUploaded={onUploaded} />);
+    const file = makeFile("photo.jpg", 1024, "image/jpeg");
+    fireEvent.change(screen.getByLabelText("Ảnh"), { target: { files: [file] } });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("https://cdn.test/a.jpg"));
+    expect(onUploaded).toHaveBeenCalledWith({ url: "https://cdn.test/a.jpg", width: 1200, height: 800 });
+  });
+
+  it("rejects a 0x0 decoded image before ever calling fetch, showing the upload-failure message and writing nothing", async () => {
+    stubImageWithNaturalSize(0, 0);
+    const onChange = vi.fn();
+    const onUploaded = vi.fn();
+
+    render(<ImageField label="Ảnh" value="" onChange={onChange} onUploaded={onUploaded} />);
+    const file = makeFile("degenerate.jpg", 1024, "image/jpeg");
+    fireEvent.change(screen.getByLabelText("Ảnh"), { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(screen.getByText("Không thể tải ảnh lên, vui lòng thử lại.")).toBeInTheDocument();
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onUploaded).not.toHaveBeenCalled();
   });
 
   it("clears the value when the remove button is clicked", () => {

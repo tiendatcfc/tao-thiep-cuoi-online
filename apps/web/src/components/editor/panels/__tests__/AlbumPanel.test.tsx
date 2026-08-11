@@ -3,7 +3,7 @@ import { createSection, InvitationDocumentSchema, type Section } from "@hpwd/sch
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
-import { AlbumPanel } from "../AlbumPanel";
+import { AlbumPanel, clampPositiveInt } from "../AlbumPanel";
 
 function albumSection(): Extract<Section, { type: "album" }> {
   return createSection("album") as Extract<Section, { type: "album" }>;
@@ -16,6 +16,21 @@ beforeEach(() => {
     dirty: false,
     saving: false,
     lastSavedAt: null,
+  });
+});
+
+describe("clampPositiveInt", () => {
+  it("passes a normal positive integer through unchanged", () => {
+    expect(clampPositiveInt(1200)).toBe(1200);
+  });
+
+  it("floors 0 and negative numbers up to 1 (AlbumImageSchema requires .int().positive())", () => {
+    expect(clampPositiveInt(0)).toBe(1);
+    expect(clampPositiveInt(-50)).toBe(1);
+  });
+
+  it("rounds a fractional value to the nearest integer", () => {
+    expect(clampPositiveInt(799.6)).toBe(800);
   });
 });
 

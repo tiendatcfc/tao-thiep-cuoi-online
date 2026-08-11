@@ -27,6 +27,19 @@ function createPlaceholderImage(): AlbumImage {
   return { url: "", width: 1, height: 1, blurDataUrl: TRANSPARENT_PIXEL_DATA_URL };
 }
 
+/**
+ * `AlbumImageSchema.width`/`height` are `.int().positive()` — applied both
+ * to manual `NumberField` edits and to `ImageField`'s `onUploaded` result.
+ * `ImageField` itself already rejects a decode that reports `0×0` (see its
+ * `readImageDimensions`), so this is defense-in-depth rather than the only
+ * guard: a `0`/negative/fractional value should never be reachable here,
+ * but if it ever were, this still can't produce a document that fails
+ * schema validation.
+ */
+export function clampPositiveInt(n: number): number {
+  return Math.max(1, Math.round(n));
+}
+
 export function AlbumPanel({ section }: { section: Extract<Section, { type: "album" }> }) {
   const updateSectionProps = useEditorStore((state) => state.updateSectionProps);
   const { layout, images } = section.props;
@@ -53,7 +66,12 @@ export function AlbumPanel({ section }: { section: Extract<Section, { type: "alb
               value={image.url}
               onChange={(url) => update({ ...image, url })}
               onUploaded={({ url, width, height }) =>
-                update({ url, width, height, blurDataUrl: TRANSPARENT_PIXEL_DATA_URL })
+                update({
+                  url,
+                  width: clampPositiveInt(width),
+                  height: clampPositiveInt(height),
+                  blurDataUrl: TRANSPARENT_PIXEL_DATA_URL,
+                })
               }
             />
             <div className="flex gap-2">
@@ -61,13 +79,13 @@ export function AlbumPanel({ section }: { section: Extract<Section, { type: "alb
                 label="Rộng (px)"
                 value={image.width}
                 min={1}
-                onChange={(v) => update({ ...image, width: Math.max(1, Math.round(v)) })}
+                onChange={(v) => update({ ...image, width: clampPositiveInt(v) })}
               />
               <NumberField
                 label="Cao (px)"
                 value={image.height}
                 min={1}
-                onChange={(v) => update({ ...image, height: Math.max(1, Math.round(v)) })}
+                onChange={(v) => update({ ...image, height: clampPositiveInt(v) })}
               />
             </div>
           </div>
