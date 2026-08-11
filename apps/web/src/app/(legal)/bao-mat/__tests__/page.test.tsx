@@ -27,6 +27,22 @@ describe("BaoMatPage (/bao-mat)", () => {
     expect(screen.getAllByText(/Số lượt xem/).length).toBeGreaterThan(0);
   });
 
+  it("does not claim audio/music-file storage in the present-tense storage list — no music upload feature has shipped", () => {
+    // Regression guard: this page previously listed "file nhạc" alongside
+    // album/cover images in the "what we store" list even though there is
+    // no music-upload UI anywhere in the app (MusicPanel only accepts an
+    // already-hosted URL) and no code path ever creates a MediaAsset with
+    // an audio kind. Scoped to the specific storage-list <li> (not the
+    // whole page) because the page legitimately mentions "nhạc" once more,
+    // in a separate future-tense sentence about the not-yet-shipped
+    // feature — that sentence must stay outside this present-tense list.
+    render(<BaoMatPage />);
+
+    const uploadItem = screen.getAllByText(/File bạn tải lên/)[0].closest("li");
+    expect(uploadItem).not.toBeNull();
+    expect(uploadItem).not.toHaveTextContent(/nhạc|âm thanh/i);
+  });
+
   it("states there is no third-party analytics and that guest submissions are visible to the couple", () => {
     render(<BaoMatPage />);
 

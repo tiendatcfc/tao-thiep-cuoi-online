@@ -44,9 +44,9 @@ export default function DieuKhoanPage() {
 
       <LegalSection title="3. Nội dung bạn đăng tải">
         <p>
-          Bạn chịu trách nhiệm về nội dung mình đăng lên thiệp: văn bản, ảnh, âm thanh, thông tin tài khoản
-          ngân hàng dùng cho hộp mừng cưới. Vui lòng chỉ đăng nội dung bạn có quyền sử dụng và không đăng
-          nội dung vi phạm pháp luật Việt Nam.
+          Bạn chịu trách nhiệm về nội dung mình đăng lên thiệp: văn bản, ảnh, thông tin tài khoản ngân hàng
+          dùng cho hộp mừng cưới. Vui lòng chỉ đăng nội dung bạn có quyền sử dụng và không đăng nội dung vi
+          phạm pháp luật Việt Nam.
         </p>
         <p>
           Một khi thiệp được xuất bản, đường link của thiệp là công khai — bất kỳ ai có đường link đều xem

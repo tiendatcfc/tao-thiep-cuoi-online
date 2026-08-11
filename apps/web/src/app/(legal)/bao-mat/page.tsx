@@ -33,18 +33,22 @@ export default function BaoMatPage() {
             chuyện, sự kiện, thông tin tài khoản ngân hàng cho hộp mừng, v.v.).
           </li>
           <li>
-            <strong>File bạn tải lên:</strong> ảnh album, ảnh bìa và (nếu có) file nhạc bạn tải lên khi tạo
-            thiệp.
+            <strong>File bạn tải lên:</strong> ảnh album và ảnh bìa bạn tải lên khi tạo thiệp.
           </li>
           <li>
-            <strong>Dữ liệu khách mời:</strong> tên khách (nếu bạn tạo link riêng cho khách), và nội dung
-            khách gửi — lời chúc, câu trả lời form RSVP.
+            <strong>Dữ liệu khách mời:</strong> tên khách mời (nếu thiệp của bạn dùng link cá nhân hoá cho
+            từng khách), và nội dung khách gửi — lời chúc, câu trả lời form RSVP.
           </li>
           <li>
             <strong>Số lượt xem:</strong> số lần thiệp được mở (view count), không gắn với danh tính người
             xem cụ thể.
           </li>
         </ul>
+        <p>
+          Tính năng cho phép bạn tải lên file nhạc riêng (thay vì chỉ chọn từ thư viện có sẵn) và tính năng
+          tự tạo link cá nhân hoá cho từng khách hiện <strong>chưa ra mắt</strong> — khi ra mắt, mục này sẽ
+          được cập nhật để phản ánh đúng dữ liệu được thu thập thêm.
+        </p>
       </LegalSection>
 
       <LegalSection title="2. Chúng tôi KHÔNG dùng bên phân tích/theo dõi thứ ba">
@@ -72,9 +76,8 @@ export default function BaoMatPage() {
       <LegalSection title="4. Lưu trữ dữ liệu">
         <p>
           Dữ liệu văn bản (tài khoản, nội dung thiệp, lời chúc, RSVP) được lưu trong cơ sở dữ liệu của
-          chúng tôi. Ảnh và file âm thanh bạn tải lên được lưu ở dịch vụ lưu trữ đối tượng (object storage)
-          riêng của chúng tôi, không phải trên máy chủ của bên thứ ba nào khác ngoài nhà cung cấp hạ tầng
-          lưu trữ đó.
+          chúng tôi. Ảnh bạn tải lên được lưu ở dịch vụ lưu trữ đối tượng (object storage) riêng của chúng
+          tôi, không phải trên máy chủ của bên thứ ba nào khác ngoài nhà cung cấp hạ tầng lưu trữ đó.
         </p>
       </LegalSection>
 

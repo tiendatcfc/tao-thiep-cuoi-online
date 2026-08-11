@@ -238,8 +238,9 @@ export function LandingPage({ templates }: LandingPageProps) {
           <h2 className="text-center text-2xl font-semibold text-gray-900 sm:text-3xl">
             Xem mẫu thiệp có sẵn
           </h2>
+          {/* text-gray-600, not -400: gray-400 on white is ~2.9:1, failing WCAG AA (4.5:1) for this text-sm text — flagged by Lighthouse's color-contrast audit. */}
           {templates.length === 0 ? (
-            <p className="mt-8 text-center text-sm text-gray-400">Chưa có mẫu thiệp nào.</p>
+            <p className="mt-8 text-center text-sm text-gray-600">Chưa có mẫu thiệp nào.</p>
           ) : (
             <div className="mt-8 flex gap-4 overflow-x-auto pb-2">
               {templates.map((template) => (

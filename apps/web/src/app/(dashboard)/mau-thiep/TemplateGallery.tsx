@@ -45,9 +45,10 @@ export function TemplateGallery({ templates, tier, isAuthenticated }: TemplateGa
       </nav>
 
       {tier === "premium" ? (
-        <p className="mt-12 text-center text-sm text-gray-400">Mẫu Premium sắp ra mắt</p>
+        // text-gray-600, not -400: gray-400 on white is ~2.9:1, failing WCAG AA (4.5:1) for this text-sm text — flagged by Lighthouse's color-contrast audit (Task 19 review).
+        <p className="mt-12 text-center text-sm text-gray-600">Mẫu Premium sắp ra mắt</p>
       ) : templates.length === 0 ? (
-        <p className="mt-12 text-center text-sm text-gray-400">Chưa có mẫu thiệp nào.</p>
+        <p className="mt-12 text-center text-sm text-gray-600">Chưa có mẫu thiệp nào.</p>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {templates.map((template) => (
