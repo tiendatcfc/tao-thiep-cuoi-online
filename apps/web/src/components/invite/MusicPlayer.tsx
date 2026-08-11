@@ -54,7 +54,11 @@ export function MusicPlayer({ music, startSignal }: MusicPlayerProps) {
   const [libraryUrl, setLibraryUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (music.source !== "library" || music.url || !music.trackId) return;
+    if (music.source !== "library" || music.url) return;
+    if (!music.trackId) {
+      console.warn("MusicPlayer: library source has neither url nor trackId set — nothing to resolve.");
+      return;
+    }
     const trackId = music.trackId;
     let cancelled = false;
 
@@ -110,14 +114,26 @@ export function MusicPlayer({ music, startSignal }: MusicPlayerProps) {
   const directUrl = music.source === "upload" || music.source === "library" ? music.url : null;
   const resolvedUrl = directUrl ?? libraryUrl;
 
-  // Changing an <audio> element's `src` attribute doesn't reliably make the
-  // browser pick up the new resource on its own — that needs an explicit
-  // `load()`. Not exercised by anything today, but the editor's live
-  // preview (Task 15/16) re-renders this same mounted component whenever
-  // the couple picks a different track in `MusicPanel`, so this keeps that
-  // case correct now rather than as a bug to rediscover later.
+  // A guest who starts music and then navigates away (e.g. the "Tạo miễn
+  // phí tại HPWD" badge link right below this component) triggers a
+  // client-side route change that unmounts this component — without this,
+  // the <audio> element (and its playback) would keep going on the old page
+  // in the background since nothing ever told it to stop.
+  //
+  // The element is captured into a local here, at setup time, rather than
+  // re-read from `audioRef.current` inside the cleanup: React detaches refs
+  // (sets them back to `null`) before running passive-effect cleanups on a
+  // real unmount, so reading the ref *inside* the cleanup would already see
+  // `null` and silently no-op. Keying on `resolvedUrl` (instead of `[]`)
+  // also makes this work when the element only mounts later, once a
+  // library track's URL resolves asynchronously.
   useEffect(() => {
-    audioRef.current?.load();
+    const audio = audioRef.current;
+    return () => {
+      if (!audio) return;
+      audio.pause();
+      audio.currentTime = 0;
+    };
   }, [resolvedUrl]);
 
   if (music.source === null || !resolvedUrl) return null;

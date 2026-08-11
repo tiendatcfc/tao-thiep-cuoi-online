@@ -48,10 +48,6 @@ describe("MusicPlayer", () => {
     pauseSpy = vi.fn();
     window.HTMLMediaElement.prototype.play = playSpy as unknown as HTMLMediaElement["play"];
     window.HTMLMediaElement.prototype.pause = pauseSpy as unknown as HTMLMediaElement["pause"];
-    // MusicPlayer calls `load()` whenever the resolved src changes (see its
-    // docstring) — jsdom doesn't implement it either, so it's stubbed here
-    // too, purely to keep test output free of "Not implemented" noise.
-    window.HTMLMediaElement.prototype.load = vi.fn() as unknown as HTMLMediaElement["load"];
   });
 
   afterEach(() => {
@@ -88,14 +84,29 @@ describe("MusicPlayer", () => {
     expect(playSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("does not auto-start in preview mode even when startSignal flips true", () => {
+  it("does not auto-start in preview mode even when startSignal flips true, but the button still works", () => {
     const { rerender } = render(provider(music(), false, true));
 
     rerender(provider(music(), true, true));
 
     expect(playSpy).not.toHaveBeenCalled();
-    // Still usable via its own button in preview.
-    expect(screen.getByRole("button", { name: "Bật nhạc" })).toBeInTheDocument();
+
+    // Still fully usable via its own button in preview — only the
+    // automatic startSignal-driven play is suppressed.
+    fireEvent.click(screen.getByRole("button", { name: "Bật nhạc" }));
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("pauses (and resets) the audio element on unmount, so a route change doesn't leave it playing", async () => {
+    const { unmount } = renderPlayer(music(), false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Bật nhạc" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tắt nhạc" })).toBeInTheDocument());
+    expect(pauseSpy).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
   });
 
   it("clicking the button toggles play/pause", async () => {
@@ -172,6 +183,18 @@ describe("MusicPlayer", () => {
     const { container } = renderPlayer(music({ source: "library", url: null, trackId: "track-1" }), false);
 
     await waitFor(() => expect(warnSpy).toHaveBeenCalled());
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("renders nothing and warns when a library source has neither url nor trackId set", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { container } = renderPlayer(music({ source: "library", url: null, trackId: null }), false);
+
+    expect(warnSpy).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(container.firstChild).toBeNull();
   });
 });
