@@ -13,13 +13,40 @@ const SIDE_LABEL: Record<GiftProps["accounts"][number]["side"], string> = {
 
 const COPY_CONFIRMATION_MS = 2000;
 
-/** "0123456789" -> "0123 4567 89" — purely cosmetic, doesn't touch the value that gets copied/encoded. */
-function formatAccountNumber(accountNumber: string): string {
-  return accountNumber.match(/.{1,4}/g)?.join(" ") ?? accountNumber;
+/**
+ * C8: renders `value` grouped into 4s for readability (like "0987 6543 21")
+ * WITHOUT any literal space character in the DOM text — every digit is its
+ * own `<span>`, and the visual gap between groups is a CSS margin on every
+ * 4th one, not a text node. That matters because guests without a working
+ * "Sao chép STK" button (unsupported clipboard API — see `handleCopy`) fall
+ * back to manually selecting and copying this text, and most Vietnamese
+ * banking apps reject a pasted account number that contains spaces. A plain
+ * `"0123 4567 89"` string would copy those spaces along with the digits;
+ * this never puts them in the copyable text at all, so a manual
+ * select-and-copy always yields pure digits, matching exactly what
+ * `handleCopy`'s `navigator.clipboard.writeText` already sends.
+ */
+function GroupedAccountNumber({ value }: { value: string }) {
+  return (
+    <p className="font-mono text-sm text-gray-700">
+      {value.split("").map((digit, index) => {
+        const isGroupEnd = (index + 1) % 4 === 0 && index !== value.length - 1;
+        return (
+          <span key={index} style={isGroupEnd ? { marginRight: "0.4em" } : undefined}>
+            {digit}
+          </span>
+        );
+      })}
+    </p>
+  );
 }
 
 function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }) {
   const [copied, setCopied] = useState(false);
+  // Checked once at render time rather than made reactive — whether the
+  // clipboard API exists doesn't change over a page's lifetime.
+  const clipboardAvailable =
+    typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
 
   const payload = buildVietQRPayload({
     bankBin: account.bankBin,
@@ -58,15 +85,25 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
       <div data-testid="vietqr" className="rounded-lg bg-white p-2">
         <QRCode value={payload} size={168} />
       </div>
-      <p className="font-mono text-sm text-gray-700">{formatAccountNumber(account.accountNumber)}</p>
+      <GroupedAccountNumber value={account.accountNumber} />
       <p className="text-sm text-gray-600">{account.accountName.toUpperCase()}</p>
-      <button
-        type="button"
-        onClick={handleCopy}
-        className="mt-1 rounded-full border border-[var(--primary)] px-4 py-1.5 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-white"
-      >
-        {copied ? "Đã sao chép!" : "Sao chép STK"}
-      </button>
+      {clipboardAvailable ? (
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="mt-1 rounded-full border border-[var(--primary)] px-4 py-1.5 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)] hover:text-white"
+        >
+          {copied ? "Đã sao chép!" : "Sao chép STK"}
+        </button>
+      ) : (
+        // C8: in-app WebViews (Zalo, Facebook Messenger) frequently don't
+        // expose `navigator.clipboard` at all — the copy button would just
+        // silently no-op there with no feedback. Tell the guest how to copy
+        // manually instead of leaving them with a dead button.
+        <p className="mt-1 text-xs text-gray-400">
+          Vui lòng bôi đen và sao chép số tài khoản ở trên.
+        </p>
+      )}
     </div>
   );
 }

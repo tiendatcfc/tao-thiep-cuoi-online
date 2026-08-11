@@ -44,11 +44,40 @@ describe("GiftSection", () => {
     expect(screen.getByText("Nhà gái")).toBeInTheDocument();
   });
 
-  it("formats the account number in groups of 4 and uppercases the account name", () => {
+  it("uppercases the account name", () => {
     render(<GiftSection section={giftSection([brideAccount])} />);
 
-    expect(screen.getByText("0987 6543 21")).toBeInTheDocument();
     expect(screen.getByText("TRAN THU HA")).toBeInTheDocument();
+  });
+
+  // C8: visual grouping must never leak into the SELECTABLE/copyable text —
+  // most Vietnamese banking apps reject a pasted account number containing
+  // spaces, and a guest without a working clipboard button (see the
+  // "clipboard unavailable" test below) falls back to manually selecting
+  // this exact text.
+  describe("account number grouping (C8)", () => {
+    it("renders the account number with no literal space character in its text content", () => {
+      render(<GiftSection section={giftSection([brideAccount])} />);
+
+      const digitsOnly = screen.getByText((_content, element) =>
+        element?.tagName.toLowerCase() === "p" && element.textContent === brideAccount.accountNumber,
+      );
+      expect(digitsOnly).toBeInTheDocument();
+      expect(digitsOnly.textContent).not.toContain(" ");
+    });
+
+    it("still visually groups the digits (a margin between groups, not a space character)", () => {
+      render(<GiftSection section={giftSection([brideAccount])} />);
+
+      // "0987654321" (10 digits) groups as 0987|6543|21 — a visual gap
+      // after the 4th and 8th digit (1-indexed), applied as inline style on
+      // those specific <span> characters, never as ` ` in the text.
+      const digitSpans = screen.getAllByText(/^\d$/);
+      expect(digitSpans).toHaveLength(brideAccount.accountNumber.length);
+      expect(digitSpans[3]?.style.marginRight).toBe("0.4em");
+      expect(digitSpans[7]?.style.marginRight).toBe("0.4em");
+      expect(digitSpans[2]?.style.marginRight).toBeFalsy();
+    });
   });
 
   it("copies the account number to the clipboard when 'Sao chép STK' is clicked", async () => {
@@ -69,29 +98,32 @@ describe("GiftSection", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  // Review fix (B): in-app WebViews (Zalo, Facebook Messenger) frequently
-  // don't expose navigator.clipboard at all. Calling .writeText unguarded
-  // used to throw inside the click handler — per the DOM spec, jsdom (like
-  // real browsers) doesn't propagate that back through fireEvent.click's
-  // call stack, it reports it as an uncaught "error" event instead, so that
-  // event is what this test listens for rather than a synchronous throw.
-  it("does not throw and shows no false success when navigator.clipboard is unavailable", async () => {
+  // C8 (was Review fix (B), now goes further): in-app WebViews (Zalo,
+  // Facebook Messenger) frequently don't expose navigator.clipboard at
+  // all. Calling .writeText unguarded used to throw inside the click
+  // handler; the button is guarded against that now, but a guest still had
+  // no way to know the button was dead — the whole "Sao chép STK" control
+  // used to silently no-op with zero feedback. It's now replaced with a
+  // Vietnamese hint telling them to copy manually.
+  it("hides the (dead) copy button and shows a Vietnamese manual-copy hint when navigator.clipboard is unavailable", () => {
     const original = navigator.clipboard;
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
-    const onUncaughtError = vi.fn();
-    window.addEventListener("error", onUncaughtError);
 
     render(<GiftSection section={giftSection([groomAccount])} />);
-    fireEvent.click(screen.getByText("Sao chép STK"));
-    // Give a would-be uncaught exception a task to surface as a window
-    // "error" event before asserting none did.
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(onUncaughtError).not.toHaveBeenCalled();
-    expect(screen.getByText("Sao chép STK")).toBeInTheDocument();
-    expect(screen.queryByText("Đã sao chép!")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sao chép STK")).not.toBeInTheDocument();
+    expect(screen.getByText("Vui lòng bôi đen và sao chép số tài khoản ở trên.")).toBeInTheDocument();
 
-    window.removeEventListener("error", onUncaughtError);
+    Object.defineProperty(navigator, "clipboard", { value: original, configurable: true });
+  });
+
+  it("does not throw when navigator.clipboard.writeText itself is missing (clipboard object present but incomplete)", () => {
+    const original = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", { value: {}, configurable: true });
+
+    expect(() => render(<GiftSection section={giftSection([groomAccount])} />)).not.toThrow();
+    expect(screen.queryByText("Sao chép STK")).not.toBeInTheDocument();
+
     Object.defineProperty(navigator, "clipboard", { value: original, configurable: true });
   });
 
