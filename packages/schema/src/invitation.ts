@@ -106,8 +106,11 @@ export type EventsProps = z.infer<typeof EventsPropsSchema>
 const AlbumImageSchema = z
   .object({
     url: z.string(),
-    width: z.number().int().min(0),
-    height: z.number().int().min(0),
+    // `.positive()` (min 1), not `.min(0)` — a 0-width/height image breaks
+    // next/image's layout math and produces NaN aspect ratios in the
+    // lightbox, so zero was never actually a valid dimension here.
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
     blurDataUrl: z.string(),
   })
   .strict()
@@ -131,10 +134,14 @@ export type VideoProps = z.infer<typeof VideoPropsSchema>
 const GiftAccountSchema = z
   .object({
     side: z.enum(['groom', 'bride']),
-    bankBin: z.string(),
+    // NAPAS bank BINs are 6 digits in practice; 4-8 leaves headroom without
+    // accepting garbage. Unbounded strings here let a too-long or empty
+    // value reach buildVietQRPayload's tlv() encoder, which throws once a
+    // field exceeds 99 UTF-8 bytes (and produces a useless QR when empty).
+    bankBin: z.string().regex(/^\d{4,8}$/),
     bankName: z.string(),
-    accountNumber: z.string(),
-    accountName: z.string(),
+    accountNumber: z.string().min(1).max(30),
+    accountName: z.string().max(50),
   })
   .strict()
 

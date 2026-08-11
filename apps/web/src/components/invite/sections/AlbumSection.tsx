@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { Section } from "@hpwd/schema";
 import Image from "next/image";
 import Lightbox from "yet-another-react-lightbox";
@@ -20,6 +20,13 @@ export function AlbumSection({ section }: { section: Extract<Section, { type: "a
   const { images } = section.props;
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
+  // Recomputed only when the image list itself changes, not on every
+  // lightbox open/close/navigate (which just moves `lightboxIndex`).
+  const slides = useMemo(
+    () => images.map((image) => ({ src: image.url, width: image.width, height: image.height })),
+    [images],
+  );
+
   if (images.length === 0) return null;
 
   return (
@@ -33,17 +40,23 @@ export function AlbumSection({ section }: { section: Extract<Section, { type: "a
             key={image.url}
             type="button"
             onClick={() => setLightboxIndex(index)}
-            className="block"
+            // Fixed square tiles regardless of each photo's native aspect
+            // ratio — `fill` + `object-cover` inside a sized/clipped
+            // container, rather than intrinsic width/height + `object-cover`
+            // (a contradictory combo: `h-auto` lets the element take its
+            // natural height, so `object-cover` never has any overflow to
+            // crop, and grid rows end up ragged). The full, uncropped photo
+            // still opens in the lightbox via `slides`.
+            className="relative block aspect-square overflow-hidden rounded-lg"
           >
             <Image
               src={image.url}
               alt={`Ảnh cưới ${index + 1}`}
-              width={image.width}
-              height={image.height}
+              fill
               sizes="(max-width: 430px) 50vw, 215px"
               placeholder={image.blurDataUrl ? "blur" : "empty"}
               blurDataURL={image.blurDataUrl || undefined}
-              className="h-auto w-full rounded-lg object-cover"
+              className="object-cover"
               loading="lazy"
             />
           </button>
@@ -53,7 +66,7 @@ export function AlbumSection({ section }: { section: Extract<Section, { type: "a
         open={lightboxIndex !== null}
         index={lightboxIndex ?? 0}
         close={() => setLightboxIndex(null)}
-        slides={images.map((image) => ({ src: image.url, width: image.width, height: image.height }))}
+        slides={slides}
       />
     </SectionWrapper>
   );

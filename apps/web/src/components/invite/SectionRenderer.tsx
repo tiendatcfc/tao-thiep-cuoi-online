@@ -14,8 +14,9 @@ import { WishesSection } from "./sections/WishesSection";
 /**
  * One component per `SectionType`, each typed to the exact props shape for
  * its own section — a typo pairing e.g. `couple` with `EventsSection` is a
- * compile error. `video` renders `null` (Phase 2); `album`/`gift`/`wishes`/
- * `form` are placeholder shells until Tasks 9–11 land.
+ * compile error. `video` renders `null` (Phase 2); `wishes`/`form` are
+ * placeholder shells until Tasks 10–11 land (`album`/`gift` are real as of
+ * Task 9).
  */
 const registry: { [K in SectionType]: ComponentType<{ section: Extract<Section, { type: K }> }> } = {
   cover: CoverSection,

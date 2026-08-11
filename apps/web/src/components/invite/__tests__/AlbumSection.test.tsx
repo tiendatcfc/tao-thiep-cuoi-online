@@ -62,4 +62,20 @@ describe("AlbumSection", () => {
       }),
     );
   });
+
+  // Review fix (F): `slides` used to be rebuilt with a fresh `images.map(...)`
+  // call inline on every render, including the re-renders triggered by
+  // simply opening/navigating the lightbox (a `lightboxIndex` state change),
+  // even though the underlying `images` list hadn't changed.
+  it("keeps the slides array referentially stable across lightbox navigations", () => {
+    render(<AlbumSection section={albumSection(images)} />);
+
+    fireEvent.click(screen.getAllByRole("img")[0]);
+    const firstSlides = lightboxSpy.mock.calls.at(-1)?.[0].slides;
+
+    fireEvent.click(screen.getAllByRole("img")[1]);
+    const secondSlides = lightboxSpy.mock.calls.at(-1)?.[0].slides;
+
+    expect(firstSlides).toBe(secondSlides);
+  });
 });
