@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
 import { InviteContext } from "./InviteContext";
+import { MusicPlayer } from "./MusicPlayer";
 import { SectionRenderer } from "./SectionRenderer";
 
 export interface InvitePageSettings {
@@ -49,6 +50,14 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
         style={themeStyle}
       >
         <SectionRenderer document={document} />
+        {/*
+         * TODO(Task 13): the opening-gate overlay owns the guest's tap and
+         * will flip this to a real `startSignal` state (false -> true) once
+         * it fires `onOpened`. Hardcoded `false` for now — never true, so
+         * `MusicPlayer` never auto-starts — but the player is already fully
+         * usable via its own toggle button.
+         */}
+        <MusicPlayer music={document.music} startSignal={false} />
         {settings.showBadge ? (
           <footer className="py-6 text-center text-xs text-gray-400">
             <Link href="/" className="hover:underline">

@@ -1,5 +1,5 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
-import { createDefaultDocument, type Section } from '@hpwd/schema'
+import { createDefaultDocument, type Music, type Section } from '@hpwd/schema'
 import sharp from 'sharp'
 import { prisma } from '../src/index'
 
@@ -127,6 +127,31 @@ async function seedAlbumImages(): Promise<SeedAlbumImage[]> {
 }
 
 /**
+ * Points the demo document at whatever `MusicTrack` row sorts first
+ * (category then title — same ordering `GET /api/music` uses), if any exist
+ * yet. `pnpm seed:music` (Task 12) populates that table separately, so this
+ * is best-effort and order-independent: run `seed-dev` before `seed:music`
+ * and the demo invitation simply has no music configured (`music.source`
+ * stays `null`, same as `createDefaultDocument()`'s default) until
+ * `seed-dev` is run again afterward.
+ *
+ * `url` is denormalized onto the document here (not left `null` for
+ * `MusicPlayer` to resolve via a client-side `GET /api/music` call) so the
+ * demo invitation's server-rendered HTML includes the player immediately,
+ * without waiting on a post-hydration fetch — `MusicPlayer` supports both
+ * resolution paths (see its docstring); this is the "url already known"
+ * one.
+ */
+async function seedDemoMusic(): Promise<Music | null> {
+  const track = await prisma.musicTrack.findFirst({
+    where: { isActive: true },
+    orderBy: [{ category: 'asc' }, { title: 'asc' }],
+  })
+  if (!track) return null
+  return { source: 'library', url: track.url, trackId: track.id, playAfterOpen: true }
+}
+
+/**
  * Local dev fixture: one demo user with one published invitation at
  * `/i/demo`, plus a guest link (`/i/demo?g=demo-guest-token`) so the
  * guest-name / "Kính mời" flow can be exercised without a real DB browse.
@@ -143,6 +168,9 @@ async function main() {
     )
     if (album) album.props.images = albumImages
   }
+
+  const music = await seedDemoMusic()
+  if (music) document.music = music
 
   const user = await prisma.user.upsert({
     where: { email: 'demo@hpwd.local' },
