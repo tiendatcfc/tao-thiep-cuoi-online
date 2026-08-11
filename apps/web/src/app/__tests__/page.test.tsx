@@ -23,7 +23,11 @@ describe("app/page.tsx (B3)", () => {
 
   it("passes live templates through to LandingPage on a successful query", async () => {
     const fixture = [{ id: "t1", name: "Mẫu 1", thumbnailUrl: "https://cdn.test/t1.png" }];
-    vi.spyOn(prisma.template, "findMany").mockResolvedValueOnce(fixture);
+    // `findMany`'s real return type reflects HomePage's `select` clause
+    // (only id/name/thumbnailUrl); Prisma's generated type for the
+    // unfiltered call is wider, so this mock is cast the same way any
+    // `select`-narrowed Prisma call's test fixture would need to be.
+    vi.spyOn(prisma.template, "findMany").mockResolvedValueOnce(fixture as never);
 
     const element = await HomePage();
 

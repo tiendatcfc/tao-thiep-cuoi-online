@@ -187,7 +187,13 @@ export type FormProps = z.infer<typeof FormPropsSchema>
 
 export const TextPropsSchema = z
   .object({
-    html: z.string(),
+    // C9: unbounded previously — the Task 8 deferral note explicitly said
+    // "add before the editor UI ships" (it also bounds `sanitizeHtml`'s
+    // O(n^2) worst case on pathological input), but Task 16 shipped
+    // TextPanel's free-text editor without it. 10_000 chars is generous for
+    // a wedding-invitation text block while still bounding both storage and
+    // the sanitizer's cost.
+    html: z.string().max(10_000),
   })
   .strict()
 export type TextProps = z.infer<typeof TextPropsSchema>

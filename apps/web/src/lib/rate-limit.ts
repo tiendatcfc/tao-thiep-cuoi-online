@@ -16,6 +16,32 @@ import Redis from "ioredis";
  * `rateLimit`'s fail-open catch below kicks in — a stalled Redis must never
  * make guests wait to submit a wish, let alone block them.
  */
+// C3: `INCR key` then, only on the first hit, `EXPIRE key windowSec` — two
+// round trips. A connection drop (or process crash) between them leaves the
+// key incremented but with NO TTL, so it never expires: every future
+// request for that `ip:slug` is rate-limited FOREVER until someone manually
+// `DEL`s it. Behind carrier-grade NAT (universal on Vietnamese mobile
+// networks — many guests share one public IP), one such blip silences an
+// entire cohort of guests on the wedding day, indistinguishable from a
+// permanent outage. `INCR`+`EXPIRE` in a single Lua script closes the gap:
+// Redis executes the whole script as one atomic operation, so there is no
+// window where the increment has landed without its expiry also having
+// landed — a dropped connection now either lands both or neither, never one
+// without the other.
+const RATE_LIMIT_INCR_SCRIPT = `
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`;
+
+declare module "ioredis" {
+  interface RedisCommander<Context> {
+    rateLimitIncr(key: string, windowSec: number): Promise<number>;
+  }
+}
+
 const globalForRedis = globalThis as unknown as { redis?: Redis };
 
 function getRedisClient(): Redis {
@@ -31,6 +57,11 @@ function getRedisClient(): Redis {
     // exists to keep that default from taking the whole app down; the
     // actual handling/logging happens in `rateLimit`'s catch block.
     client.on("error", () => {});
+    // ioredis caches the script's SHA and sends EVALSHA on subsequent
+    // calls (re-sending the full script only after a NOSCRIPT, e.g. right
+    // after a Redis restart), so this costs one extra round trip at most,
+    // not on every request.
+    client.defineCommand("rateLimitIncr", { numberOfKeys: 1, lua: RATE_LIMIT_INCR_SCRIPT });
     globalForRedis.redis = client;
   }
   return globalForRedis.redis;
@@ -48,10 +79,12 @@ export interface RateLimitOptions {
 }
 
 /**
- * Fixed-window rate limiter backed by Redis: `INCR key`, and on the first
- * hit in a fresh window (`count === 1`) sets that key to expire after
- * `windowSec`. Returns `true` (allowed) while the running count is within
- * `limit`, `false` (throttled) once it's exceeded.
+ * Fixed-window rate limiter backed by Redis: atomically increments `key`
+ * and, on the first hit in a fresh window (`count === 1`), sets that same
+ * key to expire after `windowSec` — see `RATE_LIMIT_INCR_SCRIPT` above for
+ * why this MUST be one atomic operation rather than two round trips.
+ * Returns `true` (allowed) while the running count is within `limit`,
+ * `false` (throttled) once it's exceeded.
  *
  * Fails open — returns `true` and logs via `console.error` — on any Redis
  * error. A dead Redis on a wedding day must never block a guest from
@@ -62,10 +95,7 @@ export async function rateLimit(key: string, opts: RateLimitOptions): Promise<bo
   const { limit, windowSec } = opts;
   try {
     const redis = getRedisClient();
-    const count = await redis.incr(key);
-    if (count === 1) {
-      await redis.expire(key, windowSec);
-    }
+    const count = await redis.rateLimitIncr(key, windowSec);
     return count <= limit;
   } catch (error) {
     console.error("rateLimit: Redis error, failing open (request allowed):", error);

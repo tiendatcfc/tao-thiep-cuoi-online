@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import Redis from "ioredis";
 import { afterAll, describe, expect, it } from "vitest";
 import { disconnectRateLimitRedis, rateLimit } from "../rate-limit";
 
@@ -42,6 +43,44 @@ describe("rateLimit", () => {
     expect(await rateLimit(keyA, { limit: 1, windowSec: 5 })).toBe(true);
     expect(await rateLimit(keyA, { limit: 1, windowSec: 5 })).toBe(false);
     expect(await rateLimit(keyB, { limit: 1, windowSec: 5 })).toBe(true);
+  });
+
+  // C3: proves the increment-and-set-expiry is genuinely ONE atomic Redis
+  // operation, not two separate round trips (`INCR` then `EXPIRE`) — a
+  // connection drop between two round trips would leave the key
+  // incremented with no TTL, permanently rate-limiting that key. `MONITOR`
+  // streams every command the Redis server actually receives, in the exact
+  // order it received them, from every client — including this test's own
+  // separate connection — so it can observe whether `rateLimit` sent a
+  // single `EVAL`/`EVALSHA` (the fix) or a bare `INCR` as its own top-level
+  // command (the pre-fix bug: the client would send `INCR`, wait for the
+  // reply, then send `EXPIRE` as a second, independent command — exactly
+  // the two-round-trip gap this closes).
+  it("increments and sets the expiry as a single atomic operation (not two separate round trips)", async () => {
+    const key = `test:ratelimit:atomic:${randomUUID()}`;
+    const monitorConn = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
+    const monitor = await monitorConn.monitor();
+    const observed: string[][] = [];
+    monitor.on("monitor", (_time: string, args: string[]) => observed.push(args));
+
+    try {
+      // Let MONITOR fully attach before issuing the call it needs to observe.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await rateLimit(key, { limit: 5, windowSec: 5 });
+      // Let the (fire-and-forget from the client's point of view) command
+      // finish streaming through MONITOR.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      const touchingKey = observed.filter((args) => args.includes(key));
+      expect(touchingKey.length).toBeGreaterThan(0);
+      // The very first thing the server saw for this key must be the atomic
+      // script call — not a bare top-level `INCR`, which is what the
+      // pre-fix two-round-trip implementation would have sent instead.
+      expect(touchingKey[0]![0]!.toLowerCase()).toMatch(/^eval(sha)?$/);
+    } finally {
+      monitor.disconnect();
+      monitorConn.disconnect();
+    }
   });
 
   it("fails open (returns true) when Redis is unreachable", async () => {

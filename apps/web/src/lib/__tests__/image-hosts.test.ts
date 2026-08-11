@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { getAllowedImageHosts, isAllowedImageUrl } from "../image-hosts";
 
-const ENV_WITH_R2 = { R2_PUBLIC_URL: "https://cdn.example.com/hpwd" } as NodeJS.ProcessEnv;
-const ENV_WITHOUT_R2 = {} as NodeJS.ProcessEnv;
+const ENV_WITH_R2 = { R2_PUBLIC_URL: "https://cdn.example.com/hpwd" } as unknown as NodeJS.ProcessEnv;
+const ENV_WITHOUT_R2 = {} as unknown as NodeJS.ProcessEnv;
 
 describe("getAllowedImageHosts", () => {
   it("always includes the local dev MinIO host", () => {
@@ -17,7 +17,7 @@ describe("getAllowedImageHosts", () => {
   });
 
   it("falls back to just the local-dev host when R2_PUBLIC_URL is malformed", () => {
-    expect(getAllowedImageHosts({ R2_PUBLIC_URL: "not a url" } as NodeJS.ProcessEnv)).toEqual([
+    expect(getAllowedImageHosts({ R2_PUBLIC_URL: "not a url" } as unknown as NodeJS.ProcessEnv)).toEqual([
       { protocol: "http", hostname: "localhost", port: "9000" },
     ]);
   });

@@ -48,7 +48,13 @@ export const useEditorStore = create<EditorState>()((set) => ({
   lastSavedAt: null,
 
   setDocument(doc) {
-    set({ document: doc, dirty: false });
+    // C6: `lastSavedAt` is a module-level singleton — without resetting it
+    // here, opening invitation B right after editing invitation A shows A's
+    // stale save timestamp until B's own first save. `EditorLayout` calls
+    // `setDocument` exactly once, on mount, with whatever the server loaded
+    // — that's a fresh load, never itself a "just saved" moment, so `null`
+    // (not shown yet) is always the right value here.
+    set({ document: doc, dirty: false, lastSavedAt: null });
   },
 
   selectSection(id) {

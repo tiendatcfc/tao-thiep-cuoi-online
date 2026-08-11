@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { InvitationDocumentSchema, createDefaultDocument, createSection } from '../index'
+import { InvitationDocumentSchema, TextPropsSchema, createDefaultDocument, createSection } from '../index'
 
 test('default document hợp lệ theo schema', () => {
   expect(() => InvitationDocumentSchema.parse(createDefaultDocument())).not.toThrow()
@@ -23,6 +23,19 @@ describe('round-trip losslessness', () => {
     const doc = createDefaultDocument()
     const parsed = InvitationDocumentSchema.parse(doc)
     expect(parsed).toEqual(doc)
+  })
+})
+
+// C9: the Task 8 deferral note said "add before the editor UI ships" (also
+// bounds sanitizeHtml's O(n^2) worst case on pathological input), but it
+// shipped unbounded in Task 16.
+describe('TextPropsSchema.html length cap (C9)', () => {
+  test('accepts a string at the 10_000 char limit', () => {
+    expect(() => TextPropsSchema.parse({ html: 'a'.repeat(10_000) })).not.toThrow()
+  })
+
+  test('rejects a string over the 10_000 char limit', () => {
+    expect(() => TextPropsSchema.parse({ html: 'a'.repeat(10_001) })).toThrow()
   })
 })
 

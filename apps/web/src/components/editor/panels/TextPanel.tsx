@@ -19,6 +19,11 @@ export function TextPanel({ section }: { section: Extract<Section, { type: "text
         label="Nội dung"
         value={section.props.html}
         rows={8}
+        // C9: mirrors TextPropsSchema.html's new `.max(10_000)` — without
+        // this, typing past the limit would make the whole document fail
+        // client-side validation and silently stop autosaving, the exact
+        // same class of bug as B1's "+ Thêm" buttons.
+        maxLength={10_000}
         onChange={(v) => updateSectionProps(section.id, { html: v })}
         hint="Hỗ trợ các thẻ: <p>, <strong>, <em>, <u>, <span>, <br>, <a href=&quot;…&quot;>. Các thẻ khác sẽ bị loại bỏ khi hiển thị."
       />

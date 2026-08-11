@@ -49,7 +49,8 @@ describe("app/layout.tsx metadataBase (B2)", () => {
     // resolve-url.js`) does for a plain relative pathname: joins it onto
     // `metadataBase` with `new URL(pathname, metadataBase)`.
     const relativeOpenGraphUrl = "/i/minh-lan";
-    const resolved = new URL(relativeOpenGraphUrl, metadata.metadataBase);
+    expect(metadata.metadataBase).toBeInstanceOf(URL);
+    const resolved = new URL(relativeOpenGraphUrl, metadata.metadataBase ?? undefined);
 
     expect(resolved.toString()).toBe("https://hpwd.vn/i/minh-lan");
     // The bug this pins: pre-fix, metadataBase was undefined and Next's own

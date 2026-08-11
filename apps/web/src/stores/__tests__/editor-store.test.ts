@@ -47,6 +47,19 @@ describe("setDocument", () => {
     expect(useEditorStore.getState().document).toBe(fresh);
     expect(useEditorStore.getState().dirty).toBe(false);
   });
+
+  // C6: `lastSavedAt` lives on this module-level singleton store, so
+  // without resetting it here, opening invitation B (EditorLayout mounting
+  // fresh, calling setDocument once) right after editing invitation A would
+  // keep showing A's save time until B's own first save completes.
+  it("clears lastSavedAt — opening a different invitation must not show a previous one's stale save time", () => {
+    useEditorStore.getState().markSaved(123456789);
+    expect(useEditorStore.getState().lastSavedAt).toBe(123456789);
+
+    useEditorStore.getState().setDocument(createDefaultDocument());
+
+    expect(useEditorStore.getState().lastSavedAt).toBeNull();
+  });
 });
 
 describe("selectSection", () => {
