@@ -157,7 +157,25 @@ export function GiftPanel({ section }: { section: Extract<Section, { type: "gift
         label="Tài khoản nhận mừng cưới"
         items={accounts}
         onChange={(next) => patch({ accounts: next })}
-        createItem={() => ({ side: "groom", bankBin: "", bankName: "", accountNumber: "", accountName: "" })}
+        // `GiftAccountSchema` requires a `bankBin` matching `/^\d{4,8}$/` and
+        // a non-empty `accountNumber` (see the schema comment) — seeding
+        // `""` for either used to make the freshly-added item fail
+        // `InvitationDocumentSchema.parse` immediately, which made
+        // `useAutosave` treat the WHOLE document as invalid and silently
+        // stop persisting ANY further edit anywhere (see the
+        // panels.schema-integration test, which now exercises exactly this
+        // "+ Thêm" and re-renders to catch it). Seeding a real bank
+        // (Vietcombank, the first NAPAS BIN in `BANKS`) and a minimal valid
+        // account number keeps the document schema-valid the instant the
+        // couple clicks "+ Thêm" — they're expected to overwrite both via
+        // the bank picker / account number field right after.
+        createItem={() => ({
+          side: "groom",
+          bankBin: "970436",
+          bankName: "Vietcombank",
+          accountNumber: "0",
+          accountName: "",
+        })}
         itemLabel={(account, i) => account.bankName || `Tài khoản ${i + 1}`}
         emptyMessage="Chưa có tài khoản nào."
         renderItem={(account, _index, update) => <GiftAccountFields account={account} onChange={update} />}

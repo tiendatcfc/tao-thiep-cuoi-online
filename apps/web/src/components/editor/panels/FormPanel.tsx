@@ -91,7 +91,19 @@ export function FormPanel({ section }: { section: Extract<Section, { type: "form
         label="Câu hỏi trong biểu mẫu"
         items={fields}
         onChange={(next) => patch({ fields: next })}
-        createItem={() => ({ id: crypto.randomUUID(), type: "text", label: "", required: false, options: [] })}
+        // `FormFieldSchema.label` is `.min(1)` — seeding `""` used to make
+        // the freshly-added field fail `InvitationDocumentSchema.parse`
+        // immediately, silently breaking autosave for the WHOLE document
+        // (see `panels.schema-integration.test.tsx`). A placeholder label
+        // the couple is expected to overwrite keeps the document valid the
+        // instant "+ Thêm" is clicked.
+        createItem={() => ({
+          id: crypto.randomUUID(),
+          type: "text",
+          label: "Câu hỏi mới",
+          required: false,
+          options: [],
+        })}
         itemLabel={(field, i) => field.label || `Câu hỏi ${i + 1}`}
         emptyMessage="Chưa có câu hỏi nào."
         renderItem={(field, _index, update) => <FormFieldEditor field={field} onChange={update} />}
