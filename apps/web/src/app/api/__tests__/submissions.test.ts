@@ -171,11 +171,50 @@ describe("POST /api/invites/[slug]/submissions", () => {
     expect(body.error).toContain("là bắt buộc");
   });
 
+  it("returns 400 with 'là bắt buộc' when a required field (Tên) is present but an empty string", async () => {
+    const { slug, document, formSectionId } = await createTestInvitation();
+    const section = getFormSection(document);
+    const nameField = section.props.fields.find((f) => f.label === "Tên")!;
+    const attendField = section.props.fields.find((f) => f.label === "Tham dự")!;
+
+    const res = await POST(
+      jsonRequest({ sectionId: formSectionId, data: { [nameField.id]: "", [attendField.id]: "Có" } }),
+      { params: Promise.resolve({ slug }) },
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Tên");
+    expect(body.error).toContain("là bắt buộc");
+  });
+
   it("returns 400 with a 'không hợp lệ' (not 'là bắt buộc') message for a present-but-out-of-range number", async () => {
     const { slug, document, formSectionId } = await createTestInvitation();
     const section = getFormSection(document);
     const guestsField = section.props.fields.find((f) => f.label === "Số người đi cùng")!;
     const data = { ...validRsvpPayload(document), [guestsField.id]: -5 };
+
+    const res = await POST(jsonRequest({ sectionId: formSectionId, data }), {
+      params: Promise.resolve({ slug }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Số người đi cùng");
+    expect(body.error).toContain("không hợp lệ");
+    expect(body.error).not.toContain("là bắt buộc");
+  });
+
+  it("returns 400 with a 'không hợp lệ' (not 'là bắt buộc') message for a present-but-type-confused number ({ count: true })", async () => {
+    // The residual from finding 3's fix: `{count: true}` is a SUPPLIED
+    // value (not a missing one) that just happens to be the wrong type —
+    // classifying purely from Zod's `invalid_type` issue code (which is
+    // identical for "key never sent" and "wrong-shape value sent") got
+    // this wrong; it must be classified from the raw submitted data.
+    const { slug, document, formSectionId } = await createTestInvitation();
+    const section = getFormSection(document);
+    const guestsField = section.props.fields.find((f) => f.label === "Số người đi cùng")!;
+    const data = { ...validRsvpPayload(document), [guestsField.id]: true };
 
     const res = await POST(jsonRequest({ sectionId: formSectionId, data }), {
       params: Promise.resolve({ slug }),

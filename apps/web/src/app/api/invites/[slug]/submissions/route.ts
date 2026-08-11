@@ -51,26 +51,35 @@ function findFormSection(
  *
  * Distinguishes two genuinely different situations rather than collapsing
  * both into "is required":
- *   - nothing meaningful was provided (missing key, blank string, empty
- *     array, an unchecked required checkbox) → "là bắt buộc" ("required")
+ *   - nothing meaningful was provided (missing key, blank/whitespace-only
+ *     string, empty array, an unchecked required checkbox) → "là bắt buộc"
  *   - a value WAS supplied but doesn't satisfy the field's rules (out of
- *     range, wrong type, bad enum value) → "không hợp lệ" ("invalid")
- * Conflating these (e.g. a present-but-negative number reported as
- * "required") would be actively misleading to whoever's filling the form
- * out.
+ *     range, wrong type, bad enum value) → "không hợp lệ"
+ * Conflating these (e.g. a present-but-negative number, or a
+ * present-but-boolean `{ count: true }`, reported as "required") would be
+ * actively misleading to whoever's filling the form out.
  *
- * Classification reads only the issue's `code` (plus, for the checkbox
- * case, the field definition) — never `issue.input`. Zod v4's
- * `finalizeIssue` strips `input` off every issue unless `reportInput` is
- * set on the parse context, which nothing here does, so any check that
- * reads `issue.input` silently never fires; it isn't a matter of the value
- * happening to be `undefined`, the property is absent entirely.
+ * Classification reads the RAW submitted `data` at the failing field's key
+ * — never `issue.code` alone, and never `issue.input`:
+ *   - `issue.input` is stripped off every Zod v4 issue by default (see
+ *     `finalizeIssue` in zod's core; nothing here sets `reportInput`), so
+ *     any check reading it is dead code that silently never fires.
+ *   - `issue.code` alone can't distinguish "the key was never sent" from
+ *     "a wrong-shape value was sent" — `buildFormSchema`'s `z.number()`
+ *     schema, for instance, reports the exact same `invalid_type` for an
+ *     absent `count` key and for `{ count: true }`, and only one of those
+ *     is actually "required".
  */
-function formatValidationError(error: z.ZodError, fields: FormField[]): string {
+function formatValidationError(
+  error: z.ZodError,
+  fields: FormField[],
+  data: Record<string, unknown>,
+): string {
   const issue = error.issues[0];
   if (!issue) return GENERIC_INVALID_MESSAGE;
 
-  // An undeclared key: there's no field to name, so this stays generic.
+  // An undeclared key (`.strict()`), or any other whole-object-level issue
+  // with no field to point at: stays generic.
   if (issue.code === "unrecognized_keys") {
     return GENERIC_INVALID_MESSAGE;
   }
@@ -80,25 +89,37 @@ function formatValidationError(error: z.ZodError, fields: FormField[]): string {
   const field = fields.find((f) => f.id === fieldId);
   const label = field?.label ?? fieldId;
 
-  // `buildFormSchema` funnels every "nothing meaningfully provided" case
-  // (absent key, blank string, empty array) down to `undefined` before a
-  // required field's core schema runs, so a required field that's
-  // missing/blank always surfaces as `invalid_type` here.
-  const isMissingValue = issue.code === "invalid_type";
-
   // A required option-less checkbox ("must be checked") is validated with
   // `z.literal(true)`. A literal schema has no separate "missing" case — it
   // only ever reports "not equal to the one accepted value" — so both an
-  // absent key AND an explicit `false` surface identically as an
-  // `invalid_value` issue on this field. Both are "required" in the same
-  // sense: the box wasn't checked.
-  const isUnsatisfiedRequiredCheckbox =
+  // absent key AND an explicit `false` (itself a perfectly well-typed,
+  // *present* value) surface identically as an `invalid_value` issue.
+  // Checked before the generic presence-based classification below,
+  // because that generic check would otherwise see `false` as "present
+  // with some other value" and misreport it as "không hợp lệ".
+  if (
     field?.type === "checkbox" &&
     field.options.length === 0 &&
     field.required &&
-    issue.code === "invalid_value";
+    issue.code === "invalid_value"
+  ) {
+    return `Trường "${label}" là bắt buộc.`;
+  }
 
-  if (isMissingValue || isUnsatisfiedRequiredCheckbox) {
+  // Everything else: "missing" means the key was never sent, or was sent
+  // as something that's meaningfully empty — mirroring `buildFormSchema`'s
+  // own `emptyToUndefined` semantics, so the route and the schema agree on
+  // what "nothing was provided" means. Anything else that still failed
+  // validation is a real, present, wrong value.
+  const hasKey = Object.hasOwn(data, fieldId);
+  const rawValue = data[fieldId];
+  const isEmptyValue =
+    rawValue === undefined ||
+    rawValue === null ||
+    (typeof rawValue === "string" && rawValue.trim() === "") ||
+    (Array.isArray(rawValue) && rawValue.length === 0);
+
+  if (!hasKey || isEmptyValue) {
     return `Trường "${label}" là bắt buộc.`;
   }
 
@@ -193,7 +214,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const fields = section.props.fields;
   const parsed = buildFormSchema(fields).safeParse(data);
   if (!parsed.success) {
-    return NextResponse.json({ error: formatValidationError(parsed.error, fields) }, { status: 400 });
+    return NextResponse.json(
+      { error: formatValidationError(parsed.error, fields, data) },
+      { status: 400 },
+    );
   }
 
   const sanitizedData = sanitizeSubmissionData(parsed.data);
