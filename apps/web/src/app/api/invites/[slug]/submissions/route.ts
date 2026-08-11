@@ -58,6 +58,13 @@ function findFormSection(
  * Conflating these (e.g. a present-but-negative number reported as
  * "required") would be actively misleading to whoever's filling the form
  * out.
+ *
+ * Classification reads only the issue's `code` (plus, for the checkbox
+ * case, the field definition) — never `issue.input`. Zod v4's
+ * `finalizeIssue` strips `input` off every issue unless `reportInput` is
+ * set on the parse context, which nothing here does, so any check that
+ * reads `issue.input` silently never fires; it isn't a matter of the value
+ * happening to be `undefined`, the property is absent entirely.
  */
 function formatValidationError(error: z.ZodError, fields: FormField[]): string {
   const issue = error.issues[0];
@@ -76,30 +83,22 @@ function formatValidationError(error: z.ZodError, fields: FormField[]): string {
   // `buildFormSchema` funnels every "nothing meaningfully provided" case
   // (absent key, blank string, empty array) down to `undefined` before a
   // required field's core schema runs, so a required field that's
-  // missing/blank always surfaces as `invalid_type` with `input: undefined`
-  // here.
-  const isMissingValue = issue.code === "invalid_type" && issue.input === undefined;
+  // missing/blank always surfaces as `invalid_type` here.
+  const isMissingValue = issue.code === "invalid_type";
 
   // A required option-less checkbox ("must be checked") is validated with
-  // `z.literal(true)`, so submitting it unchecked (`false` — a real,
-  // present value, not "missing") fails as an `invalid_value` issue rather
-  // than `invalid_type`. Still semantically "this is required".
-  const isUncheckedRequiredCheckbox =
+  // `z.literal(true)`. A literal schema has no separate "missing" case — it
+  // only ever reports "not equal to the one accepted value" — so both an
+  // absent key AND an explicit `false` surface identically as an
+  // `invalid_value` issue on this field. Both are "required" in the same
+  // sense: the box wasn't checked.
+  const isUnsatisfiedRequiredCheckbox =
     field?.type === "checkbox" &&
     field.options.length === 0 &&
     field.required &&
-    issue.input === false;
+    issue.code === "invalid_value";
 
-  // Defense in depth: a `too_small` issue whose *actual* input is an empty
-  // string/array also means "nothing was provided" — in practice
-  // `emptyToUndefined` intercepts these before a `too_small` check could
-  // ever fire, but this keeps the mapping correct if that ever changes.
-  const isEmptyTooSmall =
-    issue.code === "too_small" &&
-    ((typeof issue.input === "string" && issue.input.trim() === "") ||
-      (Array.isArray(issue.input) && issue.input.length === 0));
-
-  if (isMissingValue || isUncheckedRequiredCheckbox || isEmptyTooSmall) {
+  if (isMissingValue || isUnsatisfiedRequiredCheckbox) {
     return `Trường "${label}" là bắt buộc.`;
   }
 

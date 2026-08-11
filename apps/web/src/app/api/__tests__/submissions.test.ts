@@ -75,6 +75,29 @@ function validRsvpPayload(document: InvitationDocument) {
   return data;
 }
 
+/**
+ * The default document has no option-less checkbox field at all, which is
+ * exactly why the required-checkbox error-copy bug went uncaught — clones
+ * it and adds one (e.g. an "I agree to terms" consent box) to the form
+ * section so route-level tests can exercise it.
+ */
+function buildDocumentWithRequiredCheckboxField(): {
+  document: InvitationDocument;
+  checkboxFieldId: string;
+} {
+  const document = createDefaultDocument();
+  const section = getFormSection(document);
+  const checkboxFieldId = randomUUID();
+  section.props.fields.push({
+    id: checkboxFieldId,
+    type: "checkbox",
+    label: "Đồng ý điều khoản",
+    required: true,
+    options: [],
+  });
+  return { document, checkboxFieldId };
+}
+
 beforeAll(async () => {
   const user = await prisma.user.create({
     data: { email: `submissions-test-${randomUUID()}@test.local`, name: "Submissions Test User" },
@@ -188,6 +211,48 @@ describe("POST /api/invites/[slug]/submissions", () => {
     const body = await res.json();
     expect(body.error).toContain("Tên");
     expect(body.error).toContain("là bắt buộc");
+  });
+
+  describe("required option-less checkbox (e.g. a consent checkbox)", () => {
+    it("returns 400 with a 'là bắt buộc' message when absent", async () => {
+      const { document } = buildDocumentWithRequiredCheckboxField();
+      const { slug, formSectionId } = await createTestInvitation({ document });
+      const data = validRsvpPayload(document); // checkbox field omitted entirely
+
+      const res = await POST(jsonRequest({ sectionId: formSectionId, data }), {
+        params: Promise.resolve({ slug }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain("là bắt buộc");
+    });
+
+    it("returns 400 with a 'là bắt buộc' message when submitted unchecked (false)", async () => {
+      const { document, checkboxFieldId } = buildDocumentWithRequiredCheckboxField();
+      const { slug, formSectionId } = await createTestInvitation({ document });
+      const data = { ...validRsvpPayload(document), [checkboxFieldId]: false };
+
+      const res = await POST(jsonRequest({ sectionId: formSectionId, data }), {
+        params: Promise.resolve({ slug }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain("là bắt buộc");
+    });
+
+    it("returns 201 when checked (true)", async () => {
+      const { document, checkboxFieldId } = buildDocumentWithRequiredCheckboxField();
+      const { slug, formSectionId } = await createTestInvitation({ document });
+      const data = { ...validRsvpPayload(document), [checkboxFieldId]: true };
+
+      const res = await POST(jsonRequest({ sectionId: formSectionId, data }), {
+        params: Promise.resolve({ slug }),
+      });
+
+      expect(res.status).toBe(201);
+    });
   });
 
   it("returns 400 for a radio value outside the declared options", async () => {
