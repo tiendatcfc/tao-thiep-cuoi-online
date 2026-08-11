@@ -17,6 +17,19 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
+  css: {
+    // AlbumSection imports yet-another-react-lightbox's stylesheet at
+    // module scope, so any test that renders it (transitively, e.g. via
+    // InvitePage) makes Vite touch its CSS pipeline. Without this, Vite
+    // auto-discovers the project's postcss.config.mjs — written for Tailwind
+    // v4's Next.js integration, whose `plugins: ["@tailwindcss/postcss"]`
+    // bare-string shorthand only Next's own PostCSS loader understands, not
+    // plain postcss-load-config — and fails to load it. Styling has no
+    // bearing on component tests, so an inline empty PostCSS config here
+    // sidesteps that lookup entirely rather than trying to make the real
+    // config portable to Vite.
+    postcss: { plugins: [] },
+  },
   test: {
     environment: "node",
     // .tsx tests render React components and need a DOM; they opt into
