@@ -2,6 +2,20 @@ import type { Metadata } from "next";
 import { prisma } from "@hpwd/db";
 import { LandingPage } from "./LandingPage";
 
+// B3 fix: this page used to be statically prerendered at build time, which
+// runs `prisma.template.findMany()` against whatever DATABASE_URL the build
+// environment has — on a fresh database with no migrations applied yet
+// (exactly what CI's Build step does today: it runs `prisma generate` but
+// never `prisma migrate deploy`), that throws ("The table public.Template
+// does not exist") and fails the whole `next build`. `force-dynamic` moves
+// the query to request time instead (also fixing the secondary issue that
+// a build-time-baked template strip would never reflect later-seeded
+// templates), and `loadTemplates` below still degrades to the empty-state
+// `LandingPage` already handles on ANY query failure — a DB blip must never
+// break the homepage, and a migration lag right after a fresh deploy is
+// exactly that kind of blip.
+export const dynamic = "force-dynamic";
+
 const TITLE = "HPWD — Tạo thiệp cưới online miễn phí, không watermark";
 const DESCRIPTION =
   "Thiết kế thiệp cưới online theo từng mục: bìa, cô dâu chú rể, sự kiện, album ảnh, hộp mừng QR ngân hàng, sổ lời chúc, RSVP. Miễn phí, không watermark, xuất bản trong vài phút.";
@@ -26,6 +40,28 @@ export function generateMetadata(): Metadata {
   };
 }
 
+type LandingTemplateRow = { id: string; name: string; thumbnailUrl: string };
+
+/**
+ * Same query `HomePage` needs, isolated so a DB failure (missing table on
+ * an unmigrated database, a connection blip, ...) degrades to an empty
+ * list — exactly what `LandingPage` already renders its own "Chưa có mẫu
+ * thiệp nào." empty state for — instead of taking down the whole homepage.
+ * Never throws.
+ */
+async function loadTemplates(): Promise<LandingTemplateRow[]> {
+  try {
+    return await prisma.template.findMany({
+      where: { isActive: true, tier: "basic" },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, thumbnailUrl: true },
+    });
+  } catch (error) {
+    console.error("HomePage: failed to load templates, showing the empty state instead:", error);
+    return [];
+  }
+}
+
 /**
  * The public marketing landing page, `/`. Fetches the same live Basic
  * templates `/mau-thiep` shows (Task 18) so the gallery strip here never
@@ -34,11 +70,7 @@ export function generateMetadata(): Metadata {
  * mẫu thiệp nào." empty state if this comes back empty.
  */
 export default async function HomePage() {
-  const templates = await prisma.template.findMany({
-    where: { isActive: true, tier: "basic" },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, thumbnailUrl: true },
-  });
+  const templates = await loadTemplates();
 
   return <LandingPage templates={templates} />;
 }

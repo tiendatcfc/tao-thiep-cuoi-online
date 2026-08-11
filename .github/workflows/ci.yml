@@ -54,6 +54,21 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @hpwd/db exec prisma generate
 
+      # B3: the Build step below runs `next build`, which imports @hpwd/db
+      # (transpiled — see next.config.ts's transpilePackages) and, before
+      # this fix, statically prerendered `/` by querying the `Template`
+      # table at build time. `prisma generate` only builds the client, it
+      # never touches the database — this service starts a brand-new
+      # Postgres with no schema at all, so without `migrate deploy` here,
+      # `next build` failed with "The table public.Template does not
+      # exist". `/` is now `force-dynamic` (see app/page.tsx) so a missing
+      # table there degrades gracefully instead of failing the build, but
+      # applying the real migrations here is still the correct fix — CI
+      # should build against a schema that actually matches what
+      # production runs.
+      - name: Apply database migrations
+        run: pnpm --filter @hpwd/db exec prisma migrate deploy
+
       - name: Run linting
         run: pnpm exec turbo lint
 
