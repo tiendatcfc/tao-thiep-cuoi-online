@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { InvitationDocumentSchema, type Section } from "@hpwd/schema";
+import { getClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/lib/rate-limit";
 import { sanitizePlainText } from "@/lib/sanitize";
 
@@ -21,23 +22,6 @@ const wishInputSchema = z.object({
     .min(1, "Vui lòng nhập lời chúc.")
     .max(500, "Lời chúc tối đa 500 ký tự."),
 });
-
-/**
- * IP used as the rate-limit bucket key. In production this sits behind
- * Cloudflare, which sets `x-forwarded-for` to the real client IP (first
- * entry in the list — later entries are intermediate proxies); `x-real-ip`
- * and `'unknown'` are fallbacks for local/dev requests that carry neither.
- */
-function getClientIp(request: Request): string {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const first = forwardedFor.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) return realIp;
-  return "unknown";
-}
 
 /**
  * Reads `wishes.requireApproval` off the invitation's *published* document.
