@@ -3,9 +3,18 @@
 import { useMemo, useState } from "react";
 import type { Section } from "@hpwd/schema";
 import Image from "next/image";
-import Lightbox from "yet-another-react-lightbox";
+import dynamic from "next/dynamic";
 import "yet-another-react-lightbox/styles.css";
 import { SectionWrapper } from "./SectionWrapper";
+
+// Loaded on demand instead of statically: the lightbox modal is invisible
+// (`open={false}`) until a guest actually taps a photo, so its JS has no
+// business being in the bundle every `/i/[slug]` visitor's browser must
+// parse/execute before the page's first paint. `ssr: false` because it has
+// nothing to contribute server-side either — closed, it renders nothing.
+// Measured via Lighthouse mobile (Task 19): this was one of the larger
+// chunks in `/i/demo`'s initial JS.
+const Lightbox = dynamic(() => import("yet-another-react-lightbox"), { ssr: false });
 
 /**
  * Phase-1 album: a fixed 2-column grid (no masonry/carousel layout yet —
