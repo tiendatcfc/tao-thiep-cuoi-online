@@ -178,10 +178,13 @@ describe("panel edits keep the document schema-valid end to end", () => {
  * `bankBin`/`accountNumber`/`label` seeds violating the schema, silently
  * wedging `useAutosave` for the whole document afterwards).
  *
- * Each case re-renders with a fresh `section` prop straight from the store
- * after the click (mirroring `EditorPanel`) BEFORE asserting, so a bug that
- * only hides behind a stale/unrefreshed view (as the Form step above
- * documents) can't slip through here either.
+ * Each case only clicks "+ Thêm" and unmounts — it never re-renders the
+ * panel at all. The assertion below reads straight from
+ * `useEditorStore.getState().document`, not from anything the component
+ * last rendered, which is a STRONGER check than re-rendering with a fresh
+ * `section` prop would be: it can't be fooled by a stale view the way the
+ * Form step above documents, because it never looks at a rendered view in
+ * the first place.
  */
 describe("every '+ Thêm' button leaves the document schema-valid", () => {
   it.each<[string, () => void]>([

@@ -24,8 +24,26 @@ jobs:
         ports:
           - 5432:5432
 
+      # Re-review fix: `rate-limit.test.ts` (src/lib/__tests__/rate-limit.test.ts)
+      # talks to a real Redis, no mocking — with no service here, REDIS_URL
+      # points at an unreachable localhost:6379 and `rateLimit` fails open
+      # (by design, for production safety — see rate-limit.ts), which makes
+      # 4 of its 5 tests fail (only "fails open when Redis is unreachable"
+      # itself would pass). `turbo test` could never have gone green on a
+      # real CI run without this.
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/hpwd
+      REDIS_URL: redis://localhost:6379
       AUTH_SECRET: ci-dummy-secret-not-real
       AUTH_GOOGLE_ID: ""
       AUTH_GOOGLE_SECRET: ""

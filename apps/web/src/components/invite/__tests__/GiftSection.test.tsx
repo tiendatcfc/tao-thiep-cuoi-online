@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import type { GiftProps, Section } from "@hpwd/schema";
 import { createSection } from "@hpwd/schema";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { flushSync } from "react-dom";
+import { createRoot, hydrateRoot } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GiftSection } from "../sections/GiftSection";
 
 function giftSection(accounts: GiftProps["accounts"]): Extract<Section, { type: "gift" }> {
@@ -179,5 +182,148 @@ describe("GiftSection", () => {
     const { container } = render(<GiftSection section={giftSection([halfFilled])} />);
 
     expect(container.firstChild).toBeNull();
+  });
+});
+
+/**
+ * Reviewer-reported regression: `clipboardAvailable` used to be computed
+ * during render (`navigator.clipboard?.writeText` checked synchronously).
+ * A real Node SSR environment has a `navigator` global but no
+ * `navigator.clipboard`, so the server always rendered the manual-copy
+ * hint; a real browser's secure-context client has `navigator.clipboard`
+ * and rendered the button instead — a genuine content mismatch between the
+ * server-rendered HTML and the client's own first render, which React
+ * cannot reconcile ("Hydration failed because the server rendered HTML
+ * didn't match the client"). Reproduced on every `/i/[slug]` view with a
+ * gift section (the default document seeds two).
+ *
+ * Fix mirrors `useMediaQuery` (Task 15): never read the browser-only
+ * capability during render. Both the server and the client's pre-effect
+ * render always assume the button (matching each other by construction);
+ * `useEffect` — client-only, runs after hydration — corrects to the hint
+ * once the real capability is known. Test shape mirrors
+ * `useMediaQuery.test.tsx`'s own hydration-safety block.
+ */
+describe("GiftAccountCard SSR/hydration parity (clipboard capability)", () => {
+  const originalClipboard = navigator.clipboard;
+
+  afterEach(() => {
+    Object.defineProperty(navigator, "clipboard", { value: originalClipboard, configurable: true });
+  });
+
+  it("server-rendered markup always shows the button, never the hint — a real Node SSR environment has no navigator.clipboard at all", () => {
+    const html = renderToStaticMarkup(<GiftSection section={giftSection([groomAccount])} />);
+
+    expect(html).toContain("Sao chép STK");
+    expect(html).not.toContain("Vui lòng bôi đen");
+  });
+
+  it("the client's own pre-effect (first) render produces the same markup as SSR, regardless of the real clipboard capability", () => {
+    // The real client environment HAS clipboard — exactly the scenario that
+    // used to disagree with the server's render.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn() }, configurable: true });
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    // `flushSync` commits synchronously without flushing passive effects
+    // (unlike `act`, which would also run the `useEffect` this test needs
+    // to observe the DOM *before*) — same technique as
+    // `useMediaQuery.test.tsx`'s pre-effect probe.
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const root = createRoot(container);
+    try {
+      flushSync(() => {
+        root.render(<GiftSection section={giftSection([groomAccount])} />);
+      });
+
+      expect(container.textContent).toContain("Sao chép STK");
+      expect(container.textContent).not.toContain("Vui lòng bôi đen");
+    } finally {
+      root.unmount();
+      container.remove();
+      consoleError.mockRestore();
+    }
+  });
+
+  it("hydrates with no mismatch warning, then swaps to the manual-copy hint once effects flush and confirm clipboard is truly unavailable", async () => {
+    // Built ONCE and reused for both the "server" and "client" render below
+    // — `giftSection()` goes through `createSection`, which mints a fresh
+    // random `id` per call; calling it twice would produce a real
+    // `data-section-id` mismatch of this test's own making, unrelated to
+    // the clipboard behavior actually under test.
+    const section = giftSection([groomAccount]);
+
+    // Real Node SSR: no navigator.clipboard.
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    const html = renderToStaticMarkup(<GiftSection section={section} />);
+    expect(html).toContain("Sao chép STK");
+
+    // The guest's real client also lacks it (e.g. an in-app WebView) —
+    // the actual case this whole fix is for.
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+
+    // `onRecoverableError` is React's own, canonical hook for exactly this:
+    // it fires once per hydration mismatch React had to recover from,
+    // regardless of severity. A plain `console.error` spy is NOT reliable
+    // here — a full element-type swap (e.g. `<button>` vs `<p>`, the exact
+    // shape of this bug) is reported through a different, asynchronous
+    // channel (`reportError`) that a synchronous spy inside `act()` can
+    // miss entirely, while a same-tag attribute-only mismatch IS reported
+    // straight to `console.error`. `onRecoverableError` catches both
+    // uniformly.
+    const recoverableErrors: unknown[] = [];
+    try {
+      await act(async () => {
+        hydrateRoot(container, <GiftSection section={section} />, {
+          onRecoverableError: (error) => recoverableErrors.push(error),
+        });
+      });
+
+      expect(recoverableErrors).toEqual([]);
+
+      // The effect has now run (wrapped in the `act` above) and confirmed
+      // clipboard is genuinely unavailable — the hint replaces the button.
+      expect(container.textContent).toContain("Vui lòng bôi đen");
+      expect(container.textContent).not.toContain("Sao chép STK");
+    } finally {
+      container.remove();
+    }
+  });
+
+  it("hydrates cleanly and keeps the button (no swap) when the real client clipboard turns out to be available", async () => {
+    // Same "build once, reuse for both renders" note as the test above.
+    const section = giftSection([groomAccount]);
+
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    const html = renderToStaticMarkup(<GiftSection section={section} />);
+
+    // The real client DOES have a working clipboard — the effect must
+    // leave the button in place rather than swapping to the hint.
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn() }, configurable: true });
+
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    document.body.appendChild(container);
+
+    // See the previous test's comment on why `onRecoverableError` (not a
+    // `console.error` spy) is the reliable way to detect this.
+    const recoverableErrors: unknown[] = [];
+    try {
+      await act(async () => {
+        hydrateRoot(container, <GiftSection section={section} />, {
+          onRecoverableError: (error) => recoverableErrors.push(error),
+        });
+      });
+
+      expect(recoverableErrors).toEqual([]);
+      expect(container.textContent).toContain("Sao chép STK");
+      expect(container.textContent).not.toContain("Vui lòng bôi đen");
+    } finally {
+      container.remove();
+    }
   });
 });

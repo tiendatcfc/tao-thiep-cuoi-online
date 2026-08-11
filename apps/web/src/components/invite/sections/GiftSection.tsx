@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { GiftProps, Section } from "@hpwd/schema";
 import QRCode from "react-qr-code";
 import { buildVietQRPayload } from "@/lib/vietqr";
@@ -43,10 +43,25 @@ function GroupedAccountNumber({ value }: { value: string }) {
 
 function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }) {
   const [copied, setCopied] = useState(false);
-  // Checked once at render time rather than made reactive — whether the
-  // clipboard API exists doesn't change over a page's lifetime.
-  const clipboardAvailable =
-    typeof navigator !== "undefined" && typeof navigator.clipboard?.writeText === "function";
+  // Hydration fix: `navigator.clipboard` must NOT be read during render.
+  // The server has a `navigator` global (Node's own, via whatever polyfill/
+  // shim is in scope) but no `navigator.clipboard`, while a real browser's
+  // secure-context client does — reading it at render time made SSR emit
+  // the hint and the client's first render emit the button, a genuine
+  // content mismatch React can't reconcile ("Hydration failed because the
+  // server rendered HTML didn't match the client"), reproduced on every
+  // `/i/[slug]` view with a gift section. Same shape as `useMediaQuery`
+  // (Task 15): assume the common case (`false` — available, so the button
+  // renders) on both the server and the client's first render, then
+  // correct via `useEffect` (client-only, post-hydration) once the real
+  // capability is known.
+  const [clipboardUnavailable, setClipboardUnavailable] = useState(false);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
+      setClipboardUnavailable(true);
+    }
+  }, []);
 
   const payload = buildVietQRPayload({
     bankBin: account.bankBin,
@@ -87,7 +102,17 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
       </div>
       <GroupedAccountNumber value={account.accountNumber} />
       <p className="text-sm text-gray-600">{account.accountName.toUpperCase()}</p>
-      {clipboardAvailable ? (
+      {clipboardUnavailable ? (
+        // C8: in-app WebViews (Zalo, Facebook Messenger) frequently don't
+        // expose `navigator.clipboard` at all — the copy button would just
+        // silently no-op there with no feedback. Tell the guest how to copy
+        // manually instead of leaving them with a dead button. Only shown
+        // once the effect above has actually confirmed this — see this
+        // component's other comment on why that can't happen during render.
+        <p className="mt-1 text-xs text-gray-400">
+          Vui lòng bôi đen và sao chép số tài khoản ở trên.
+        </p>
+      ) : (
         <button
           type="button"
           onClick={handleCopy}
@@ -95,14 +120,6 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
         >
           {copied ? "Đã sao chép!" : "Sao chép STK"}
         </button>
-      ) : (
-        // C8: in-app WebViews (Zalo, Facebook Messenger) frequently don't
-        // expose `navigator.clipboard` at all — the copy button would just
-        // silently no-op there with no feedback. Tell the guest how to copy
-        // manually instead of leaving them with a dead button.
-        <p className="mt-1 text-xs text-gray-400">
-          Vui lòng bôi đen và sao chép số tài khoản ở trên.
-        </p>
       )}
     </div>
   );
