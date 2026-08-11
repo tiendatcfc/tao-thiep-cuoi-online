@@ -62,9 +62,11 @@ describe("EditorLayout", () => {
     expect(useEditorStore.getState().document.theme.primary).toBe("#TESTVAL");
   });
 
-  it("shows the placeholder panel text when no section is selected (desktop)", () => {
+  it("shows the document-level property tabs when no section is selected (desktop)", () => {
     render(<EditorLayout {...baseProps} />);
-    expect(screen.getByText("Chọn một mục để chỉnh sửa")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Giao diện" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Nhạc nền" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Hiệu ứng mở màn" })).toBeInTheDocument();
   });
 
   it("renders a disabled Xuất bản button titled Sắp có", () => {
@@ -147,10 +149,10 @@ describe("EditorLayout", () => {
       expect(screen.getByRole("button", { name: "Chỉnh sửa" })).toBeInTheDocument();
 
       // Defaults to the "preview" tab: exactly one PreviewPane, no
-      // SectionList and no property-panel placeholder mounted alongside it.
+      // SectionList and no property panel mounted alongside it.
       expect(screen.getAllByTestId("preview-pane")).toHaveLength(1);
       expect(screen.queryByRole("group", { name: "Thêm mục" })).not.toBeInTheDocument();
-      expect(screen.queryByText("Chọn một mục để chỉnh sửa")).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "Giao diện" })).not.toBeInTheDocument();
 
       act(() => {
         screen.getByRole("button", { name: "Mục" }).click();
@@ -163,7 +165,7 @@ describe("EditorLayout", () => {
       });
       expect(screen.queryByTestId("preview-pane")).not.toBeInTheDocument();
       expect(screen.queryByRole("group", { name: "Thêm mục" })).not.toBeInTheDocument();
-      expect(screen.getByText("Chọn một mục để chỉnh sửa")).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: "Giao diện" })).toBeInTheDocument();
     });
   });
 });

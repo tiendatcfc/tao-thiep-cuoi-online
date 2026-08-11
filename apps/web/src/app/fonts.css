@@ -1,0 +1,154 @@
+/*
+ * Self-hosted @font-face declarations backing the editor's font-pair picker
+ * (`FONT_OPTIONS` in src/lib/fonts.ts, consumed by ThemePanel and
+ * `fontFamilyStack`). Deliberately NOT next/font/google and not a runtime
+ * fetch from fonts.gstatic.com — see public/fonts/README.md: the dev
+ * machine building this had a corporate TLS proxy that MITMs
+ * fonts.gstatic.com, making any Google Fonts request (build-time or
+ * runtime) fail outright.
+ *
+ * Every rule below points at a same-origin file under /fonts/ (i.e.
+ * public/fonts/) that a human still needs to download and commit — see the
+ * README for the exact list. Until that happens, the browser's request for
+ * the file 404s and it silently falls back to the stack `fontFamilyStack()`
+ * appends after the family name: no crash, and no request ever goes to an
+ * external host either way.
+ */
+
+@font-face {
+  font-family: "Playfair Display";
+  src: url("/fonts/playfair-display-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Playfair Display";
+  src: url("/fonts/playfair-display-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("/fonts/cormorant-garamond-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Cormorant Garamond";
+  src: url("/fonts/cormorant-garamond-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Lora";
+  src: url("/fonts/lora-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Lora";
+  src: url("/fonts/lora-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Be Vietnam Pro";
+  src: url("/fonts/be-vietnam-pro-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Be Vietnam Pro";
+  src: url("/fonts/be-vietnam-pro-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Quicksand";
+  src: url("/fonts/quicksand-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Quicksand";
+  src: url("/fonts/quicksand-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Dancing Script";
+  src: url("/fonts/dancing-script-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Dancing Script";
+  src: url("/fonts/dancing-script-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Merriweather";
+  src: url("/fonts/merriweather-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Merriweather";
+  src: url("/fonts/merriweather-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/inter-700.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * Applies the theme's font-pair CSS custom properties (set by `InvitePage`
+ * from `document.theme.headingFont`/`bodyFont` via `fontFamilyStack`) to
+ * the invitation tree — the same "CSS var on the root wrapper" convention
+ * already used for `--primary`/`--secondary`/`--background`. Headings use
+ * `--font-heading`; everything else inherits `--font-body` from the root.
+ * The `inherit` fallback means an invite rendered without these vars set
+ * (shouldn't happen, but cheap insurance) just keeps the page's own font.
+ */
+[data-invite-root] {
+  font-family: var(--font-body, inherit);
+}
+[data-invite-root] h1,
+[data-invite-root] h2,
+[data-invite-root] h3 {
+  font-family: var(--font-heading, inherit);
+}

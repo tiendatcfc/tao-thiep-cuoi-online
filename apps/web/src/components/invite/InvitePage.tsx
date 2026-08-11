@@ -3,6 +3,7 @@
 import { useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
+import { fontFamilyStack } from "@/lib/fonts";
 import { InviteContext } from "./InviteContext";
 import { MusicPlayer } from "./MusicPlayer";
 import { OpeningGate } from "./opening/OpeningGate";
@@ -36,7 +37,11 @@ export interface InvitePageProps {
  *
  * Theme colors are applied as CSS custom properties on the root wrapper so
  * every section can reference `var(--primary)` etc. via Tailwind arbitrary
- * values without threading the theme through props.
+ * values without threading the theme through props. `--font-heading`/
+ * `--font-body` follow the same convention for `ThemePanel`'s font-pair
+ * picker (Task 16) — `globals.css`/`fonts.css` apply them to `h1`/`h2`/`h3`
+ * and the rest of this subtree respectively via the `data-invite-root`
+ * attribute below.
  */
 export function InvitePage({ document, guestName, settings, isPreview, slug = null }: InvitePageProps) {
   const [opened, setOpened] = useState(false);
@@ -44,11 +49,14 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
     "--primary": document.theme.primary,
     "--secondary": document.theme.secondary,
     "--background": document.theme.background,
+    "--font-heading": fontFamilyStack(document.theme.headingFont),
+    "--font-body": fontFamilyStack(document.theme.bodyFont),
   } as CSSProperties;
 
   return (
     <InviteContext.Provider value={{ guestName, isPreview, slug }}>
       <div
+        data-invite-root
         className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
         style={themeStyle}
       >

@@ -3,14 +3,13 @@
 import type { InvitationDocument } from "@hpwd/schema";
 import { createContext, useContext, useEffect, useState } from "react";
 import { useEditorStore } from "@/stores/editor-store";
+import { EditorPanel } from "./EditorPanel";
 import { PreviewPane } from "./PreviewPane";
 import { SectionList } from "./SectionList";
 import { type AutosaveErrorKind, useAutosave } from "./useAutosave";
 import { useMediaQuery } from "./useMediaQuery";
 
 const DESKTOP_QUERY = "(min-width: 1024px)";
-
-const PLACEHOLDER_TEXT = "Chọn một mục để chỉnh sửa";
 
 function formatSavedAt(at: number): string {
   const date = new Date(at);
@@ -71,15 +70,6 @@ function useAutosaveStatusContext() {
   return useContext(AutosaveStatusContext);
 }
 
-function EditorPanel() {
-  const selectedSectionId = useEditorStore((state) => state.selectedSectionId);
-  if (!selectedSectionId) {
-    return <p className="p-4 text-sm text-gray-400">{PLACEHOLDER_TEXT}</p>;
-  }
-  // Task 16 fills this in with the property panel for `selectedSectionId`.
-  return <div className="p-4" />;
-}
-
 export interface EditorLayoutProps {
   invitationId: string;
   slug: string;
@@ -88,7 +78,7 @@ export interface EditorLayoutProps {
 
 /**
  * Three-pane editor shell: section list, live preview, property panel
- * (placeholder until Task 16). Below 1024px the three panes collapse into
+ * (`EditorPanel` — Task 16). Below 1024px the three panes collapse into
  * tabs instead of columns, since there's no room to show them side by side
  * on a phone-sized screen — which is also the size couples are most likely
  * to be editing from, alongside a laptop.

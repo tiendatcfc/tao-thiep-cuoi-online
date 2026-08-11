@@ -18,9 +18,16 @@
 import {
   CreateBucketCommand,
   HeadBucketCommand,
+  PutBucketCorsCommand,
   PutBucketPolicyCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+
+// HUMAN TODO: once the production domain is chosen, replace this with the
+// real origin (e.g. "https://hpwd.vn") and re-run this script against the
+// production R2 bucket/credentials. Left as an obviously-fake placeholder
+// rather than guessed at, so a stale wrong value can't silently ship.
+const PRODUCTION_ORIGIN_PLACEHOLDER = "https://REPLACE-WITH-PRODUCTION-DOMAIN.example";
 
 function requireEnv(name) {
   const value = process.env[name];
@@ -41,6 +48,12 @@ const client = new S3Client({
   region: "auto",
   forcePathStyle: true,
   credentials: { accessKeyId, secretAccessKey },
+  // Newer AWS SDK v3 versions default to attaching a request checksum
+  // (`x-amz-sdk-checksum-algorithm`) to most S3 calls, which some
+  // S3-compatible servers choke on for less common operations — harmless
+  // here either way, but this keeps requests closer to what a plain HTTP
+  // client would send.
+  requestChecksumCalculation: "WHEN_REQUIRED",
 });
 
 async function bucketExists() {
@@ -84,6 +97,60 @@ async function main() {
     })
   );
   console.log(`Applied public-read policy to "${bucket}".`);
+
+  // The bucket has no CORS configuration by default, so a browser's direct
+  // PUT from ImageField (Task 16) to the presigned upload URL fails
+  // preflight (OPTIONS) before the PUT is even attempted — this is a
+  // same-origin *server* fetch generating the presigned URL, but the
+  // upload itself happens client-side, cross-origin, straight from
+  // localhost:3000 to localhost:9000 in dev. `PUT` uploads the file; `GET`
+  // lets a browser fetch the resulting public URL back (e.g. `ImageField`'s
+  // own thumbnail preview) without a CORS error either.
+  //
+  // This is the standard S3 bucket-CORS API and is what actually configures
+  // CORS on Cloudflare R2 in production — required there, no fallback.
+  //
+  // Against local MinIO (confirmed on RELEASE.2025-09-07, both via this SDK
+  // and MinIO's own `mc cors set`), this call itself 501s with
+  // "NotImplemented": MinIO doesn't implement the per-bucket S3 CORS API at
+  // all. That's not a local-dev blocker, though — MinIO applies CORS at the
+  // *server* level instead, controlled by `api.cors_allow_origin`, which
+  // defaults to `*` (verified with a real cross-origin `curl` OPTIONS
+  // preflight, PUT, and GET straight against a presigned URL — see
+  // task-16-report.md). So this 501 is expected and swallowed for MinIO
+  // specifically; any other error still fails the script.
+  try {
+    await client.send(
+      new PutBucketCorsCommand({
+        Bucket: bucket,
+        CORSConfiguration: {
+          CORSRules: [
+            {
+              AllowedOrigins: ["http://localhost:3000", PRODUCTION_ORIGIN_PLACEHOLDER],
+              AllowedMethods: ["PUT", "GET"],
+              AllowedHeaders: ["*"],
+              ExposeHeaders: ["ETag"],
+              MaxAgeSeconds: 3000,
+            },
+          ],
+        },
+      })
+    );
+    console.log(
+      `Applied CORS configuration to "${bucket}" (http://localhost:3000 + a placeholder production origin — ` +
+        `update PRODUCTION_ORIGIN_PLACEHOLDER in this script and re-run once the real production domain is known).`
+    );
+  } catch (err) {
+    if (err?.Code === "NotImplemented" || err?.name === "NotImplemented") {
+      console.warn(
+        `Bucket-level CORS is not implemented by this storage backend (expected for local MinIO) — ` +
+          `relying on its server-level "api.cors_allow_origin" config (default "*") instead. ` +
+          `This command IS required and will succeed against production Cloudflare R2.`
+      );
+    } else {
+      throw err;
+    }
+  }
 }
 
 main().catch((err) => {
