@@ -119,7 +119,7 @@ describe("POST /api/invitations", () => {
     expect(res.status).toBe(400);
   });
 
-  it("returns 201 {id}, creating a draft invitation with a unique valid slug and the template's document deep-copied", async () => {
+  it("returns 201 {id}, creating a draft invitation with a unique valid slug (deep-copy isolation itself is proven at the unit level, see lib/__tests__/invitations.test.ts)", async () => {
     authMock.mockResolvedValue({ user: { id: userId } });
     const templateId = await createTestTemplate();
 
@@ -140,8 +140,15 @@ describe("POST /api/invitations", () => {
     // be published as-is before the couple ever changes it.
     expect(invitation?.slug).toMatch(/^[a-z0-9-]{3,60}$/);
 
-    // Deep copy: mutating the created invitation's document must not affect
-    // the Template row it was created from.
+    // Smoke check only, not proof of the deep-copy property: `invitation`
+    // here came from its own fresh `findUnique`, so it's already
+    // reference-distinct from `template.document` via the Postgres
+    // round-trip alone — this would pass identically even with zero
+    // cloning in the route. The actual guarantee ("the route never shares
+    // an in-process object reference between the two") is proven directly
+    // on `buildInvitationDocumentFromTemplate` in
+    // `lib/__tests__/invitations.test.ts`, which asserts identity/isolation
+    // without going through the database at all.
     const doc = invitation!.document as { theme: { primary: string } };
     doc.theme.primary = "#MUTATED";
     const template = await prisma.template.findUnique({ where: { id: templateId } });

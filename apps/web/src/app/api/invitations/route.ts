@@ -2,9 +2,8 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@hpwd/db";
-import { InvitationDocumentSchema } from "@hpwd/schema";
 import { auth } from "@/auth";
-import { deriveCoverNames } from "@/lib/invitations";
+import { buildInvitationDocumentFromTemplate, toInvitationSummary } from "@/lib/invitations";
 
 const UNAUTH_MESSAGE = "Bạn cần đăng nhập.";
 const TEMPLATE_NOT_FOUND_MESSAGE = "Không tìm thấy mẫu thiệp.";
@@ -23,12 +22,17 @@ const postBodySchema = z.object({ templateId: z.string().min(1) }).strict();
  * invitation published without ever changing its slug still works, not
  * because this route expects that to happen.
  *
- * `template.document` is deep-copied (via `structuredClone`, after
- * schema validation) before being written to the new `Invitation.document`
- * row — the two must never share object references, since the editor's
- * autosave freely mutates an invitation's `document` in place and that must
- * never be able to reach back and corrupt the shared `Template` row every
- * other couple creates new invitations from.
+ * `template.document` is deep-copied (via `buildInvitationDocumentFromTemplate`,
+ * which validates then `structuredClone`s) before being written to the new
+ * `Invitation.document` row — the two must never share object references,
+ * since the editor's autosave freely mutates an invitation's `document` in
+ * place and that must never be able to reach back and corrupt the shared
+ * `Template` row every other couple creates new invitations from. That
+ * property is proven directly on `buildInvitationDocumentFromTemplate` in
+ * `lib/__tests__/invitations.test.ts` (asserting object identity/isolation
+ * in-process) rather than through this route's own DB-level test, which
+ * can't actually distinguish a real clone from no clone at all — see that
+ * test file's docstring for why.
  */
 export async function POST(request: Request) {
   const session = await auth();
@@ -53,12 +57,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: TEMPLATE_NOT_FOUND_MESSAGE }, { status: 404 });
   }
 
-  const parsedDocument = InvitationDocumentSchema.safeParse(template.document);
-  if (!parsedDocument.success) {
+  const document = buildInvitationDocumentFromTemplate(template.document);
+  if (!document) {
     return NextResponse.json({ error: INVALID_TEMPLATE_DOCUMENT_MESSAGE }, { status: 500 });
   }
 
-  const document = structuredClone(parsedDocument.data);
   const slug = `nhap-${randomUUID()}`;
 
   const invitation = await prisma.invitation.create({
@@ -84,17 +87,18 @@ export async function GET() {
   const invitations = await prisma.invitation.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      slug: true,
+      status: true,
+      publishedAt: true,
+      viewCount: true,
+      updatedAt: true,
+      document: true,
+    },
   });
 
   return NextResponse.json({
-    invitations: invitations.map((invitation) => ({
-      id: invitation.id,
-      slug: invitation.slug,
-      status: invitation.status,
-      publishedAt: invitation.publishedAt,
-      viewCount: invitation.viewCount,
-      updatedAt: invitation.updatedAt,
-      coverNames: deriveCoverNames(invitation.document),
-    })),
+    invitations: invitations.map(toInvitationSummary),
   });
 }

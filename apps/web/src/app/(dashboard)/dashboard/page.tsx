@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { prisma } from "@hpwd/db";
 import { auth, signOut } from "@/auth";
-import { deriveCoverNames } from "@/lib/invitations";
+import { toInvitationSummary } from "@/lib/invitations";
 import { InvitationList } from "./InvitationList";
 
 /**
@@ -23,6 +23,15 @@ export default async function DashboardPage() {
   const invitations = await prisma.invitation.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      slug: true,
+      status: true,
+      publishedAt: true,
+      viewCount: true,
+      updatedAt: true,
+      document: true,
+    },
   });
 
   return (
@@ -56,17 +65,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mt-8">
-        <InvitationList
-          invitations={invitations.map((invitation) => ({
-            id: invitation.id,
-            slug: invitation.slug,
-            status: invitation.status,
-            publishedAt: invitation.publishedAt ? invitation.publishedAt.toISOString() : null,
-            viewCount: invitation.viewCount,
-            updatedAt: invitation.updatedAt.toISOString(),
-            coverNames: deriveCoverNames(invitation.document),
-          }))}
-        />
+        <InvitationList invitations={invitations.map(toInvitationSummary)} />
       </div>
     </div>
   );
