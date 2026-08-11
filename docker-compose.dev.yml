@@ -7,8 +7,12 @@ services:
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: hpwd
+    # C12: bound to loopback only — the default (no host IP) publishes on
+    # 0.0.0.0, i.e. every network interface, exposing default/weak
+    # credentials to anything else on the same LAN/Wi-Fi. Nothing outside
+    # this machine needs to reach these dev services directly.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -16,7 +20,7 @@ services:
     image: redis:7
     container_name: hpwd-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
 
@@ -27,8 +31,8 @@ services:
     container_name: hpwd-minio
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     environment:
       MINIO_ROOT_USER: minio
       MINIO_ROOT_PASSWORD: minio12345
