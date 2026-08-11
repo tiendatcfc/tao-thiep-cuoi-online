@@ -66,10 +66,16 @@ describe("OpeningGate", () => {
   });
 
   it("effect: 'none' shows children immediately and calls onOpened exactly once, even across re-renders", () => {
-    const onOpened = vi.fn();
+    // `onOpened` (the spy) is wrapped in a *fresh* inline arrow at each call
+    // site below, deliberately mirroring how `InvitePage` really passes it
+    // (`onOpened={() => setOpened(true)}`, a new function every render). If
+    // the rerender instead reused the exact same prop reference, the
+    // effect's dependency array would never see it change and the "only
+    // once" guard (`firedRef`) would never actually be exercised.
+    const onOpenedSpy = vi.fn();
     const { rerender } = render(
       <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
-        <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={onOpened}>
+        <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={() => onOpenedSpy()}>
           <div>Nội dung thiệp</div>
         </OpeningGate>
       </InviteContext.Provider>,
@@ -77,17 +83,17 @@ describe("OpeningGate", () => {
 
     expect(screen.getByText("Nội dung thiệp")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Mở thiệp" })).not.toBeInTheDocument();
-    expect(onOpened).toHaveBeenCalledTimes(1);
+    expect(onOpenedSpy).toHaveBeenCalledTimes(1);
 
     rerender(
       <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
-        <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={onOpened}>
+        <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={() => onOpenedSpy()}>
           <div>Nội dung thiệp (đổi)</div>
         </OpeningGate>
       </InviteContext.Provider>,
     );
 
-    expect(onOpened).toHaveBeenCalledTimes(1);
+    expect(onOpenedSpy).toHaveBeenCalledTimes(1);
   });
 
   it("preview mode renders children immediately with the overlay suppressed and never calls onOpened", () => {

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
+import { useOpeningTap } from "./useOpeningTap";
 
 const FADE_DURATION = 0.5; // seconds — well under the 1.2s total budget.
+const TOTAL_DURATION_MS = 500;
 
 /**
  * Simplest of the three opening effects: a full-screen `--background`
@@ -14,12 +15,10 @@ const FADE_DURATION = 0.5; // seconds — well under the 1.2s total budget.
  */
 export function FadeOpening({ opening, guestName, onOpen }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
-  const [tapped, setTapped] = useState(false);
-
-  function handleTap() {
-    if (tapped) return;
-    setTapped(true);
-  }
+  const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
+    onOpen,
+    reduceMotion ? 0 : TOTAL_DURATION_MS,
+  );
 
   return (
     <motion.div
@@ -27,9 +26,7 @@ export function FadeOpening({ opening, guestName, onOpen }: OpeningVariantProps)
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
       transition={{ duration: reduceMotion ? 0 : FADE_DURATION }}
-      onAnimationComplete={() => {
-        if (tapped) onOpen();
-      }}
+      onAnimationComplete={handleAnimationComplete}
     >
       {opening.monogram ? (
         <p className="text-2xl font-semibold tracking-wide text-[var(--primary)]">{opening.monogram}</p>

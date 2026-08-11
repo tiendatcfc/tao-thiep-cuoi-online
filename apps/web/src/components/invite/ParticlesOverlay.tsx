@@ -83,9 +83,7 @@ export function ParticlesOverlay({ kind }: ParticlesOverlayProps) {
 
     let width = window.innerWidth;
     let height = window.innerHeight;
-    let particles: Particle[] = Array.from({ length: PARTICLE_COUNT }, () =>
-      createParticle(kind, width, height),
-    );
+    let particles: Particle[] = [];
 
     function resize() {
       const dpr = window.devicePixelRatio || 1;

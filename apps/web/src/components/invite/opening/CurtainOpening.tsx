@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
+import { useOpeningTap } from "./useOpeningTap";
 
 const PANEL_DURATION = 0.5;
 const FADE_DURATION = 0.3;
 const FADE_DELAY = 0.35;
+const TOTAL_DURATION_MS = 650;
 // Total: 0.35 + 0.3 = 0.65s — well under the 1.2s budget.
 
 /**
@@ -17,13 +18,11 @@ const FADE_DELAY = 0.35;
  */
 export function CurtainOpening({ opening, guestName, onOpen }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
-  const [tapped, setTapped] = useState(false);
+  const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
+    onOpen,
+    reduceMotion ? 0 : TOTAL_DURATION_MS,
+  );
   const t = (base: number) => (reduceMotion ? 0 : base);
-
-  function handleTap() {
-    if (tapped) return;
-    setTapped(true);
-  }
 
   return (
     <motion.div
@@ -31,9 +30,7 @@ export function CurtainOpening({ opening, guestName, onOpen }: OpeningVariantPro
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
       transition={{ duration: t(FADE_DURATION), delay: t(FADE_DELAY) }}
-      onAnimationComplete={() => {
-        if (tapped) onOpen();
-      }}
+      onAnimationComplete={handleAnimationComplete}
     >
       <motion.div
         className="absolute inset-y-0 left-0 w-1/2 bg-[var(--primary)]"
