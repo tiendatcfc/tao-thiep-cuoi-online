@@ -58,4 +58,32 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
 
     await waitFor(() => expect(playSpy).toHaveBeenCalledTimes(1), { timeout: 1000 });
   });
+
+  it("respects music.playAfterOpen: false — the tap opens the invitation but never auto-starts audio", async () => {
+    const document = createDefaultDocument();
+    document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
+    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: false };
+
+    render(
+      <InvitePage
+        document={document}
+        guestName="Nguyễn Văn An"
+        settings={{ showBadge: false }}
+        isPreview={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
+
+    // Give the (near-instant, reduced-motion) open animation a tick to
+    // finish, then assert play() was still never auto-triggered — only
+    // `document.opening`'s tap unlocked the gate, `music.playAfterOpen`
+    // decides whether that also starts audio.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Mở thiệp" })).not.toBeInTheDocument());
+    expect(playSpy).not.toHaveBeenCalled();
+
+    // The player itself is still fully usable via its own toggle button.
+    fireEvent.click(screen.getByRole("button", { name: "Bật nhạc" }));
+    expect(playSpy).toHaveBeenCalledTimes(1);
+  });
 });

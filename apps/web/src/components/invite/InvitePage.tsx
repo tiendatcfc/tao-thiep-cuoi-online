@@ -61,8 +61,14 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
          * — its rising-edge autoplay detector seeds itself from the
          * *initial* `startSignal` value, so a remount with `startSignal`
          * already `true` would silently never autoplay.
+         *
+         * `startSignal` only rises once BOTH the gate has opened AND
+         * `music.playAfterOpen` allows it — a couple can configure an
+         * opening effect while still opting out of auto-starting audio,
+         * leaving the player's own toggle button as the only way to start
+         * it.
          */}
-        <MusicPlayer music={document.music} startSignal={opened} />
+        <MusicPlayer music={document.music} startSignal={opened && document.music.playAfterOpen} />
         {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
         {settings.showBadge ? (
           <footer className="py-6 text-center text-xs text-gray-400">
