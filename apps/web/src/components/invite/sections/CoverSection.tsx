@@ -1,10 +1,18 @@
 import type { Section } from "@hpwd/schema";
+import { VN_TIME_ZONE } from "@/lib/date";
 import { useInviteContext } from "../InviteContext";
 import { SectionWrapper } from "./SectionWrapper";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function formatVietnameseDate(iso: string): string | null {
+/**
+ * Vietnam-only app (see `VN_TIME_ZONE`) — `timeZone` is required here, not
+ * optional: without it, `Intl.DateTimeFormat` falls back to the rendering
+ * server's local timezone, so a morning ceremony stored as a UTC instant
+ * (the norm — see `DateField`) renders a calendar day early on a UTC
+ * server and correctly on an ICT one, a silent SSR/guest-device mismatch.
+ */
+export function formatVietnameseDate(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat("vi-VN", {
@@ -12,18 +20,39 @@ function formatVietnameseDate(iso: string): string | null {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+    timeZone: VN_TIME_ZONE,
   }).format(date);
 }
 
+/** `Intl.DateTimeFormat`'s `en-CA` locale gives a stable `YYYY-MM-DD` — used only to pin a `Date` to a calendar day in `VN_TIME_ZONE`, never displayed. */
+function vnCalendarDayUtcMs(date: Date): number {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: VN_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const year = Number(parts.find((p) => p.type === "year")?.value);
+  const month = Number(parts.find((p) => p.type === "month")?.value);
+  const day = Number(parts.find((p) => p.type === "day")?.value);
+  return Date.UTC(year, month - 1, day);
+}
+
 /**
- * Days remaining until `iso`, computed once at render time (server-rendered,
- * not a ticking client clock — the live countdown is Task 14's job). Past or
- * unparseable dates return `null` so the caption is simply omitted.
+ * Whole calendar days remaining until `iso`, both dates measured by their
+ * *Vietnamese* calendar day, not by dividing a raw millisecond difference —
+ * a naive `Math.ceil((target - now) / MS_PER_DAY)` gives the wrong answer
+ * near local midnight (e.g. it's already the wedding's calendar day in
+ * Vietnam a few hours before the raw UTC instant crosses a day boundary,
+ * which would otherwise still show "còn 1 ngày nữa" instead of "Hôm nay").
+ * Computed once at render time (server-rendered, not a ticking client clock
+ * — the live countdown is Task 14's job); `now` is injectable for tests.
+ * Past or unparseable dates return `null` so the caption is simply omitted.
  */
-function daysRemaining(iso: string): number | null {
+export function daysRemaining(iso: string, now: Date = new Date()): number | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  const diffDays = Math.ceil((date.getTime() - Date.now()) / MS_PER_DAY);
+  const diffDays = Math.round((vnCalendarDayUtcMs(date) - vnCalendarDayUtcMs(now)) / MS_PER_DAY);
   return diffDays >= 0 ? diffDays : null;
 }
 

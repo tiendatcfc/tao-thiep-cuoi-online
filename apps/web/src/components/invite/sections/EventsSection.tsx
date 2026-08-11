@@ -1,12 +1,17 @@
 import type { Section } from "@hpwd/schema";
+import { VN_TIME_ZONE } from "@/lib/date";
 import { SectionWrapper } from "./SectionWrapper";
 
-function formatEventDate(iso: string): string | null {
+/** See `CoverSection.formatVietnameseDate` for why `timeZone` is required, not optional, in this Vietnam-only app. */
+export function formatEventDate(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(
-    date,
-  );
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: VN_TIME_ZONE,
+  }).format(date);
 }
 
 export function EventsSection({ section }: { section: Extract<Section, { type: "events" }> }) {

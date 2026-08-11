@@ -1,6 +1,8 @@
 import { ImageResponse } from "next/og";
 import { prisma } from "@hpwd/db";
 import { InvitationDocumentSchema } from "@hpwd/schema";
+import { VN_TIME_ZONE } from "@/lib/date";
+import { isAllowedImageUrl } from "@/lib/image-hosts";
 import { loadOgHeadingFont, OG_HEADING_FONT_NAME, type OgFontDescriptor } from "@/lib/og-font";
 import { findCoverSection } from "@/lib/sections";
 
@@ -34,19 +36,22 @@ const FALLBACK_CONTENT: OgContent = {
   background: FALLBACK_BACKGROUND,
 };
 
-function formatVietnameseDate(iso: string): string | null {
+/**
+ * See `CoverSection.formatVietnameseDate` for why `timeZone` is required,
+ * not optional, in this Vietnam-only app. Exported (this route file
+ * otherwise only exports the Next.js OG-image conventions above) so the B5
+ * timezone-consistency test can exercise it directly without needing a real
+ * DB row + full `ImageResponse` render.
+ */
+export function formatVietnameseDate(iso: string): string | null {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
-}
-
-function isAbsoluteHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: VN_TIME_ZONE,
+  }).format(date);
 }
 
 const IMAGE_FETCH_TIMEOUT_MS = 2000;
@@ -59,23 +64,34 @@ const MAX_COVER_IMAGE_BYTES = 4 * 1024 * 1024;
 
 /**
  * Fetches the cover image exactly once and returns it as a `data:` URI, or
- * `null` on any failure (unreachable, non-OK, oversized). This used to be
- * two separate fetches of the same URL: a reachability probe here, then a
- * second fetch by satori itself when rendering `<img src={url}>`. That had
- * two problems — a TOCTOU gap (the URL can stop responding, expire, or hit
- * a rate limit between the two fetches, reproducing the exact
- * washed-out-text bug a reachability-only probe was meant to fix, just
- * through a narrower window) and a wasted duplicate download. Fetching once
- * and handing satori the raw bytes (as a data URI, which satori decodes
- * locally without any network access — see the compiled `@vercel/og`
- * bundle's `vt()` image loader) removes both: there is no second fetch to
- * race against, and no duplicate bandwidth cost.
+ * `null` on any failure (unreachable, non-OK, oversized, not allowlisted).
+ * This used to be two separate fetches of the same URL: a reachability
+ * probe here, then a second fetch by satori itself when rendering `<img
+ * src={url}>`. That had two problems — a TOCTOU gap (the URL can stop
+ * responding, expire, or hit a rate limit between the two fetches,
+ * reproducing the exact washed-out-text bug a reachability-only probe was
+ * meant to fix, just through a narrower window) and a wasted duplicate
+ * download. Fetching once and handing satori the raw bytes (as a data URI,
+ * which satori decodes locally without any network access — see the
+ * compiled `@vercel/og` bundle's `vt()` image loader) removes both: there
+ * is no second fetch to race against, and no duplicate bandwidth cost.
+ *
+ * SSRF guard (B4): the caller must already have checked `isAllowedImageUrl`
+ * — this is the second layer, `redirect: "manual"` below, closing the
+ * follow-up hole where an ALLOWLISTED url could still 30x an authenticated
+ * couple's server-side request onward to an internal/link-local address
+ * (e.g. the cloud metadata service). Node's `fetch` has no browser-style
+ * public/private network restriction, so a followed redirect would just be
+ * fetched like any other URL; `redirect: "manual"` makes any redirect
+ * response come back as `ok: false` (an opaque `type: "opaqueredirect"`)
+ * instead of being followed, and that's treated as an ordinary fetch
+ * failure by the `!res.ok` branch right below.
  */
 async function fetchCoverImageDataUri(url: string): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, redirect: "manual" });
     if (!res.ok) {
       // Not consumed — drain it so the underlying connection can be
       // returned to the pool promptly instead of sitting open until GC.
@@ -125,8 +141,14 @@ async function loadOgContent(slug: string): Promise<OgContent> {
 
     const cover = findCoverSection(parsed.data.sections);
     const candidateImage = cover?.props.coverImage;
+    // B4 SSRF guard: only ever fetch a cover image from the same hosts
+    // `next.config.ts` allowlists for `/_next/image?url=` (local MinIO /
+    // the configured R2 bucket) — every real cover image lives there
+    // already (uploaded through the editor's own upload flow), so this
+    // never affects a legitimate invitation, only a crafted `coverImage`
+    // pointing at an arbitrary internal/external host.
     const coverImage =
-      candidateImage && isAbsoluteHttpUrl(candidateImage) ? await fetchCoverImageDataUri(candidateImage) : null;
+      candidateImage && isAllowedImageUrl(candidateImage) ? await fetchCoverImageDataUri(candidateImage) : null;
 
     return {
       groomName: cover?.props.groomName || FALLBACK_GROOM_NAME,

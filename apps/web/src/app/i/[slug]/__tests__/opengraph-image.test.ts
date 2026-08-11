@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@hpwd/db";
 import { createDefaultDocument } from "@hpwd/schema";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import Image, { contentType, size } from "../opengraph-image";
+import Image, { contentType, formatVietnameseDate, size } from "../opengraph-image";
 
 // The smallest possible valid PNG (1x1, transparent) — used as the mock
 // fetch response body for the "cover image fetch succeeds" tests below, so
@@ -58,6 +58,30 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
   it("exports the documented 1200x630 png size/content-type constants", () => {
     expect(size).toEqual({ width: 1200, height: 630 });
     expect(contentType).toBe("image/png");
+  });
+
+  // B5: see `lib/__tests__/date.test.ts` for the general rationale. Without
+  // an explicit `timeZone`, this OG-image date would be permanently wrong
+  // (one day off) whenever the rendering server's local timezone isn't
+  // `Asia/Ho_Chi_Minh` — this is the "shop-window" share image on
+  // Zalo/Facebook, so a wrong date there is highly visible.
+  describe("formatVietnameseDate (B5 timezone consistency)", () => {
+    const MIDNIGHT_STRADDLING_INSTANT = "2026-12-19T18:30:00Z";
+    const originalTz = process.env.TZ;
+
+    afterEach(() => {
+      process.env.TZ = originalTz;
+    });
+
+    it("renders the same (Vietnamese) calendar day under both TZ=UTC and TZ=Asia/Ho_Chi_Minh", () => {
+      process.env.TZ = "UTC";
+      const underUtc = formatVietnameseDate(MIDNIGHT_STRADDLING_INSTANT);
+      process.env.TZ = "Asia/Ho_Chi_Minh";
+      const underIct = formatVietnameseDate(MIDNIGHT_STRADDLING_INSTANT);
+
+      expect(underUtc).toBe(underIct);
+      expect(underUtc).toBe("20/12/2026");
+    });
   });
 
   it("returns a real, non-trivial PNG for a published invitation with Vietnamese names", async () => {
@@ -169,6 +193,11 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
   // now fetched exactly once and handed to satori as an already-decoded
   // `data:` URI.
   describe("single-fetch cover image (coordinator review fix)", () => {
+    // Must be a host `isAllowedImageUrl` accepts (see the B4 describe block
+    // below) — `.env.local`/CI both set `R2_PUBLIC_URL=http://localhost:9000/hpwd`,
+    // so this is the real allowlisted host, not an arbitrary external one.
+    const ALLOWED_COVER_HOST = "http://localhost:9000/hpwd";
+
     it("fetches the cover image exactly once and renders the photo variant when the fetch succeeds", async () => {
       userId = await createUser();
       const pngBytes = Buffer.from(ONE_PIXEL_PNG_BASE64, "base64");
@@ -177,7 +206,7 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
         .mockResolvedValue(new Response(pngBytes, { status: 200, headers: { "content-type": "image/png" } }));
 
       try {
-        const slug = await createPublishedInvitationWithCover("https://photos.example.com/cover.png");
+        const slug = await createPublishedInvitationWithCover(`${ALLOWED_COVER_HOST}/cover.png`);
 
         const response = await Image({ params: Promise.resolve({ slug }) });
         expect(response.status).toBe(200);
@@ -193,6 +222,8 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
         const buffer = Buffer.from(await response.arrayBuffer());
         expect(buffer.subarray(0, 8)).toEqual(PNG_MAGIC);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
+        // B4: redirects from an allowlisted host must not be auto-followed.
+        expect(fetchSpy.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
       } finally {
         fetchSpy.mockRestore();
       }
@@ -203,7 +234,7 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 404 }));
 
       try {
-        const slug = await createPublishedInvitationWithCover("https://photos.example.com/missing.png");
+        const slug = await createPublishedInvitationWithCover(`${ALLOWED_COVER_HOST}/missing.png`);
 
         const response = await Image({ params: Promise.resolve({ slug }) });
         expect(response.status).toBe(200);
@@ -223,9 +254,7 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
         .mockResolvedValue(new Response(oversized, { status: 200, headers: { "content-type": "image/jpeg" } }));
 
       try {
-        const slugWithOversizedImage = await createPublishedInvitationWithCover(
-          "https://photos.example.com/huge.jpg",
-        );
+        const slugWithOversizedImage = await createPublishedInvitationWithCover(`${ALLOWED_COVER_HOST}/huge.jpg`);
         const oversizedResponse = await Image({ params: Promise.resolve({ slug: slugWithOversizedImage }) });
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         const oversizedBuffer = Buffer.from(await oversizedResponse.arrayBuffer());
@@ -259,7 +288,7 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
 
       try {
         const slugWithDeclaredOversized = await createPublishedInvitationWithCover(
-          "https://photos.example.com/declared-huge.jpg",
+          `${ALLOWED_COVER_HOST}/declared-huge.jpg`,
         );
         const declaredOversizedResponse = await Image({
           params: Promise.resolve({ slug: slugWithDeclaredOversized }),
@@ -273,6 +302,80 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
         const noImageBuffer = Buffer.from(await noImageResponse.arrayBuffer());
 
         expect(declaredOversizedBuffer.equals(noImageBuffer)).toBe(true);
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+  });
+
+  // B4: this route added a second server-side image fetcher without the
+  // SSRF allowlist `next.config.ts` already established for
+  // `/_next/image?url=` — a couple's `coverImage` is arbitrary user input
+  // (the editor stores whatever URL an upload returns, or a hand-typed
+  // one), so without this guard the production server would fetch
+  // WHATEVER host is named there, on every request for that invitation's
+  // OG image, including internal/link-local addresses.
+  describe("SSRF guard: cover image host allowlist (B4)", () => {
+    it("never fetches a cover image on a non-allowlisted (arbitrary external) host", async () => {
+      userId = await createUser();
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      try {
+        const slug = await createPublishedInvitationWithCover("https://attacker.example.net/cover.png");
+
+        const response = await Image({ params: Promise.resolve({ slug }) });
+        expect(response.status).toBe(200);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        expect(buffer.subarray(0, 8)).toEqual(PNG_MAGIC);
+        // The real assertion: no network request to the untrusted host at
+        // all — the allowlist rejects it before any `fetch` call, not after
+        // an attempted-and-failed one.
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("never fetches a cover image pointed at a link-local/metadata-service address", async () => {
+      userId = await createUser();
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+      try {
+        const slug = await createPublishedInvitationWithCover("http://169.254.169.254/latest/meta-data/");
+
+        const response = await Image({ params: Promise.resolve({ slug }) });
+        expect(response.status).toBe(200);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("does not follow a redirect from an allowlisted host to an arbitrary target (fetch called with redirect: manual)", async () => {
+      userId = await createUser();
+      // A real `redirect: "manual"` fetch resolves with an opaque
+      // `type: "opaqueredirect"` response (`ok: false`, `status: 0`) rather
+      // than transparently following the redirect target — simulated here
+      // since undici's own opaqueredirect response can't be constructed
+      // directly from a plain 3xx `Response`.
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+        ok: false,
+        status: 0,
+        type: "opaqueredirect",
+        headers: new Headers(),
+        body: null,
+      } as Response);
+
+      try {
+        const slug = await createPublishedInvitationWithCover("http://localhost:9000/hpwd/redirecting.png");
+
+        const response = await Image({ params: Promise.resolve({ slug }) });
+        expect(response.status).toBe(200);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        expect(buffer.subarray(0, 8)).toEqual(PNG_MAGIC);
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(fetchSpy.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
       } finally {
         fetchSpy.mockRestore();
       }
