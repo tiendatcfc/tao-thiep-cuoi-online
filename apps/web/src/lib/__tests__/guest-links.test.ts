@@ -30,4 +30,16 @@ describe("normalizeGuestName", () => {
   it("cắt ở 120 ký tự", () => {
     expect(normalizeGuestName("x".repeat(200))).toHaveLength(120);
   });
+  it("không để lại khoảng trắng ở cuối khi ranh giới cắt rơi đúng vào một dấu cách", () => {
+    // "A B " repeated 50 times is 200 chars: "A B A B A B ...". After the
+    // control-strip (no-op) and whitespace-collapse (no-op, already single
+    // spaces) steps, trimming the trailing space leaves a 199-char string
+    // whose index 119 is still a space (199 % 4 !== the position that got
+    // trimmed) — slicing to 120 chars right there, before a final trim,
+    // would leave that space dangling at the end of the result.
+    const raw = "A B ".repeat(50);
+    const result = normalizeGuestName(raw);
+    expect(result.length).toBeLessThanOrEqual(120);
+    expect(/\s$/.test(result)).toBe(false);
+  });
 });

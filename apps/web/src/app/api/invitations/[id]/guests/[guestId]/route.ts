@@ -2,10 +2,9 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
-import { findOwnedInvitation, NOT_FOUND_MESSAGE } from "@/lib/ownership";
+import { findOwnedInvitation, NOT_FOUND_MESSAGE, UNAUTHENTICATED_MESSAGE } from "@/lib/ownership";
 import { normalizeGuestName } from "@/lib/guest-links";
 
-const UNAUTHENTICATED_MESSAGE = "Bạn cần đăng nhập.";
 const INVALID_BODY_MESSAGE = "Dữ liệu gửi lên không hợp lệ.";
 
 const GUEST_SELECT = {

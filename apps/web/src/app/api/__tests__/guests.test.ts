@@ -217,7 +217,7 @@ describe("POST /api/invitations/[id]/guests", () => {
     expect(stored).toHaveLength(0);
   });
 
-  it("rejects more than 500 guests in one request", async () => {
+  it("rejects more than 500 guests in one request, naming the 500 cap in the message", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
@@ -225,8 +225,26 @@ describe("POST /api/invitations/[id]/guests", () => {
     const res = await POST(jsonRequest({ guests }, "POST"), { params: Promise.resolve({ id }) });
 
     expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("500");
     const stored = await prisma.guest.findMany({ where: { invitationId: id } });
     expect(stored).toHaveLength(0);
+  });
+
+  it("rejects a malformed guests payload with a generic message that doesn't mention the 500 cap", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    // `name` must be a string — this fails schema validation for a reason
+    // unrelated to the batch size, so the 500-cap wording would be misleading.
+    const res = await POST(jsonRequest({ guests: [{ name: 12345 }] }, "POST"), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).not.toContain("500");
+    expect(body.error).toBe("Danh sách khách không hợp lệ.");
   });
 
   it("accepts exactly 500 guests in one request", async () => {
@@ -242,13 +260,15 @@ describe("POST /api/invitations/[id]/guests", () => {
     expect(body.guests).toHaveLength(500);
   });
 
-  it("rejects an empty guests array with 400", async () => {
+  it("rejects an empty guests array with 400 and the generic (non-cap) message", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
     const res = await POST(jsonRequest({ guests: [] }, "POST"), { params: Promise.resolve({ id }) });
 
     expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe("Danh sách khách không hợp lệ.");
   });
 
   it("returns 400 when the request body isn't valid JSON", async () => {

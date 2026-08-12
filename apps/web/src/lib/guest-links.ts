@@ -16,5 +16,10 @@ export function normalizeGuestName(raw: string): string {
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, MAX_GUEST_NAME_LENGTH);
+    .slice(0, MAX_GUEST_NAME_LENGTH)
+    // A cut at the length cap can land right after an already-collapsed
+    // internal space, leaving it dangling at the end of the result — trim
+    // once more after slicing to catch that case (the first `.trim()` above
+    // only handles leading/trailing whitespace on the pre-slice string).
+    .trim();
 }

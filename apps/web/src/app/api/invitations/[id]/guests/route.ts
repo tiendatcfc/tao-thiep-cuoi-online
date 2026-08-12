@@ -2,12 +2,26 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
-import { findOwnedInvitation, NOT_FOUND_MESSAGE } from "@/lib/ownership";
+import { findOwnedInvitation, NOT_FOUND_MESSAGE, UNAUTHENTICATED_MESSAGE } from "@/lib/ownership";
 import { normalizeGuestName } from "@/lib/guest-links";
 
 const MAX_GUESTS_PER_REQUEST = 500;
-const UNAUTHENTICATED_MESSAGE = "Bạn cần đăng nhập.";
 const INVALID_BODY_MESSAGE = "Dữ liệu gửi lên không hợp lệ.";
+const INVALID_GUESTS_MESSAGE = "Danh sách khách không hợp lệ.";
+const TOO_MANY_GUESTS_MESSAGE = `Danh sách khách không hợp lệ (tối đa ${MAX_GUESTS_PER_REQUEST} khách mỗi lần).`;
+
+/**
+ * `createGuestsSchema.safeParse` fails identically whether `guests` is
+ * missing/empty/malformed or simply too long — but "too long" deserves its
+ * own message telling the caller the actual cap, so this checks that one
+ * condition directly off the raw (still-`unknown`) body rather than trying
+ * to pick it out of zod's issue list.
+ */
+function isOversizedGuestsPayload(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return false;
+  const guests = (body as { guests?: unknown }).guests;
+  return Array.isArray(guests) && guests.length > MAX_GUESTS_PER_REQUEST;
+}
 
 const guestInputSchema = z.object({
   // The raw cap here is generous headroom above `normalizeGuestName`'s
@@ -90,10 +104,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const parsed = createGuestsSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json(
-      { error: `Danh sách khách không hợp lệ (tối đa ${MAX_GUESTS_PER_REQUEST} khách mỗi lần).` },
-      { status: 400 },
-    );
+    const message = isOversizedGuestsPayload(body) ? TOO_MANY_GUESTS_MESSAGE : INVALID_GUESTS_MESSAGE;
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const rows = parsed.data.guests.map((guest) => ({

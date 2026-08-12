@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
-import { findOwnedInvitation, NOT_FOUND_MESSAGE } from "@/lib/ownership";
+import { findOwnedInvitation, NOT_FOUND_MESSAGE, UNAUTHENTICATED_MESSAGE } from "@/lib/ownership";
 
 const patchInputSchema = z.object({
   isHidden: z.boolean(),
@@ -17,7 +17,7 @@ export async function PATCH(
 
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Bạn cần đăng nhập." }, { status: 401 });
+    return NextResponse.json({ error: UNAUTHENTICATED_MESSAGE }, { status: 401 });
   }
 
   // C10: this route used to hand-roll its own findUnique + userId check and

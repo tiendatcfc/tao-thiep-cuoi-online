@@ -8,6 +8,14 @@ import { prisma } from "@hpwd/db";
 export const NOT_FOUND_MESSAGE = "Không tìm thấy thiệp.";
 
 /**
+ * Shared 401 copy for "no session user" — every owner-scoped route checks
+ * `session?.user?.id` before anything else and should return this exact
+ * message, so it lives in one place instead of being retyped identically
+ * (and liable to drift) in each route file.
+ */
+export const UNAUTHENTICATED_MESSAGE = "Bạn cần đăng nhập.";
+
+/**
  * Owner-only fetch of an invitation by id. Returns `null` (never throws,
  * never distinguishes) whenever the invitation doesn't exist OR belongs to
  * a different user — the two cases are deliberately indistinguishable to
