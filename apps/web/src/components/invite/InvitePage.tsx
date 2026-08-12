@@ -68,7 +68,9 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
   } as CSSProperties;
 
   return (
-    <InviteContext.Provider value={{ guestName, isPreview, slug }}>
+    <InviteContext.Provider
+      value={{ guestName, showGuestName: document.opening.showGuestName, isPreview, slug }}
+    >
       <div
         data-invite-root
         className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"

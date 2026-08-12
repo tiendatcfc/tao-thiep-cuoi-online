@@ -30,7 +30,7 @@ function renderGate(
 ) {
   const { guestName = "Nguyễn Văn An", isPreview = false } = options;
   return render(
-    <InviteContext.Provider value={{ guestName, isPreview, slug: null }}>
+    <InviteContext.Provider value={{ guestName, showGuestName: true, isPreview, slug: null }}>
       <OpeningGate opening={openingProp} guestName={guestName} onOpened={onOpened}>
         <div>Nội dung thiệp</div>
       </OpeningGate>
@@ -74,7 +74,7 @@ describe("OpeningGate", () => {
     // once" guard (`firedRef`) would never actually be exercised.
     const onOpenedSpy = vi.fn();
     const { rerender } = render(
-      <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+      <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview: false, slug: null }}>
         <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={() => onOpenedSpy()}>
           <div>Nội dung thiệp</div>
         </OpeningGate>
@@ -86,7 +86,7 @@ describe("OpeningGate", () => {
     expect(onOpenedSpy).toHaveBeenCalledTimes(1);
 
     rerender(
-      <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+      <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview: false, slug: null }}>
         <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={() => onOpenedSpy()}>
           <div>Nội dung thiệp (đổi)</div>
         </OpeningGate>
@@ -153,7 +153,7 @@ describe("OpeningGate", () => {
 
     it("never locks scroll for effect: 'none' (children visible immediately, nothing to scroll behind)", () => {
       render(
-        <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+        <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview: false, slug: null }}>
           <OpeningGate opening={opening({ effect: "none" })} guestName={null} onOpened={vi.fn()}>
             <div>Nội dung thiệp</div>
           </OpeningGate>

@@ -58,8 +58,9 @@ describe("InvitationCard", () => {
     expect(screen.getByRole("link", { name: "Chỉnh sửa" })).toHaveAttribute("href", "/editor/inv-1");
   });
 
-  it("links 'Lời chúc' and 'Phản hồi' to their dashboard subpages", () => {
+  it("links 'Khách mời', 'Lời chúc' and 'Phản hồi' to their dashboard subpages", () => {
     render(<InvitationCard invitation={draftInvitation} />);
+    expect(screen.getByRole("link", { name: "Khách mời" })).toHaveAttribute("href", "/dashboard/inv-1/khach-moi");
     expect(screen.getByRole("link", { name: "Lời chúc" })).toHaveAttribute("href", "/dashboard/inv-1/loi-chuc");
     expect(screen.getByRole("link", { name: "Phản hồi" })).toHaveAttribute("href", "/dashboard/inv-1/phan-hoi");
   });

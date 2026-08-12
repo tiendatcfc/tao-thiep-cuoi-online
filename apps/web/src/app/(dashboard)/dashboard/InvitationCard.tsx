@@ -88,6 +88,12 @@ export function InvitationCard({ invitation }: InvitationCardProps) {
           </Link>
         ) : null}
         <Link
+          href={`/dashboard/${invitation.id}/khach-moi`}
+          className="rounded-lg border border-gray-300 px-3 py-1.5 font-medium text-gray-700 transition hover:bg-gray-50"
+        >
+          Khách mời
+        </Link>
+        <Link
           href={`/dashboard/${invitation.id}/loi-chuc`}
           className="rounded-lg border border-gray-300 px-3 py-1.5 font-medium text-gray-700 transition hover:bg-gray-50"
         >

@@ -37,7 +37,7 @@ describe("OpeningGate (prefers-reduced-motion)", () => {
   it("skips the animation and opens near-instantly on tap, still calling onOpened", async () => {
     const onOpened = vi.fn();
     render(
-      <InviteContext.Provider value={{ guestName: "An", isPreview: false, slug: null }}>
+      <InviteContext.Provider value={{ guestName: "An", showGuestName: true, isPreview: false, slug: null }}>
         <OpeningGate opening={openingDoc} guestName="An" onOpened={onOpened}>
           <div>Nội dung thiệp</div>
         </OpeningGate>

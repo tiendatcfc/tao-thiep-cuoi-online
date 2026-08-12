@@ -57,7 +57,7 @@ export function daysRemaining(iso: string, now: Date = new Date()): number | nul
 }
 
 export function CoverSection({ section }: { section: Extract<Section, { type: "cover" }> }) {
-  const { guestName } = useInviteContext();
+  const { guestName, showGuestName } = useInviteContext();
   const { groomName, brideName, coverImage, date, tagline } = section.props;
   const formattedDate = formatVietnameseDate(date);
   const days = daysRemaining(date);
@@ -88,7 +88,9 @@ export function CoverSection({ section }: { section: Extract<Section, { type: "c
           {days === 0 ? "Hôm nay" : `Còn ${days} ngày nữa`}
         </p>
       ) : null}
-      {guestName ? <p className="text-sm text-gray-700">Kính mời: {guestName}</p> : null}
+      {showGuestName && guestName ? (
+        <p className="text-sm text-gray-700">Kính mời: {guestName}</p>
+      ) : null}
     </SectionWrapper>
   );
 }

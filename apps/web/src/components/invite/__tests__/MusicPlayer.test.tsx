@@ -22,7 +22,7 @@ function music(overrides: Partial<Music> = {}): Music {
 
 function provider(musicProp: Music, startSignal: boolean, isPreview: boolean) {
   return (
-    <InviteContext.Provider value={{ guestName: null, isPreview, slug: null }}>
+    <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview, slug: null }}>
       <MusicPlayer music={musicProp} startSignal={startSignal} />
     </InviteContext.Provider>
   );
@@ -141,7 +141,7 @@ describe("MusicPlayer", () => {
     it("calls audio.play() synchronously when ref.current.play() is invoked, with no state change or animation callback needed first", () => {
       const ref = createRef<MusicPlayerHandle>();
       render(
-        <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+        <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview: false, slug: null }}>
           <MusicPlayer ref={ref} music={music()} startSignal={false} />
         </InviteContext.Provider>,
       );
@@ -163,7 +163,7 @@ describe("MusicPlayer", () => {
       vi.stubGlobal("fetch", fetchMock);
 
       render(
-        <InviteContext.Provider value={{ guestName: null, isPreview: false, slug: null }}>
+        <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview: false, slug: null }}>
           <MusicPlayer ref={ref} music={music({ source: "library", url: null, trackId: "t1" })} startSignal={false} />
         </InviteContext.Provider>,
       );

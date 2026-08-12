@@ -21,7 +21,7 @@ function wishesSection(props: Partial<WishesProps> = {}): Extract<Section, { typ
 
 function renderWithSlug(section: Extract<Section, { type: "wishes" }>, slug: string | null) {
   return render(
-    <InviteContext.Provider value={{ guestName: null, isPreview: slug === null, slug }}>
+    <InviteContext.Provider value={{ guestName: null, showGuestName: true, isPreview: slug === null, slug }}>
       <WishesSection section={section} />
     </InviteContext.Provider>,
   );
