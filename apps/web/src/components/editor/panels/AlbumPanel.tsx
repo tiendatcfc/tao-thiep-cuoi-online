@@ -30,11 +30,12 @@ function createPlaceholderImage(): AlbumImage {
 /**
  * `AlbumImageSchema.width`/`height` are `.int().positive()` — applied both
  * to manual `NumberField` edits and to `ImageField`'s `onUploaded` result.
- * `ImageField` itself already rejects a decode that reports `0×0` (see its
- * `readImageDimensions`), so this is defense-in-depth rather than the only
- * guard: a `0`/negative/fractional value should never be reachable here,
- * but if it ever were, this still can't produce a document that fails
- * schema validation.
+ * `/api/uploads` measures dimensions server-side from the decoded image
+ * (sharp fails the whole request before returning a `0` or degenerate
+ * size), so this is defense-in-depth rather than the only guard: a
+ * `0`/negative/fractional value should never be reachable here, but if it
+ * ever were, this still can't produce a document that fails schema
+ * validation.
  */
 export function clampPositiveInt(n: number): number {
   return Math.max(1, Math.round(n));
@@ -65,12 +66,12 @@ export function AlbumPanel({ section }: { section: Extract<Section, { type: "alb
               label="Ảnh"
               value={image.url}
               onChange={(url) => update({ ...image, url })}
-              onUploaded={({ url, width, height }) =>
+              onUploaded={({ url, width, height, blurDataUrl }) =>
                 update({
                   url,
                   width: clampPositiveInt(width),
                   height: clampPositiveInt(height),
-                  blurDataUrl: TRANSPARENT_PIXEL_DATA_URL,
+                  blurDataUrl,
                 })
               }
             />

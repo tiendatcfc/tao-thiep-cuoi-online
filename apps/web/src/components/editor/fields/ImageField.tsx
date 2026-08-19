@@ -10,13 +10,12 @@ const TYPE_ERROR = "Định dạng ảnh phải là JPEG, PNG hoặc WebP.";
 const UPLOAD_ERROR = "Không thể tải ảnh lên, vui lòng thử lại.";
 
 /**
- * A 1x1 fully-transparent PNG, base64-encoded. Used as `AlbumImageSchema`'s
- * `blurDataUrl` when there's no cheap way to produce a real one client-side
- * — `processImage` (the real blur-hash pipeline) needs `sharp`, which is
- * server-only, and this field has no server round-trip to spend on it for
- * every image drop. HUMAN TODO / Phase 2: generate a real blur preview,
- * e.g. by having `/api/uploads` (or a follow-up endpoint) run `processImage`
- * server-side and return `blurDataUrl` alongside `publicUrl`.
+ * A 1x1 fully-transparent PNG, base64-encoded. `/api/uploads` now runs
+ * `processImage` server-side and returns a real `blurDataUrl` for every
+ * upload (see `onUploaded` below), so this constant is no longer a
+ * stand-in for that — it survives only as the seed value for a placeholder
+ * row that has no photo yet (`AlbumPanel`'s `createPlaceholderImage`),
+ * where there's no real image to derive a blur preview from at all.
  */
 export const TRANSPARENT_PIXEL_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -25,6 +24,7 @@ export interface ImageUploadedMeta {
   url: string;
   width: number;
   height: number;
+  blurDataUrl: string;
 }
 
 export interface ImageFieldProps {
@@ -44,44 +44,14 @@ export interface ImageFieldProps {
 type Status = "idle" | "uploading" | "error";
 
 /**
- * A malformed-but-decodable file can make the browser fire `onload` (a
- * "successful" decode) while still reporting `naturalWidth`/`naturalHeight`
- * of `0` — `onerror` alone isn't a reliable signal here. `AlbumImageSchema`
- * requires `.int().positive()`, and a `0` slipping through makes the whole
- * document fail `InvitationDocumentSchema.parse` with no indication of
- * which field is at fault (the exact failure mode client-side validation
- * exists to prevent) — so this treats `< 1` on either axis as a decode
- * failure, same as `onerror`, rather than resolving with a degenerate size.
- */
-function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      const { naturalWidth: width, naturalHeight: height } = img;
-      URL.revokeObjectURL(objectUrl);
-      if (width < 1 || height < 1) {
-        reject(new Error("Không đọc được kích thước ảnh."));
-        return;
-      }
-      resolve({ width, height });
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error("Không đọc được kích thước ảnh."));
-    };
-    img.src = objectUrl;
-  });
-}
-
-/**
- * File picker + direct-to-storage upload: POSTs `/api/uploads` for a signed
- * URL, then PUTs the file to it with the *exact* `Content-Type` and byte
- * length declared in that POST — the presigner signs both, so a mismatch
- * here is a hard rejection, not just a lint nitpick (see
- * `src/lib/storage.ts`). Renders a thumbnail of the current value (if any)
- * with a remove button, and a Vietnamese status message while
- * uploading/on failure.
+ * File picker + server-side upload: POSTs the raw file to `/api/uploads` as
+ * `multipart/form-data`; the server runs the whole `processImage` pipeline
+ * (resize, WebP variants, blur placeholder) and measures the real
+ * dimensions, so the client no longer decodes the image itself just to
+ * read its size (that used to happen here via a throwaway `<img>`; see git
+ * history for `readImageDimensions` if a future task needs that pattern
+ * again). Renders a thumbnail of the current value (if any) with a remove
+ * button, and a Vietnamese status message while uploading/on failure.
  */
 export function ImageField({ label, value, onChange, onUploaded }: ImageFieldProps) {
   const inputId = useId();
@@ -108,26 +78,15 @@ export function ImageField({ label, value, onChange, onUploaded }: ImageFieldPro
 
     setStatus("uploading");
     try {
-      const dimensions = onUploaded ? await readImageDimensions(file) : null;
-
-      const res = await fetch("/api/uploads", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "image", contentType: file.type, sizeBytes: file.size }),
-      });
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/uploads", { method: "POST", body: formData });
       if (!res.ok) throw new Error(`POST /api/uploads failed with status ${res.status}`);
-      const { uploadUrl, publicUrl } = (await res.json()) as { uploadUrl: string; publicUrl: string };
-
-      const putRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error(`PUT to signed URL failed with status ${putRes.status}`);
+      const meta = (await res.json()) as { url: string; width: number; height: number; blurDataUrl: string };
 
       setStatus("idle");
-      onChange(publicUrl);
-      if (onUploaded && dimensions) onUploaded({ url: publicUrl, ...dimensions });
+      onChange(meta.url);
+      onUploaded?.(meta);
     } catch (err) {
       console.error("ImageField: upload failed", err);
       setStatus("error");

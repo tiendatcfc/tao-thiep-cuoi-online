@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { createSection, InvitationDocumentSchema, type Section } from "@hpwd/schema";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
 import { AlbumPanel, clampPositiveInt } from "../AlbumPanel";
 
@@ -17,6 +17,10 @@ beforeEach(() => {
     saving: false,
     lastSavedAt: null,
   });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("clampPositiveInt", () => {
@@ -68,6 +72,50 @@ describe("AlbumPanel", () => {
 
     // The whole document (with this album section swapped in) must still
     // pass the real schema — not just "the numbers look positive".
+    const doc = { ...InvitationDocumentSchemaFixture(), sections: [updated] };
+    expect(() => InvitationDocumentSchema.parse(doc)).not.toThrow();
+  });
+
+  it("stores the real blurDataUrl an upload returns (not the transparent-pixel placeholder), and stays schema-valid", async () => {
+    const section = albumSection();
+    section.props.images = [{ url: "https://cdn.test/old.jpg", width: 800, height: 600, blurDataUrl: "data:," }];
+    useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
+
+    const realLookingBlur = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        url: "https://cdn.test/new-800.webp",
+        width: 1200,
+        height: 800,
+        blurDataUrl: realLookingBlur,
+        assetId: "new-asset",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AlbumPanel section={section} />);
+    const file = new File([new Uint8Array([1, 2, 3])], "photo.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText("Ảnh"), { target: { files: [file] } });
+
+    await waitFor(() => {
+      const updated = useEditorStore
+        .getState()
+        .document.sections.find((s) => s.id === section.id) as Extract<Section, { type: "album" }>;
+      expect(updated.props.images[0].blurDataUrl).toBe(realLookingBlur);
+    });
+
+    const updated = useEditorStore
+      .getState()
+      .document.sections.find((s) => s.id === section.id) as Extract<Section, { type: "album" }>;
+    expect(updated.props.images[0]).toEqual({
+      url: "https://cdn.test/new-800.webp",
+      width: 1200,
+      height: 800,
+      blurDataUrl: realLookingBlur,
+    });
+
     const doc = { ...InvitationDocumentSchemaFixture(), sections: [updated] };
     expect(() => InvitationDocumentSchema.parse(doc)).not.toThrow();
   });

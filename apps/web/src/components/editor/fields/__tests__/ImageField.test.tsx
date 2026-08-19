@@ -14,33 +14,6 @@ function makeFile(name: string, sizeBytes: number, type: string): File {
   return file;
 }
 
-/**
- * jsdom doesn't actually decode images, so `new Image()` never fires
- * `onload`/`onerror` on its own. This stubs the global `Image` constructor
- * to simulate a *successful* decode (real browsers do call `onload`, not
- * `onerror`, for a malformed-but-parseable file) reporting the given
- * `naturalWidth`/`naturalHeight` — including the degenerate `0×0` case
- * `readImageDimensions` needs to treat as a failure on its own, since the
- * browser itself won't.
- */
-function stubImageWithNaturalSize(width: number, height: number) {
-  class FakeImage {
-    onload: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    naturalWidth = width;
-    naturalHeight = height;
-    set src(_value: string) {
-      queueMicrotask(() => this.onload?.());
-    }
-  }
-  vi.stubGlobal("Image", FakeImage as unknown as typeof Image);
-  vi.stubGlobal("URL", {
-    ...URL,
-    createObjectURL: vi.fn(() => "blob:fake"),
-    revokeObjectURL: vi.fn(),
-  });
-}
-
 describe("ImageField", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -95,17 +68,17 @@ describe("ImageField", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("uploads the happy path: POST /api/uploads then PUT to the signed URL, then stores publicUrl", async () => {
+  it("uploads the happy path: a single multipart POST /api/uploads, then stores the server-returned url", async () => {
     const onChange = vi.fn();
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(200, {
-          uploadUrl: "https://storage.test/signed-put",
-          publicUrl: "https://cdn.test/u/abc.jpg",
-          assetId: "abc",
-        }),
-      )
-      .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        url: "https://cdn.test/u/abc-800.webp",
+        width: 1200,
+        height: 800,
+        blurDataUrl: "data:image/webp;base64,AAA",
+        assetId: "abc",
+      }),
+    );
 
     render(<ImageField label="Ảnh bìa" value="" onChange={onChange} />);
     const input = screen.getByLabelText("Ảnh bìa") as HTMLInputElement;
@@ -113,27 +86,19 @@ describe("ImageField", () => {
 
     fireEvent.change(input, { target: { files: [file] } });
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith("https://cdn.test/u/abc.jpg"));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("https://cdn.test/u/abc-800.webp"));
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     const [postUrl, postInit] = fetchMock.mock.calls[0];
     expect(postUrl).toBe("/api/uploads");
-    expect(JSON.parse(postInit.body)).toEqual({ kind: "image", contentType: "image/jpeg", sizeBytes: 1024 });
-
-    const [putUrl, putInit] = fetchMock.mock.calls[1];
-    expect(putUrl).toBe("https://storage.test/signed-put");
-    expect(putInit.method).toBe("PUT");
-    expect(putInit.headers["Content-Type"]).toBe("image/jpeg");
-    expect(putInit.body).toBe(file);
+    expect(postInit.method).toBe("POST");
+    expect(postInit.body).toBeInstanceOf(FormData);
+    expect((postInit.body as FormData).get("file")).toBe(file);
   });
 
-  it("shows a Vietnamese failure message when the PUT fails, and does not call onChange", async () => {
+  it("shows a Vietnamese failure message when the POST fails, and does not call onChange", async () => {
     const onChange = vi.fn();
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(200, { uploadUrl: "https://storage.test/signed-put", publicUrl: "https://cdn.test/x.jpg", assetId: "x" }),
-      )
-      .mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
 
     render(<ImageField label="Ảnh bìa" value="" onChange={onChange} />);
     const file = makeFile("cover.jpg", 1024, "image/jpeg");
@@ -145,39 +110,31 @@ describe("ImageField", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("passes positive naturalWidth/naturalHeight through to onUploaded on a normal image", async () => {
-    stubImageWithNaturalSize(1200, 800);
+  it("passes the server-measured width/height/blurDataUrl through to onUploaded", async () => {
     const onChange = vi.fn();
     const onUploaded = vi.fn();
-    fetchMock
-      .mockResolvedValueOnce(
-        jsonResponse(200, { uploadUrl: "https://storage.test/signed-put", publicUrl: "https://cdn.test/a.jpg", assetId: "a" }),
-      )
-      .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, {
+        url: "https://cdn.test/a-800.webp",
+        width: 1200,
+        height: 800,
+        blurDataUrl: "data:image/webp;base64,AAA",
+        assetId: "a",
+      }),
+    );
 
     render(<ImageField label="Ảnh" value="" onChange={onChange} onUploaded={onUploaded} />);
     const file = makeFile("photo.jpg", 1024, "image/jpeg");
     fireEvent.change(screen.getByLabelText("Ảnh"), { target: { files: [file] } });
 
-    await waitFor(() => expect(onChange).toHaveBeenCalledWith("https://cdn.test/a.jpg"));
-    expect(onUploaded).toHaveBeenCalledWith({ url: "https://cdn.test/a.jpg", width: 1200, height: 800 });
-  });
-
-  it("rejects a 0x0 decoded image before ever calling fetch, showing the upload-failure message and writing nothing", async () => {
-    stubImageWithNaturalSize(0, 0);
-    const onChange = vi.fn();
-    const onUploaded = vi.fn();
-
-    render(<ImageField label="Ảnh" value="" onChange={onChange} onUploaded={onUploaded} />);
-    const file = makeFile("degenerate.jpg", 1024, "image/jpeg");
-    fireEvent.change(screen.getByLabelText("Ảnh"), { target: { files: [file] } });
-
-    await waitFor(() => {
-      expect(screen.getByText("Không thể tải ảnh lên, vui lòng thử lại.")).toBeInTheDocument();
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("https://cdn.test/a-800.webp"));
+    expect(onUploaded).toHaveBeenCalledWith({
+      url: "https://cdn.test/a-800.webp",
+      width: 1200,
+      height: 800,
+      blurDataUrl: "data:image/webp;base64,AAA",
+      assetId: "a",
     });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(onChange).not.toHaveBeenCalled();
-    expect(onUploaded).not.toHaveBeenCalled();
   });
 
   it("clears the value when the remove button is clicked", () => {
