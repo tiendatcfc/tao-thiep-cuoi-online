@@ -40,14 +40,19 @@ export interface PublishDialogProps {
 }
 
 /**
- * Header-triggered dialog for Task 17's publish flow. Two independent
- * network actions happen here, on purpose kept separate:
+ * Header-triggered dialog for Task 17's publish flow. Two network actions
+ * happen here, kept as two separate REQUESTS but — as of the coordinator
+ * review fix above — funneled through a single shared writer for the
+ * `PATCH /api/invitations/[id]` one:
  *
  * - The badge toggle PATCHes `{settings}` immediately on change (optimistic,
- *   reverted on failure) — it's a "no-watermark" preference, not part of
- *   publishing itself, and the brief calls for it to persist via the
- *   existing autosave PATCH route rather than bundling it into the publish
- *   request.
+ *   reverted on failure) via `saveSettings` (from `useAutosaveStatusContext`)
+ *   — it's a "no-watermark" preference, not part of publishing itself, and
+ *   the brief calls for it to persist via the existing autosave PATCH route
+ *   rather than bundling it into the publish request. `saveSettings` joins
+ *   `useAutosave`'s own serialised save queue rather than firing an
+ *   independent `fetch`, so it can never race the document autosave for the
+ *   shared row `version` (see `useAutosave`'s docstring, point 4).
  * - "Xuất bản" POSTs to `/api/invitations/[id]/publish`, which snapshots the
  *   *draft* `document` (read from the editor store, not sent in this
  *   request body — the server re-reads it) into `publishedDocument`.
@@ -59,7 +64,7 @@ export interface PublishDialogProps {
  */
 export function PublishDialog({ open, onClose, invitationId, slug, initialShowBadge }: PublishDialogProps) {
   const document = useEditorStore((state) => state.document);
-  const { flush } = useAutosaveStatusContext();
+  const { flush, saveSettings } = useAutosaveStatusContext();
   const [slugInput, setSlugInput] = useState("");
   const [showBadge, setShowBadge] = useState(initialShowBadge);
   const [publishing, setPublishing] = useState(false);
@@ -148,29 +153,25 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
 
   async function handleToggleBadge(next: boolean) {
     setShowBadge(next);
-    try {
-      // `version` is required on every PATCH to `/api/invitations/[id]` now
-      // (Task 1's optimistic-concurrency check), even for this
-      // settings-only write — read live from the store rather than a
-      // snapshot, since it can have moved since this dialog opened.
-      const res = await fetch(`/api/invitations/${invitationId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ settings: { showBadge: next }, version: useEditorStore.getState().version }),
-      });
-      if (!res.ok) throw new Error(`settings PATCH failed with status ${res.status}`);
-      // The server bumps `version` for this write exactly like a document
-      // autosave — without picking that up here too, the next document
-      // autosave (an entirely separate, unrelated edit) would carry this
-      // now-stale pre-toggle version and get a false 409 from racing
-      // against this same tab's own badge toggle.
-      const body = (await res.json()) as { version?: number };
-      if (typeof body.version === "number") {
-        useEditorStore.getState().setVersion(body.version);
-      }
-    } catch {
+    // Coordinator review fix: this used to fire its own independent
+    // `fetch` to the same `PATCH /api/invitations/[id]` endpoint
+    // `useAutosave` autosaves the document through. Once every successful
+    // PATCH bumps the shared row `version` (Task 1), two independent
+    // writers racing to read/send that version can produce a FALSE
+    // conflict — e.g. type in the editor, then flip this toggle before the
+    // 2s debounce fires: both requests read the same version, whichever
+    // commits first wins, and the other gets a 409 that looks exactly like
+    // a real cross-tab conflict but isn't one — permanently halting
+    // autosave over nothing (see `useAutosave`'s docstring, point 4).
+    // `saveSettings` routes this through that SAME serialised writer
+    // instead, so there is only ever one in-flight PATCH and one place
+    // tracking `version`.
+    const outcome = await saveSettings({ showBadge: next });
+    if (outcome !== null) {
       // Revert the optimistic flip rather than leaving the toggle showing a
-      // state that never actually got saved.
+      // state that never actually got saved — covers a real network
+      // failure, an invalid document blocking the shared save queue, or a
+      // genuine cross-tab version conflict.
       setShowBadge(!next);
     }
   }

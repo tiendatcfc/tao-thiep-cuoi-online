@@ -150,42 +150,49 @@ describe("PublishDialog", () => {
     expect(await screen.findByText("Đã sao chép!")).toBeInTheDocument();
   });
 
-  it("PATCHes settings alone (with the store's current version) when the badge toggle is flipped, without calling the publish route", async () => {
+  // Coordinator review fix: the badge toggle used to fire its own
+  // independent `fetch` straight to `PATCH /api/invitations/[id]`. That's
+  // exactly the same endpoint `useAutosave` autosaves the document through,
+  // and once every successful PATCH bumps the shared row `version` (Task
+  // 1), two independent writers racing to read/send that version can
+  // produce a FALSE conflict that has nothing to do with another tab (see
+  // `useAutosave`'s docstring, point 4, and `useAutosave.test.tsx`'s
+  // "settings save shares the writer with document autosave" suite for the
+  // race itself). The fix routes the toggle through `saveSettings` (from
+  // `AutosaveStatusContext`) instead — these tests prove THIS dialog calls
+  // that shared writer rather than reinventing its own `fetch`, not the
+  // race-safety itself (that's `useAutosave`'s job to prove).
+  function renderWithSaveSettings(saveSettings: (settings: { showBadge: boolean }) => Promise<AutosaveErrorKind>) {
     resetStore(documentWithCoverNames("Minh", "Lan"));
-    // Distinct from the default 0 so this can't accidentally pass by
-    // coincidence if the version were hardcoded instead of read live.
-    useEditorStore.setState({ version: 4 });
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ savedAt: Date.now() }) });
+    return render(
+      <AutosaveStatusContext.Provider value={{ error: null, flush: async () => null, saveSettings }}>
+        <PublishDialog {...baseProps} open onClose={vi.fn()} />
+      </AutosaveStatusContext.Provider>,
+    );
+  }
 
-    render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
+  it("flips the badge toggle through the shared saveSettings writer instead of its own fetch, and never calls the publish route", async () => {
+    const saveSettings = vi.fn().mockResolvedValue(null as AutosaveErrorKind);
+    renderWithSaveSettings(saveSettings);
+
     fireEvent.click(screen.getByRole("checkbox"));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/invitations/inv-1",
-      expect.objectContaining({
-        method: "PATCH",
-        body: JSON.stringify({ settings: { showBadge: false }, version: 4 }),
-      }),
-    );
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith({ showBadge: false }));
+    // No direct `fetch` to `/api/invitations/[id]` from this dialog at all
+    // — `saveSettings` (stubbed above) is the only writer.
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  // The server bumps `version` for a settings-only PATCH exactly like a
-  // document PATCH (see the route's own tests) — if this dialog didn't pick
-  // that up too, the very next autosave PATCH (sent by the unrelated
-  // document-editing side of the same tab) would carry the now-stale
-  // pre-toggle version and get a FALSE 409, purely from racing against its
-  // own tab's badge toggle.
-  it("updates the store's version from the badge-toggle PATCH response, so a subsequent autosave doesn't falsely conflict", async () => {
-    resetStore(documentWithCoverNames("Minh", "Lan"));
-    useEditorStore.setState({ version: 4 });
-    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ savedAt: Date.now(), version: 5 }) });
+  it("reverts the optimistic toggle when saveSettings reports any non-null outcome (network failure, invalid document, or a genuine cross-tab conflict)", async () => {
+    const saveSettings = vi.fn().mockResolvedValue("conflict" as AutosaveErrorKind);
+    renderWithSaveSettings(saveSettings);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
 
-    render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false); // optimistic flip, before saveSettings resolves
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    await waitFor(() => expect(useEditorStore.getState().version).toBe(5));
+    await waitFor(() => expect(checkbox.checked).toBe(true)); // reverted once saveSettings resolves non-null
   });
 
   // C2: publishing used to POST straight away, and the server re-reads
@@ -197,7 +204,7 @@ describe("PublishDialog", () => {
     function renderWithFlush(flush: () => Promise<AutosaveErrorKind>) {
       resetStore(documentWithCoverNames("Minh", "Lan"));
       return render(
-        <AutosaveStatusContext.Provider value={{ error: null, flush }}>
+        <AutosaveStatusContext.Provider value={{ error: null, flush, saveSettings: async () => null }}>
           <PublishDialog {...baseProps} open onClose={vi.fn()} />
         </AutosaveStatusContext.Provider>,
       );

@@ -1,12 +1,21 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { AutosaveErrorKind } from "./useAutosave";
+import type { AutosaveErrorKind, SettingsPayload } from "./useAutosave";
 
 export interface AutosaveStatus {
   error: AutosaveErrorKind;
   /** See `useAutosave`'s own docstring ("Explicit flush") for the full contract. */
   flush: () => Promise<AutosaveErrorKind>;
+  /**
+   * See `useAutosave`'s own docstring (point 4, "Settings share the same
+   * writer") for the full contract. `PublishDialog`'s badge toggle must call
+   * THIS instead of PATCHing `/api/invitations/[id]` itself — a second,
+   * independent writer racing this hook's own document autosave for the
+   * same row `version` is exactly the false-conflict bug that contract
+   * exists to prevent.
+   */
+  saveSettings: (settings: SettingsPayload) => Promise<AutosaveErrorKind>;
 }
 
 /**
@@ -22,7 +31,7 @@ export interface AutosaveStatus {
  * import — `EditorLayout` renders `PublishDialog`, so the reverse import
  * would be circular if the context stayed there.
  */
-const DEFAULT_STATUS: AutosaveStatus = { error: null, flush: async () => null };
+const DEFAULT_STATUS: AutosaveStatus = { error: null, flush: async () => null, saveSettings: async () => null };
 
 export const AutosaveStatusContext = createContext<AutosaveStatus>(DEFAULT_STATUS);
 

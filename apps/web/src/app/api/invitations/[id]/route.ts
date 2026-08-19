@@ -99,20 +99,25 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   });
 
   if (result.count === 0) {
-    // Ownership was already confirmed by `findOwnedInvitation` above, and
-    // the row's existence was implied by that same lookup succeeding, so
-    // the only way `updateMany` can have matched zero rows here is that
-    // `version` no longer matches — someone else (another tab, or this same
-    // tab left open) saved in between this client's last read and this
-    // PATCH.
+    // Ownership and existence were confirmed by `findOwnedInvitation`
+    // above, but that was a moment ago — `updateMany` matching zero rows
+    // here means either (a) `version` no longer matches (someone else, or
+    // this same tab left open elsewhere, saved in between), or (b) the row
+    // was deleted entirely by a concurrent DELETE in that same window.
+    // Re-reading tells the two apart: only (a) is a real 409 worth telling
+    // the couple to reload for — (b) is just the ordinary "doesn't exist"
+    // 404 every other route already uses `findOwnedInvitation` for.
     const current = await prisma.invitation.findUnique({
       where: { id },
       select: { version: true },
     });
+    if (!current) {
+      return NextResponse.json({ error: NOT_FOUND_MESSAGE }, { status: 404 });
+    }
     return NextResponse.json(
       {
         error: "Thiệp đã được chỉnh sửa ở nơi khác. Hãy tải lại trang để lấy bản mới nhất.",
-        currentVersion: current?.version ?? null,
+        currentVersion: current.version,
       },
       { status: 409 },
     );

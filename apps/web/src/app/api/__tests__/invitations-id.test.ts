@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@hpwd/db";
 import { createDefaultDocument } from "@hpwd/schema";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { NOT_FOUND_MESSAGE } from "@/lib/ownership";
 
 // Same rationale as `wishes.test.ts`: `auth()` is mocked because there's no
 // real browser session when calling route handlers directly; everything
@@ -344,6 +345,44 @@ describe("PATCH /api/invitations/[id]", () => {
       });
 
       expect(res.status).toBe(400);
+    });
+
+    // Coordinator review fix: `updateMany`'s `where: {id, version}` matching
+    // zero rows doesn't ONLY mean a version mismatch — a concurrent DELETE
+    // landing between `findOwnedInvitation`'s read (ownership check) and
+    // this `updateMany` also matches zero rows, and the two must not be
+    // confused: reporting 409 ("edited elsewhere, reload") for a row that
+    // no longer exists would send the couple in a reload loop against a 404.
+    it("returns 404 (not 409) when the row was deleted concurrently between the ownership check and the update", async () => {
+      const { id } = await createTestInvitation();
+      authMock.mockResolvedValue({ user: { id: userId } });
+
+      const snapshot = await prisma.invitation.findUnique({ where: { id } });
+      if (!snapshot) throw new Error("Fixture invalid: invitation should exist");
+
+      // `findUnique` is called twice inside PATCH when `updateMany` matches
+      // zero rows: once by `findOwnedInvitation` (the ownership check,
+      // before this test's real DELETE below), and once more to tell a
+      // version mismatch apart from a deleted row. Mocking only the FIRST
+      // call to still see the (soon-to-be-deleted) row — while letting the
+      // SECOND fall through to the real, now-deleted-row lookup — precisely
+      // reproduces "the row existed when ownership was checked, but is gone
+      // by the time `updateMany` runs a moment later" without needing actual
+      // concurrent requests.
+      const findUniqueSpy = vi.spyOn(prisma.invitation, "findUnique").mockResolvedValueOnce(snapshot);
+      try {
+        await prisma.invitation.delete({ where: { id } });
+
+        const res = await PATCH(jsonRequest({ document: createDefaultDocument(), version: 0 }, "PATCH"), {
+          params: Promise.resolve({ id }),
+        });
+
+        expect(res.status).toBe(404);
+        const body = await res.json();
+        expect(body.error).toBe(NOT_FOUND_MESSAGE);
+      } finally {
+        findUniqueSpy.mockRestore();
+      }
     });
   });
 });

@@ -3,7 +3,7 @@ import { createDefaultDocument, type InvitationDocument } from "@hpwd/schema";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
-import { useAutosave } from "../useAutosave";
+import { useAutosave, type AutosaveErrorKind } from "../useAutosave";
 
 const INVITATION_ID = "inv-123";
 
@@ -671,6 +671,164 @@ describe("useAutosave", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(useEditorStore.getState().dirty).toBe(false);
       expect(useEditorStore.getState().version).toBe(2);
+    });
+  });
+
+  // Coordinator review fix: before this, `PublishDialog`'s badge toggle
+  // PATCHed `/api/invitations/[id]` with its OWN independent `fetch`,
+  // reading `version` straight off the store. Once every successful PATCH
+  // bumps that shared row `version` (Task 1), two independent writers could
+  // race: type in the editor (arms the 2s debounce), then flip the badge
+  // toggle before it fires — both read the same `version`, the faster one
+  // commits, and the slower one gets a real 409 from the server that LOOKS
+  // exactly like a cross-tab conflict but isn't one, permanently halting
+  // autosave over nothing. `saveSettings` (below) closes this by routing
+  // the settings write through the exact same serialised queue
+  // (`inFlight`/`pendingAgain`/`waiters`) and the exact same
+  // `versionAtSend`/`setVersion` bookkeeping the document write already
+  // uses, so there is only ever one writer.
+  describe("settings save shares the writer with document autosave", () => {
+    it("does not falsely conflict when a settings save is triggered while a document autosave is in flight — both writes land, error stays null, and conflicted is never set", async () => {
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
+        (resolve) => {
+          resolveFirst = resolve;
+        },
+      );
+      fetchMock.mockImplementationOnce(() => firstResponse);
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+
+      // Document autosave arms and fires first (v0 -> in flight).
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(firstBody.version).toBe(0);
+      expect(firstBody.settings).toBeUndefined();
+
+      // The badge toggle fires WHILE that document save is still in flight
+      // — before the fix, this is exactly where PublishDialog would have
+      // sent its own competing PATCH reading the same (still-0) version.
+      let settingsOutcome: AutosaveErrorKind | undefined;
+      const settingsPromise = result.current.saveSettings({ showBadge: false }).then((outcome) => {
+        settingsOutcome = outcome;
+      });
+      // Queued behind the in-flight request, not a second concurrent one.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // The queued follow-up must carry the server's real post-increment
+      // version AND combine both the document and the settings into one
+      // request — proof this really is one writer, not two coordinating by
+      // luck.
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        expect(body.version).toBe(1);
+        expect(body.settings).toEqual({ showBadge: false });
+        expect(body.document.theme.primary).toBe("#111111");
+        return Promise.resolve({ ok: true, json: async () => ({ savedAt: 222, version: 2 }) });
+      });
+
+      await act(async () => {
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111, version: 1 }) });
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+      await settingsPromise;
+
+      // Both writes landed (two real requests, both successful), the
+      // settings caller got a truthful "saved" outcome, and nothing here
+      // ever looked like a conflict.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(settingsOutcome).toBeNull();
+      expect(result.current.error).toBeNull();
+      expect(useEditorStore.getState().dirty).toBe(false);
+      expect(useEditorStore.getState().version).toBe(2);
+
+      // `conflicted` was never set: a further, unrelated edit still
+      // autosaves completely normally afterward.
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 333, version: 3 }) });
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#333333" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(result.current.error).toBeNull();
+    });
+
+    it("a genuine cross-tab 409 still sets conflicted and stops retrying, even with a settings save queued behind it (the new queueing does not weaken the real guard)", async () => {
+      let resolveFirst!: (value: {
+        ok: boolean;
+        status: number;
+        json: () => Promise<{ error: string; currentVersion: number }>;
+      }) => void;
+      const firstResponse = new Promise<{
+        ok: boolean;
+        status: number;
+        json: () => Promise<{ error: string; currentVersion: number }>;
+      }>((resolve) => {
+        resolveFirst = resolve;
+      });
+      fetchMock.mockImplementationOnce(() => firstResponse);
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Settings save queued behind the in-flight (about-to-conflict)
+      // document save.
+      let settingsOutcome: AutosaveErrorKind | undefined;
+      const settingsPromise = result.current.saveSettings({ showBadge: false }).then((outcome) => {
+        settingsOutcome = outcome;
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // The in-flight request turns out to be a GENUINE cross-tab conflict
+      // — this tab's version really is behind, unrelated to the settings
+      // save that happened to be queued behind it.
+      await act(async () => {
+        resolveFirst({
+          ok: false,
+          status: 409,
+          json: async () => ({ error: "Thiệp đã được chỉnh sửa ở nơi khác.", currentVersion: 5 }),
+        });
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+      await settingsPromise;
+
+      // The queueing must NOT have weakened the real guard: no second
+      // request (the queued settings save must not have been retried once
+      // the conflict was known), `conflicted` state set, and the queued
+      // caller told the truth about the outcome instead of silently
+      // looking like it succeeded.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe("conflict");
+      expect(settingsOutcome).toBe("conflict");
+
+      // Further typing AND further saveSettings calls both stay inert —
+      // "stops retrying" now applies to both writers sharing one guard.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const secondOutcome = await result.current.saveSettings({ showBadge: true });
+      expect(secondOutcome).toBe("conflict");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
 });

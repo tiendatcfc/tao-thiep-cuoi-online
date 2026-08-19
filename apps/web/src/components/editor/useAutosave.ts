@@ -28,10 +28,13 @@ function isAbortError(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError";
 }
 
+/** Shape of the `settings` write PublishDialog's badge toggle needs — kept minimal (just what exists today) rather than the full `{showBadge: boolean}` settings schema, since nothing else currently PATCHes `settings` through this hook. */
+export type SettingsPayload = { showBadge: boolean };
+
 function buildInvitationPatchRequest(
   invitationId: string,
-  document: InvitationDocument,
   version: number,
+  payload: { document?: InvitationDocument; settings?: SettingsPayload },
   extra?: RequestInit,
 ): [string, RequestInit] {
   return [
@@ -39,7 +42,11 @@ function buildInvitationPatchRequest(
     {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ document, version }),
+      // `payload`'s keys are `undefined` when there's nothing of that kind
+      // to send (e.g. no pending settings write) — `JSON.stringify` drops
+      // `undefined`-valued keys entirely, so this never sends a spurious
+      // `"settings": undefined` that would fail the route's schema.
+      body: JSON.stringify({ ...payload, version }),
       ...extra,
     },
   ];
@@ -91,23 +98,46 @@ function buildInvitationPatchRequest(
  *    request, and resolves once a save reflecting the CURRENT document has
  *    actually settled.
  *
- * Returns `{ error, flush }` so the header (`EditorLayout`) can show the
- * Vietnamese failure state — not representable from the store's own
- * `dirty`/`saving`/`lastSavedAt` alone, since "waiting out the debounce"
- * and "the last attempt failed" look identical in store state.
+ * 4. **Settings share the same writer.** `saveSettings` (returned below)
+ *    lets `PublishDialog`'s badge toggle PATCH `{settings}` through this
+ *    SAME serialised queue and the SAME `version` bookkeeping, instead of
+ *    firing its own independent `fetch`. Before optimistic concurrency,
+ *    document and settings writes were safely independent — Prisma's
+ *    `update` only touches columns named in `data`, so the two could never
+ *    collide. Once every successful PATCH bumps the shared row `version`
+ *    (Task 1), two writers reading/sending `version` independently can race:
+ *    a settings save and a document save armed at the same time would both
+ *    read the same `versionAtSend`, the faster one commits and bumps
+ *    `version`, and the slower one gets a **false** 409 — a same-tab
+ *    "conflict" with no other tab involved, which then permanently stops
+ *    autosave (see `conflicted` below) over nothing. Routing `saveSettings`
+ *    through `performSave` means there is exactly one in-flight write at a
+ *    time and exactly one place that reads/updates `version`, so this race
+ *    cannot happen structurally rather than being patched over with retries.
+ *
+ * Returns `{ error, flush, saveSettings }` so the header (`EditorLayout`)
+ * can show the Vietnamese failure state — not representable from the
+ * store's own `dirty`/`saving`/`lastSavedAt` alone, since "waiting out the
+ * debounce" and "the last attempt failed" look identical in store state.
  */
 export function useAutosave(invitationId: string) {
   const [error, setError] = useState<AutosaveErrorKind>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Reassigned on every effect run (below) to close over that run's local
-  // save-cycle state; `flush` (a stable callback) always calls whatever
-  // this currently points at.
+  // save-cycle state; `flush`/`saveSettings` (stable callbacks) always call
+  // whatever these currently point at.
   const flushRef = useRef<() => Promise<AutosaveErrorKind>>(async () => null);
+  const saveSettingsRef = useRef<(settings: SettingsPayload) => Promise<AutosaveErrorKind>>(async () => null);
 
   useEffect(() => {
     let inFlight = false;
     let pendingAgain = false;
     let revision = 0;
+    // Set by `saveSettings` below; read (and cleared on success) by
+    // `performSave`, exactly like `document`/`dirty` already are for the
+    // document side — see point 4 above for why this shares the writer
+    // instead of PATCHing independently.
+    let pendingSettings: SettingsPayload | null = null;
     // Set once a save gets a 409 back and never cleared for the rest of
     // this hook instance (only a remount — i.e. reloading, per the "Tải
     // lại" button — starts a fresh one). Once true, `scheduleSave` becomes
@@ -173,13 +203,25 @@ export function useAutosave(invitationId: string) {
       inFlight = true;
       const revisionAtSend = revision;
       const versionAtSend = useEditorStore.getState().version;
+      // Snapshot whatever settings write is currently pending (if any) —
+      // `pendingSettings` itself can be reassigned to a NEWER value by
+      // `saveSettings` while this request is in flight (mirrors how
+      // `document` can keep changing via `revision`), so this request must
+      // send/compare against the value as of THIS send, not whatever
+      // `pendingSettings` holds by the time the response comes back.
+      const settingsAtSend = pendingSettings;
       const controller = new AbortController();
       activeAbortController = controller;
       useEditorStore.getState().setSaving(true);
       let result: AutosaveErrorKind = null;
       try {
         const res = await fetch(
-          ...buildInvitationPatchRequest(invitationId, document, versionAtSend, { signal: controller.signal }),
+          ...buildInvitationPatchRequest(
+            invitationId,
+            versionAtSend,
+            { document, settings: settingsAtSend ?? undefined },
+            { signal: controller.signal },
+          ),
         );
         if (res.status === 409) {
           // This tab's `version` is behind — another tab (or this same one,
@@ -208,6 +250,13 @@ export function useAutosave(invitationId: string) {
           // isn't yet.
           if (revision === revisionAtSend) {
             useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
+          }
+          // Clear the pending settings write, but only if nothing newer
+          // overwrote it while this request was in flight — same
+          // "don't clear something the response doesn't actually reflect"
+          // reasoning as the `revision` check above, applied to settings.
+          if (settingsAtSend !== null && pendingSettings === settingsAtSend) {
+            pendingSettings = null;
           }
           setError(null);
         }
@@ -258,11 +307,20 @@ export function useAutosave(invitationId: string) {
     flushRef.current = async () => {
       clearPendingTimer();
       // Nothing pending and nothing in flight — the last attempt (if any)
-      // already succeeded, or there were never any edits. Report success
-      // without a wasted network round trip.
-      if (!inFlight && !useEditorStore.getState().dirty) {
+      // already succeeded, or there were never any edits or settings
+      // changes. Report success without a wasted network round trip.
+      if (!inFlight && !useEditorStore.getState().dirty && pendingSettings === null) {
         return null;
       }
+      return performSave();
+    };
+
+    saveSettingsRef.current = (settings) => {
+      // Setting this BEFORE calling `performSave` means it's visible
+      // regardless of which path that call takes: sent immediately, folded
+      // into an already-building request, or queued behind one already in
+      // flight (`performSave` reads `pendingSettings` fresh in every case).
+      pendingSettings = settings;
       return performSave();
     };
 
@@ -297,6 +355,7 @@ export function useAutosave(invitationId: string) {
       unsubscribe();
       window.removeEventListener("beforeunload", handleBeforeUnload);
       flushRef.current = async () => null;
+      saveSettingsRef.current = async () => null;
 
       // See "Flush on unmount" above: a save already in flight can't be
       // un-sent, but it CAN be aborted — without this, the flush below
@@ -311,21 +370,37 @@ export function useAutosave(invitationId: string) {
       }
 
       // `beforeunload` doesn't cover the ordinary SPA-navigation-away-from-
-      // the-editor case, so a still-dirty document gets one last
-      // best-effort save attempt here instead of being silently dropped.
-      // This also carries `version`, same as every other PATCH — if the row
-      // was already saved elsewhere in the meantime, the server rejects
-      // this with 409 too, and that's fine: the response is never read
-      // (fire-and-forget), so there's nothing here that could act on it and
-      // overwrite anything. Silently doing nothing IS the correct outcome.
+      // the-editor case, so a still-dirty document (or a settings write
+      // still sitting in `pendingSettings` — e.g. the badge toggle fired
+      // while a document save was in flight and got queued, then the
+      // component unmounted before that queued rerun ever got to execute)
+      // gets one last best-effort save attempt here instead of being
+      // silently dropped. This also carries `version`, same as every other
+      // PATCH — if the row was already saved elsewhere in the meantime, the
+      // server rejects this with 409 too, and that's fine: the response is
+      // never read (fire-and-forget), so there's nothing here that could
+      // act on it and overwrite anything. Silently doing nothing IS the
+      // correct outcome.
       const { dirty, document, version } = useEditorStore.getState();
-      if (dirty && InvitationDocumentSchema.safeParse(document).success) {
-        fetch(...buildInvitationPatchRequest(invitationId, document, version, { keepalive: true })).catch(() => {});
+      const validDocument = dirty && InvitationDocumentSchema.safeParse(document).success;
+      if (validDocument || pendingSettings !== null) {
+        fetch(
+          ...buildInvitationPatchRequest(
+            invitationId,
+            version,
+            { document: validDocument ? document : undefined, settings: pendingSettings ?? undefined },
+            { keepalive: true },
+          ),
+        ).catch(() => {});
       }
     };
   }, [invitationId]);
 
   const flush = useCallback((): Promise<AutosaveErrorKind> => flushRef.current(), []);
+  const saveSettings = useCallback(
+    (settings: SettingsPayload): Promise<AutosaveErrorKind> => saveSettingsRef.current(settings),
+    [],
+  );
 
-  return { error, flush };
+  return { error, flush, saveSettings };
 }
