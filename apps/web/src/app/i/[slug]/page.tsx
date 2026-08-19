@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect, unstable_rethrow } from "next/navigation";
 import { InvitationDocumentSchema } from "@hpwd/schema";
 import { prisma } from "@hpwd/db";
 import { InvitePage } from "@/components/invite/InvitePage";
@@ -8,23 +8,75 @@ import { parseInvitationSettings } from "@/lib/settings";
 
 const DEFAULT_TAGLINE = "Trân trọng kính mời bạn đến dự lễ cưới của chúng tôi.";
 
+type SearchParamsRecord = Record<string, string | string[] | undefined>;
+
+/**
+ * `slug` doesn't match any invitation's CURRENT slug — but a couple that
+ * published under it before moving to a different one still has it in
+ * `InvitationSlug` forever (Phase 1 Hardening Task 2). If that invitation is
+ * still published, returns its current slug so the caller can permanently
+ * redirect every link already handed out under the old slug instead of
+ * 404ing it on the wedding day. Returns `null` for "really doesn't exist"
+ * AND for "belongs to an invitation that isn't published (any more)" —
+ * redirecting to an unpublished document would reveal its existence/content,
+ * which a plain 404 must not do.
+ */
+async function findCurrentSlugForHistoricalSlug(slug: string): Promise<string | null> {
+  const historical = await prisma.invitationSlug.findUnique({
+    where: { slug },
+    include: { invitation: { select: { slug: true, status: true } } },
+  });
+  if (!historical || historical.invitation.status !== "published" || historical.invitation.slug === slug) {
+    return null;
+  }
+  return historical.invitation.slug;
+}
+
+/**
+ * Builds the redirect target for a historical slug, carrying every query
+ * param forward unchanged — most importantly `?g=<token>`, the only way a
+ * guest's name reaches their personalized invitation. A redirect that
+ * dropped it would silently degrade every link already sent out under the
+ * old slug instead of merely moving it.
+ */
+function buildRedirectPath(currentSlug: string, searchParams: SearchParamsRecord): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams)) {
+    if (value === undefined) continue;
+    for (const v of Array.isArray(value) ? value : [value]) query.append(key, v);
+  }
+  const queryString = query.toString();
+  return queryString ? `/i/${currentSlug}?${queryString}` : `/i/${currentSlug}`;
+}
+
 /**
  * Server-rendered `<title>`/`<meta>` for link previews (Zalo, Messenger,
  * iMessage, ...) — the whole point of Task 17's OG image. Must never throw:
  * an unpublished/missing slug or a malformed `publishedDocument` falls back
  * to generic copy instead of taking down the page's `<head>` (the page body
- * itself still 404s normally below).
+ * itself still 404s/redirects normally below). `searchParams` is optional
+ * only so existing tests that don't pass it keep working — Next itself
+ * always supplies it for a real request.
  */
 export async function generateMetadata({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<SearchParamsRecord>;
 }): Promise<Metadata> {
   const { slug } = await params;
 
   try {
     const invitation = await prisma.invitation.findUnique({ where: { slug } });
-    if (!invitation || invitation.status !== "published" || !invitation.publishedDocument) {
+    if (!invitation) {
+      const currentSlug = await findCurrentSlugForHistoricalSlug(slug);
+      if (currentSlug) {
+        permanentRedirect(buildRedirectPath(currentSlug, (await searchParams) ?? {}));
+      }
+      return {};
+    }
+    if (invitation.status !== "published" || !invitation.publishedDocument) {
       return {};
     }
 
@@ -50,6 +102,13 @@ export async function generateMetadata({
       },
     };
   } catch (error) {
+    // `notFound()`/`permanentRedirect()` above communicate with the App
+    // Router by THROWING — they'd otherwise be swallowed by this catch (it
+    // exists to guard against a genuine DB/parsing failure, not against our
+    // own deliberate control-flow signal). `unstable_rethrow` is Next's
+    // documented way to tell the two apart: it rethrows redirect/notFound
+    // errors and returns normally for anything else.
+    unstable_rethrow(error);
     console.error(`generateMetadata failed for invitation slug=${slug}:`, error);
     return {};
   }
@@ -60,15 +119,28 @@ export default async function PublicInvitationPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ g?: string | string[] }>;
+  searchParams: Promise<SearchParamsRecord>;
 }) {
   const { slug } = await params;
-  const { g } = await searchParams;
+  const resolvedSearchParams = await searchParams;
+  const g = resolvedSearchParams.g;
   const guestToken = Array.isArray(g) ? g[0] : g;
 
   const invitation = await prisma.invitation.findUnique({ where: { slug } });
 
-  if (!invitation || invitation.status !== "published" || !invitation.publishedDocument) {
+  // This whole block runs BEFORE the try/catch below wrapping document
+  // parsing — `permanentRedirect`/`notFound` throw control-flow errors that
+  // must reach the App Router unmodified, so neither call may ever move
+  // inside a try/catch that doesn't explicitly rethrow them.
+  if (!invitation) {
+    const currentSlug = await findCurrentSlugForHistoricalSlug(slug);
+    if (currentSlug) {
+      permanentRedirect(buildRedirectPath(currentSlug, resolvedSearchParams));
+    }
+    notFound();
+  }
+
+  if (invitation.status !== "published" || !invitation.publishedDocument) {
     notFound();
   }
 

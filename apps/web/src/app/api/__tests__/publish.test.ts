@@ -29,13 +29,14 @@ async function createTestInvitation(overrides: {
   slug?: string;
   document?: unknown;
   status?: "draft" | "published";
+  ownerId?: string;
 } = {}): Promise<{ id: string; slug: string }> {
   const slug = overrides.slug ?? `test-publish-${randomUUID()}`;
   const document = overrides.document ?? createDefaultDocument();
   const invitation = await prisma.invitation.create({
     data: {
       slug,
-      userId,
+      userId: overrides.ownerId ?? userId,
       // `document` is an untyped Json column — tests need to be able to
       // write deliberately-invalid shapes to exercise the 400 path below.
       document: document as never,
@@ -255,5 +256,110 @@ describe("POST /api/invitations/[id]/publish", () => {
     );
 
     expect(res.status).toBe(400);
+  });
+});
+
+describe("POST /api/invitations/[id]/publish — slug history", () => {
+  it("xuất bản lần đầu ghi slug vào lịch sử", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+    const slug = `history-first-${randomUUID()}`;
+
+    const res = await POST(jsonRequest({ slug }), { params: Promise.resolve({ id }) });
+
+    expect(res.status).toBe(200);
+    const historyRow = await prisma.invitationSlug.findUnique({ where: { slug } });
+    expect(historyRow?.invitationId).toBe(id);
+  });
+
+  it("đổi slug giữ lại slug cũ trong lịch sử và thêm slug mới", async () => {
+    const slugA = `history-a-${randomUUID()}`;
+    const { id } = await createTestInvitation({ slug: slugA });
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const firstRes = await POST(jsonRequest({ slug: slugA }), { params: Promise.resolve({ id }) });
+    expect(firstRes.status).toBe(200);
+
+    const slugB = `history-b-${randomUUID()}`;
+    const secondRes = await POST(jsonRequest({ slug: slugB }), { params: Promise.resolve({ id }) });
+    expect(secondRes.status).toBe(200);
+
+    const [historyA, historyB] = await Promise.all([
+      prisma.invitationSlug.findUnique({ where: { slug: slugA } }),
+      prisma.invitationSlug.findUnique({ where: { slug: slugB } }),
+    ]);
+    expect(historyA?.invitationId).toBe(id);
+    expect(historyB?.invitationId).toBe(id);
+
+    const stored = await prisma.invitation.findUnique({ where: { id } });
+    expect(stored?.slug).toBe(slugB);
+  });
+
+  it("409 khi slug đang nằm trong lịch sử của thiệp KHÁC (chống chiếm dụng), và slug cũ vẫn thuộc về chủ thiệp gốc", async () => {
+    const slugA = `squat-a-${randomUUID()}`;
+    const { id: xId } = await createTestInvitation({ slug: slugA });
+    authMock.mockResolvedValue({ user: { id: userId } });
+    const firstRes = await POST(jsonRequest({ slug: slugA }), { params: Promise.resolve({ id: xId }) });
+    expect(firstRes.status).toBe(200);
+
+    const slugB = `squat-b-${randomUUID()}`;
+    const moveRes = await POST(jsonRequest({ slug: slugB }), { params: Promise.resolve({ id: xId }) });
+    expect(moveRes.status).toBe(200);
+
+    // Y: a different invitation owned by a different user tries to claim
+    // X's now-abandoned slug A.
+    const { id: yId } = await createTestInvitation({ ownerId: otherUserId });
+    authMock.mockResolvedValue({ user: { id: otherUserId } });
+
+    const res = await POST(jsonRequest({ slug: slugA }), { params: Promise.resolve({ id: yId }) });
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(typeof body.error).toBe("string");
+    expect(body.error).toMatch(/[ạảãàáâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i);
+
+    // Slug A must still belong to X unchanged, so it keeps redirecting to
+    // X's current slug rather than being up for grabs.
+    const historyA = await prisma.invitationSlug.findUnique({ where: { slug: slugA } });
+    expect(historyA?.invitationId).toBe(xId);
+    const stillX = await prisma.invitation.findUnique({ where: { id: xId } });
+    expect(stillX?.slug).toBe(slugB);
+  });
+
+  it("cho phép quay lại slug cũ của CHÍNH mình", async () => {
+    const slugOld = `own-old-${randomUUID()}`;
+    const { id } = await createTestInvitation({ slug: slugOld });
+    authMock.mockResolvedValue({ user: { id: userId } });
+    const firstRes = await POST(jsonRequest({ slug: slugOld }), { params: Promise.resolve({ id }) });
+    expect(firstRes.status).toBe(200);
+
+    const slugNew = `own-new-${randomUUID()}`;
+    const moveRes = await POST(jsonRequest({ slug: slugNew }), { params: Promise.resolve({ id }) });
+    expect(moveRes.status).toBe(200);
+
+    const res = await POST(jsonRequest({ slug: slugOld }), { params: Promise.resolve({ id }) });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.slug).toBe(slugOld);
+    const stored = await prisma.invitation.findUnique({ where: { id } });
+    expect(stored?.slug).toBe(slugOld);
+  });
+
+  it("revalidate cả slug cũ lẫn slug mới khi đổi", async () => {
+    const slugOld = `reval-old-${randomUUID()}`;
+    const { id } = await createTestInvitation({ slug: slugOld });
+    authMock.mockResolvedValue({ user: { id: userId } });
+    const firstRes = await POST(jsonRequest({ slug: slugOld }), { params: Promise.resolve({ id }) });
+    expect(firstRes.status).toBe(200);
+    revalidatePathMock.mockClear();
+
+    const slugNew = `reval-new-${randomUUID()}`;
+    const res = await POST(jsonRequest({ slug: slugNew }), { params: Promise.resolve({ id }) });
+
+    expect(res.status).toBe(200);
+    expect(revalidatePathMock).toHaveBeenCalledTimes(2);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/i/${slugOld}`);
+    expect(revalidatePathMock).toHaveBeenCalledWith(`/i/${slugNew}`);
   });
 });

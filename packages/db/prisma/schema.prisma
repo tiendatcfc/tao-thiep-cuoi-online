@@ -103,7 +103,23 @@ model Invitation {
   guests            Guest[]
   wishes            Wish[]
   submissions       FormSubmission[]
+  slugHistory       InvitationSlug[]
   @@index([userId])
+}
+
+// Every slug an invitation has ever published under. Publishing under a new
+// slug never deletes the old row — it stays forever so (a) the old slug can
+// permanently redirect to the current one instead of 404ing, and (b) no
+// other invitation can ever claim it out from under the original owner.
+// Reclaiming your own historical slug is allowed (see the publish route);
+// only a DIFFERENT invitation's history blocks a claim.
+model InvitationSlug {
+  id           String     @id @default(cuid())
+  invitation   Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  invitationId String
+  slug         String     @unique
+  createdAt    DateTime   @default(now())
+  @@index([invitationId])
 }
 
 model Guest {
