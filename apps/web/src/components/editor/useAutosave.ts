@@ -144,12 +144,20 @@ async function fetchServerInvitationState(
  *    taken from `confirmedVersion` (below), a value this hook instance
  *    tracks entirely on its own — never read back out of the shared store —
  *    so a later mount changing the store's `version` can't affect it either.
- *    For the same reason, every store WRITE `performSave` makes
- *    (`setVersion`, `markSaved`, `setSaving`) is skipped once `unmounted`
- *    (below) is `true`, and a save that was merely QUEUED (`pendingAgain`)
- *    before unmount no longer starts a fresh send afterward — it would
- *    otherwise read the (possibly already-reseeded) store's CURRENT
- *    `document` and send it under THIS invitation's id.
+ *    For the same reason, every store write `performSave` makes that
+ *    carries a cross-invitation PAYLOAD (`setVersion`, `markSaved`) is
+ *    skipped once `unmounted` (below) is `true`, and a save that was merely
+ *    QUEUED (`pendingAgain`) before unmount no longer starts a fresh send
+ *    afterward — it would otherwise read the (possibly already-reseeded)
+ *    store's CURRENT `document` and send it under THIS invitation's id.
+ *    `setSaving(false)` is deliberately NOT guarded the same way: it
+ *    carries no payload, it's only the release of a flag this same call
+ *    set to `true` a moment earlier — guarding it would strand the store at
+ *    `saving: true` forever whenever a save is still in flight at unmount
+ *    time, since nothing else would ever flip it back for the NEXT
+ *    invitation's editor to inherit. `setDocument` (editor-store.ts) also
+ *    resets `saving: false` on every fresh mount as a second, independent
+ *    safety net.
  *
  * 2. **Serialised saves.** Requests are never sent concurrently: if a save
  *    is requested while one is already in flight, it's queued
@@ -475,9 +483,20 @@ export function useAutosave(invitationId: string) {
           }
         }
       } finally {
-        if (!unmounted) {
-          useEditorStore.getState().setSaving(false);
-        }
+        // M1 (final review round 3): unlike `setVersion`/`markSaved`,
+        // `setSaving(false)` carries no cross-invitation PAYLOAD — it is
+        // just the release of a flag THIS hook instance itself set to
+        // `true` above, at the start of this exact send. Guarding it with
+        // `!unmounted` (matching the other store writes in this function)
+        // would strand the store at `saving: true` forever whenever a save
+        // is still in flight at unmount time: nothing else ever flips it
+        // back, so the NEXT invitation's editor to mount would render
+        // `SaveStatus`'s "Đang lưu…" indefinitely, even once it becomes
+        // dirty and its own save fails — that branch is checked before any
+        // error branch. `editor-store.ts`'s `setDocument` also resets
+        // `saving: false` on every fresh mount as a second, independent
+        // safety net, in case some future path strands it some other way.
+        useEditorStore.getState().setSaving(false);
         inFlight = false;
         if (pendingAgain && !conflicted && !unmounted) {
           pendingAgain = false;

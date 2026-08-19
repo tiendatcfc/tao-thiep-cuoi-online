@@ -301,6 +301,50 @@ describe("useAutosave", () => {
       expect(serverVersion).toBe(2);
     });
 
+    // M1 (final review round 3): `setSaving(true)`/`setSaving(false)` carry
+    // no cross-invitation payload — `setSaving(false)` is just the release
+    // of a flag THIS call itself set moments earlier. Guarding it with
+    // `!unmounted` (like `setVersion`/`markSaved`, which DO carry a
+    // payload) would strand the store at `saving: true` forever whenever a
+    // save is still in flight at unmount time, since nothing else would
+    // ever flip it back — the next invitation's editor to mount would show
+    // "Đang lưu…" indefinitely, even ahead of its own error states.
+    it("releases the saving flag once an in-flight save settles, even though the hook has already unmounted", async () => {
+      let resolvePatch!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const patchResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
+        (resolve) => {
+          resolvePatch = resolve;
+        },
+      );
+      fetchMock.mockImplementationOnce(() => patchResponse);
+
+      const { unmount } = renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(useEditorStore.getState().saving).toBe(true);
+
+      unmount();
+      // Still in flight — `saving` must not have been reset just by
+      // unmounting (the request itself is still pending).
+      expect(useEditorStore.getState().saving).toBe(true);
+
+      resolvePatch({ ok: true, json: async () => ({ savedAt: 999, version: 1 }) });
+      await act(async () => {
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      });
+
+      // The now-settled save must have released the flag despite the hook
+      // being unmounted — otherwise the NEXT editor to mount on this same
+      // module-level store would render a permanent "Đang lưu…".
+      expect(useEditorStore.getState().saving).toBe(false);
+    });
+
     // R2 (final review): `useEditorStore` is a SINGLE module-level store
     // shared by every editor route. If invitation A's save is still in
     // flight when its `EditorLayout` unmounts, and invitation B's
@@ -973,6 +1017,117 @@ describe("useAutosave", () => {
       expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(result.current.error).toBe("conflict");
       expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#PARTNER");
+    });
+
+    // M2 (final review round 3): the rewritten (b) above uses a version gap
+    // of exactly one, same as (a) — the GET/deepEqual check is what tells
+    // them apart there, so (b) alone no longer pins the
+    // `currentVersion === unconfirmedSend.version + 1` arithmetic itself
+    // (relaxing it to e.g. `>` still passes (b), since the documents still
+    // correctly mismatch). This test isolates that clause: a gap that
+    // ISN'T exactly one write must not even ATTEMPT verification — proven
+    // by asserting the GET call itself never fires, not just that the
+    // eventual outcome is a latch.
+    it("(pinning the arithmetic) a version gap that is not exactly one write never even attempts the verification GET", async () => {
+      const server = createFakeInvitationServer(0, useEditorStore.getState().document);
+      fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("Failed to fetch")));
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(result.current.error).toBe("network");
+      expect(server.version).toBe(0);
+
+      // TWO unrelated foreign writes land — a gap of two, not one.
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => server.handle(url, init));
+      server.applyForeignWrite({ ...useEditorStore.getState().document, theme: { primary: "#FOREIGN-1" } });
+      server.applyForeignWrite({ ...useEditorStore.getState().document, theme: { primary: "#FOREIGN-2" } });
+      expect(server.version).toBe(2);
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#A2" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      });
+
+      // Exactly two calls total: the original PATCH (rejects) and the
+      // second PATCH (409, currentVersion 2). A THIRD call — the
+      // verification GET — must never fire: `unconfirmedSend.version + 1`
+      // is 1, not 2, so the arithmetic clause alone must reject this
+      // before verification is even considered. If that clause were
+      // loosened to anything weaker (e.g. `currentVersion >
+      // unconfirmedSend.version`), a GET would fire here.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(result.current.error).toBe("conflict");
+      expect(server.version).toBe(2);
+      expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#FOREIGN-2");
+    });
+
+    // The reviewer's own hand-written case: verification isn't just about
+    // a document mismatch — the GET itself can fail (this tab going
+    // offline again right as it tries to check). That must ALSO fail
+    // closed (latch), never be treated as "nothing to disprove it, so
+    // proceed."
+    it("latches (fails closed) when the verification GET itself fails, even though the version gap looks exactly like this tab's own write", async () => {
+      const server = createFakeInvitationServer(0, useEditorStore.getState().document);
+      fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("Failed to fetch")));
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#A-EDIT" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(result.current.error).toBe("network");
+
+      // A foreign write lands — a gap of exactly one, so the hook WOULD
+      // attempt verification...
+      server.applyForeignWrite({ ...useEditorStore.getState().document, theme: { primary: "#PARTNER" } });
+      expect(server.version).toBe(1);
+
+      // ...but the verification GET itself fails to reach the server.
+      // Every OTHER call (the second PATCH) still hits the real fake
+      // server normally.
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (!init) {
+          // A GET has no `init` at all in this hook's own `fetch(url)` call
+          // — see `fetchServerInvitationState`.
+          return Promise.reject(new TypeError("Failed to fetch"));
+        }
+        return server.handle(url, init);
+      });
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#A2" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      });
+
+      // Three calls: PATCH (rejects), PATCH (409), GET (also rejects) — no
+      // fourth, resend call. An inconclusive verification must never be
+      // treated as permission to proceed.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(result.current.error).toBe("conflict");
+      // The partner's write survives untouched.
+      expect(server.version).toBe(1);
+      expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#PARTNER");
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#A3" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
     it("gives up and latches if the automatic re-send itself ALSO gets a 409 (at most one re-send, and at most one verification GET, per save cycle)", async () => {

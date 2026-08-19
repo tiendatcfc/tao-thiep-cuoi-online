@@ -67,6 +67,22 @@ describe("setDocument", () => {
 
     expect(useEditorStore.getState().version).toBe(7);
   });
+
+  // M1 (final review round 3): `saving` can be left stranded at `true` if a
+  // previous invitation's editor unmounted mid-save (see `useAutosave`'s
+  // `unmounted` handling — a save's own `setSaving(false)` release is
+  // intentionally NOT skipped post-unmount, but this is a second,
+  // independent safety net for any other path that might strand it). A
+  // fresh invitation mounting must never inherit a `saving: true` it never
+  // itself set, or `SaveStatus` would show "Đang lưu…" forever.
+  it("clears a stranded saving flag — a fresh mount must not inherit a previous invitation's in-flight state", () => {
+    useEditorStore.getState().setSaving(true);
+    expect(useEditorStore.getState().saving).toBe(true);
+
+    useEditorStore.getState().setDocument(createDefaultDocument(), 0);
+
+    expect(useEditorStore.getState().saving).toBe(false);
+  });
 });
 
 describe("setVersion", () => {

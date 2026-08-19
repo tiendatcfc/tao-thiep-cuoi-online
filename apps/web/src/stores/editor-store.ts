@@ -66,8 +66,15 @@ export const useEditorStore = create<EditorState>()((set) => ({
     // (not shown yet) is always the right value here. `version` is seeded
     // from the same server read, so the first autosave PATCH after opening
     // the editor checks against the row's actual current version instead of
-    // a stale leftover from whatever invitation was open before.
-    set({ document: doc, version, dirty: false, lastSavedAt: null });
+    // a stale leftover from whatever invitation was open before. `saving`
+    // is reset too (M1, final review round 3): a save left in flight by a
+    // PREVIOUS invitation's editor at unmount time can settle after this
+    // one has already mounted; guarding that stale settle's own
+    // `setSaving(false)` (see `useAutosave`'s `unmounted` handling) means
+    // this fresh mount must not inherit whatever `saving` value happened to
+    // be left behind — otherwise `SaveStatus` could show "Đang lưu…"
+    // forever for an editor that was never actually saving anything.
+    set({ document: doc, version, dirty: false, saving: false, lastSavedAt: null });
   },
 
   setVersion(v) {
