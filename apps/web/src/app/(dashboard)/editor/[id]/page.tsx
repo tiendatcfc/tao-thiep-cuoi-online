@@ -41,6 +41,7 @@ export default async function EditorPage({ params }: { params: Promise<{ id: str
       invitationId={invitation.id}
       slug={invitation.slug}
       initialDocument={parsed.data}
+      initialVersion={invitation.version}
       initialShowBadge={parseInvitationSettings(invitation.settings).showBadge}
     />
   );

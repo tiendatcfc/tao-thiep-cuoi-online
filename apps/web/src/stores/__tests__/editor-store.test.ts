@@ -11,6 +11,7 @@ import { useEditorStore } from "../editor-store";
 function resetStore() {
   useEditorStore.setState({
     document: createDefaultDocument(),
+    version: 0,
     selectedSectionId: null,
     dirty: false,
     saving: false,
@@ -42,7 +43,7 @@ describe("setDocument", () => {
     expect(useEditorStore.getState().dirty).toBe(true);
 
     const fresh = createDefaultDocument();
-    useEditorStore.getState().setDocument(fresh);
+    useEditorStore.getState().setDocument(fresh, 0);
 
     expect(useEditorStore.getState().document).toBe(fresh);
     expect(useEditorStore.getState().dirty).toBe(false);
@@ -56,9 +57,31 @@ describe("setDocument", () => {
     useEditorStore.getState().markSaved(123456789);
     expect(useEditorStore.getState().lastSavedAt).toBe(123456789);
 
-    useEditorStore.getState().setDocument(createDefaultDocument());
+    useEditorStore.getState().setDocument(createDefaultDocument(), 0);
 
     expect(useEditorStore.getState().lastSavedAt).toBeNull();
+  });
+
+  it("seeds version from its second argument", () => {
+    useEditorStore.getState().setDocument(createDefaultDocument(), 7);
+
+    expect(useEditorStore.getState().version).toBe(7);
+  });
+});
+
+describe("setVersion", () => {
+  it("updates version without touching dirty", () => {
+    useEditorStore.getState().updateTheme({ primary: "#000000" });
+    expect(useEditorStore.getState().dirty).toBe(true);
+
+    useEditorStore.getState().setVersion(5);
+
+    expect(useEditorStore.getState().version).toBe(5);
+    // setVersion is used right after a successful autosave, alongside
+    // markSaved — it must not itself decide dirty's value one way or the
+    // other, or it could clobber whatever markSaved (or a race with it)
+    // just set.
+    expect(useEditorStore.getState().dirty).toBe(true);
   });
 });
 

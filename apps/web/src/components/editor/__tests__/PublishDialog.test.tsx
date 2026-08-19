@@ -19,6 +19,7 @@ function documentWithCoverNames(groomName: string, brideName: string) {
 function resetStore(document = createDefaultDocument()) {
   useEditorStore.setState({
     document,
+    version: 0,
     selectedSectionId: null,
     dirty: false,
     saving: false,
@@ -149,8 +150,11 @@ describe("PublishDialog", () => {
     expect(await screen.findByText("Đã sao chép!")).toBeInTheDocument();
   });
 
-  it("PATCHes settings alone when the badge toggle is flipped, without calling the publish route", async () => {
+  it("PATCHes settings alone (with the store's current version) when the badge toggle is flipped, without calling the publish route", async () => {
     resetStore(documentWithCoverNames("Minh", "Lan"));
+    // Distinct from the default 0 so this can't accidentally pass by
+    // coincidence if the version were hardcoded instead of read live.
+    useEditorStore.setState({ version: 4 });
     fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ savedAt: Date.now() }) });
 
     render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
@@ -161,9 +165,27 @@ describe("PublishDialog", () => {
       "/api/invitations/inv-1",
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ settings: { showBadge: false } }),
+        body: JSON.stringify({ settings: { showBadge: false }, version: 4 }),
       }),
     );
+  });
+
+  // The server bumps `version` for a settings-only PATCH exactly like a
+  // document PATCH (see the route's own tests) — if this dialog didn't pick
+  // that up too, the very next autosave PATCH (sent by the unrelated
+  // document-editing side of the same tab) would carry the now-stale
+  // pre-toggle version and get a FALSE 409, purely from racing against its
+  // own tab's badge toggle.
+  it("updates the store's version from the badge-toggle PATCH response, so a subsequent autosave doesn't falsely conflict", async () => {
+    resetStore(documentWithCoverNames("Minh", "Lan"));
+    useEditorStore.setState({ version: 4 });
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ savedAt: Date.now(), version: 5 }) });
+
+    render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole("checkbox"));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await waitFor(() => expect(useEditorStore.getState().version).toBe(5));
   });
 
   // C2: publishing used to POST straight away, and the server re-reads

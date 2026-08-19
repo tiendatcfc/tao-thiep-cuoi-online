@@ -64,6 +64,26 @@ function RetryButton() {
   );
 }
 
+/**
+ * The only way out of the "conflict" state (see `SaveStatus` below): a full
+ * reload re-fetches the invitation from scratch, getting a fresh `version`
+ * and whatever the other tab/session actually saved. Deliberately NOT a
+ * "Thử lưu lại" retry — retrying would resend this tab's now-stale document
+ * with its now-stale version, which is exactly the overwrite the version
+ * check exists to prevent.
+ */
+function ReloadButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.location.reload()}
+      className="text-xs font-medium text-red-700 underline underline-offset-2 hover:text-red-800"
+    >
+      Tải lại
+    </button>
+  );
+}
+
 function SaveStatus() {
   const saving = useEditorStore((state) => state.saving);
   const lastSavedAt = useEditorStore((state) => state.lastSavedAt);
@@ -103,6 +123,21 @@ function SaveStatus() {
     );
   }
 
+  if (error === "conflict") {
+    // Deliberately its own message, not folded into the "network" case
+    // above: this isn't a connectivity problem that a retry could fix —
+    // another tab (or this same tab left open elsewhere) already saved, so
+    // this tab's local edits are now sitting on top of stale data. No
+    // "Thử lưu lại" here — see `ReloadButton`'s docstring for why offering
+    // one would be actively dangerous rather than merely useless.
+    return (
+      <span role="status" className="flex items-center gap-2 text-xs font-medium text-red-700">
+        Thiệp đã được chỉnh sửa ở nơi khác — tải lại trang để tránh mất dữ liệu.
+        <ReloadButton />
+      </span>
+    );
+  }
+
   return (
     <span role="status" className="text-xs text-gray-500">
       {lastSavedAt ? `Đã lưu lúc ${formatSavedAt(lastSavedAt)}` : ""}
@@ -114,6 +149,7 @@ export interface EditorLayoutProps {
   invitationId: string;
   slug: string;
   initialDocument: InvitationDocument;
+  initialVersion: number;
   initialShowBadge: boolean;
 }
 
@@ -124,13 +160,20 @@ export interface EditorLayoutProps {
  * on a phone-sized screen — which is also the size couples are most likely
  * to be editing from, alongside a laptop.
  */
-export function EditorLayout({ invitationId, slug, initialDocument, initialShowBadge }: EditorLayoutProps) {
+export function EditorLayout({
+  invitationId,
+  slug,
+  initialDocument,
+  initialVersion,
+  initialShowBadge,
+}: EditorLayoutProps) {
   const setDocument = useEditorStore((state) => state.setDocument);
   useEffect(() => {
-    setDocument(initialDocument);
-    // Seed once on mount with the document the server loaded — deliberately
-    // not re-running if `initialDocument` changes identity on a later
-    // parent re-render, which would clobber in-progress edits.
+    setDocument(initialDocument, initialVersion);
+    // Seed once on mount with the document (and row version) the server
+    // loaded — deliberately not re-running if `initialDocument` changes
+    // identity on a later parent re-render, which would clobber
+    // in-progress edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

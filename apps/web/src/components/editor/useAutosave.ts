@@ -16,8 +16,13 @@ const AUTOSAVE_DEBOUNCE_MS = 2000;
  * Whole-document validation means one bad field anywhere blocks the entire
  * save on every retry forever, so this gets its own distinct message
  * instead of being lumped in with "network failed".
+ * `"conflict"` — the server rejected the PATCH with 409: this tab's
+ * `version` is behind (another tab, or this same tab left open elsewhere,
+ * saved in between). Unlike `"network"`, this is terminal for the rest of
+ * this hook instance — see `performSave`'s `conflicted` flag below for why
+ * retrying is never attempted.
  */
-export type AutosaveErrorKind = "network" | "invalid" | null;
+export type AutosaveErrorKind = "network" | "invalid" | "conflict" | null;
 
 function isAbortError(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError";
@@ -26,6 +31,7 @@ function isAbortError(error: unknown): boolean {
 function buildInvitationPatchRequest(
   invitationId: string,
   document: InvitationDocument,
+  version: number,
   extra?: RequestInit,
 ): [string, RequestInit] {
   return [
@@ -33,7 +39,7 @@ function buildInvitationPatchRequest(
     {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ document }),
+      body: JSON.stringify({ document, version }),
       ...extra,
     },
   ];
@@ -102,6 +108,14 @@ export function useAutosave(invitationId: string) {
     let inFlight = false;
     let pendingAgain = false;
     let revision = 0;
+    // Set once a save gets a 409 back and never cleared for the rest of
+    // this hook instance (only a remount — i.e. reloading, per the "Tải
+    // lại" button — starts a fresh one). Once true, `scheduleSave` becomes
+    // a no-op and `performSave` short-circuits before ever calling
+    // `fetch()` again: retrying a save this tab already knows is stale
+    // would perform exactly the overwrite the version check exists to
+    // prevent.
+    let conflicted = false;
     let activeAbortController: AbortController | null = null;
     // Resolved once a save cycle — including any `pendingAgain` rerun
     // chained after it — truly settles with nothing left queued. `flush()`
@@ -123,6 +137,17 @@ export function useAutosave(invitationId: string) {
     }
 
     async function performSave(): Promise<AutosaveErrorKind> {
+      if (conflicted) {
+        // Nothing to do: this tab is permanently behind until reloaded, and
+        // any write from here would be exactly the overwrite being guarded
+        // against. Reported directly (not through `waiters`) since this
+        // path is never reached while something else is in flight — a
+        // conflict can only be set from within `performSave` itself, at a
+        // point where `inFlight` has already gone back to `false`.
+        setError("conflict");
+        return "conflict";
+      }
+
       if (inFlight) {
         // Something is already in flight — don't fire a second, overlapping
         // request (the server does a plain last-write-wins overwrite with
@@ -147,23 +172,45 @@ export function useAutosave(invitationId: string) {
 
       inFlight = true;
       const revisionAtSend = revision;
+      const versionAtSend = useEditorStore.getState().version;
       const controller = new AbortController();
       activeAbortController = controller;
       useEditorStore.getState().setSaving(true);
       let result: AutosaveErrorKind = null;
       try {
         const res = await fetch(
-          ...buildInvitationPatchRequest(invitationId, document, { signal: controller.signal }),
+          ...buildInvitationPatchRequest(invitationId, document, versionAtSend, { signal: controller.signal }),
         );
-        if (!res.ok) throw new Error(`Autosave failed with status ${res.status}`);
-        const body = (await res.json()) as { savedAt?: number };
-        // If a newer edit landed while this request was in flight, this
-        // response reflects an older document — it must not clear `dirty`,
-        // or the newer edit would silently look "saved" when it isn't yet.
-        if (revision === revisionAtSend) {
-          useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
+        if (res.status === 409) {
+          // This tab's `version` is behind — another tab (or this same one,
+          // left open elsewhere) already saved. Stop for good: see
+          // `conflicted`'s declaration above for why no retry is attempted.
+          // `markSaved`/`setVersion` are deliberately NOT called — nothing
+          // here was actually persisted.
+          conflicted = true;
+          setError("conflict");
+          result = "conflict";
+        } else if (!res.ok) {
+          throw new Error(`Autosave failed with status ${res.status}`);
+        } else {
+          const body = (await res.json()) as { savedAt?: number; version?: number };
+          // The server really did persist this write and bump the row's
+          // version regardless of what's happened locally since — the next
+          // save (whenever it fires) MUST send that new version, or it will
+          // race against its own prior success and get a false 409. This is
+          // why `setVersion` runs unconditionally, unlike `markSaved` below.
+          if (typeof body.version === "number") {
+            useEditorStore.getState().setVersion(body.version);
+          }
+          // If a newer edit landed while this request was in flight, this
+          // response reflects an older document — it must not clear
+          // `dirty`, or the newer edit would silently look "saved" when it
+          // isn't yet.
+          if (revision === revisionAtSend) {
+            useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
+          }
+          setError(null);
         }
-        setError(null);
       } catch (err) {
         // An abort is deliberate (the unmount flush below cancels an
         // in-flight save on purpose) — not a real failure, so it must not
@@ -182,13 +229,18 @@ export function useAutosave(invitationId: string) {
         if (activeAbortController === controller) {
           activeAbortController = null;
         }
-        if (pendingAgain) {
+        if (pendingAgain && !conflicted) {
           pendingAgain = false;
           // The waiters queued above (including any `flush()` callers) are
           // resolved by THIS rerun's own settle, not by the call that's
           // returning right now.
           void performSave();
         } else {
+          // A conflict cancels any queued rerun too — anyone waiting
+          // (`flush()` callers queued while this request was in flight)
+          // gets "conflict" as their outcome instead of triggering a save
+          // this tab now knows would be rejected anyway.
+          pendingAgain = false;
           resolveWaiters(result);
         }
       }
@@ -261,9 +313,14 @@ export function useAutosave(invitationId: string) {
       // `beforeunload` doesn't cover the ordinary SPA-navigation-away-from-
       // the-editor case, so a still-dirty document gets one last
       // best-effort save attempt here instead of being silently dropped.
-      const { dirty, document } = useEditorStore.getState();
+      // This also carries `version`, same as every other PATCH — if the row
+      // was already saved elsewhere in the meantime, the server rejects
+      // this with 409 too, and that's fine: the response is never read
+      // (fire-and-forget), so there's nothing here that could act on it and
+      // overwrite anything. Silently doing nothing IS the correct outcome.
+      const { dirty, document, version } = useEditorStore.getState();
       if (dirty && InvitationDocumentSchema.safeParse(document).success) {
-        fetch(...buildInvitationPatchRequest(invitationId, document, { keepalive: true })).catch(() => {});
+        fetch(...buildInvitationPatchRequest(invitationId, document, version, { keepalive: true })).catch(() => {});
       }
     };
   }, [invitationId]);

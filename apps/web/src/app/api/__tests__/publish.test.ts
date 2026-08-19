@@ -223,11 +223,14 @@ describe("POST /api/invitations/[id]/publish", () => {
     // actual route the editor's autosave hits.
     const editedDocument = createDefaultDocument();
     editedDocument.theme.primary = "#FEDCBA";
+    // Publishing (above) never touches `version` — it's a snapshot into
+    // `publishedDocument`, not a draft edit — so the row is still at its
+    // freshly-created version (0) here.
     const patchRes = await PATCH(
       new Request("http://localhost/api/test", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ document: editedDocument }),
+        body: JSON.stringify({ document: editedDocument, version: 0 }),
       }),
       { params: Promise.resolve({ id }) },
     );

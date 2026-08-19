@@ -149,12 +149,25 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
   async function handleToggleBadge(next: boolean) {
     setShowBadge(next);
     try {
+      // `version` is required on every PATCH to `/api/invitations/[id]` now
+      // (Task 1's optimistic-concurrency check), even for this
+      // settings-only write — read live from the store rather than a
+      // snapshot, since it can have moved since this dialog opened.
       const res = await fetch(`/api/invitations/${invitationId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ settings: { showBadge: next } }),
+        body: JSON.stringify({ settings: { showBadge: next }, version: useEditorStore.getState().version }),
       });
       if (!res.ok) throw new Error(`settings PATCH failed with status ${res.status}`);
+      // The server bumps `version` for this write exactly like a document
+      // autosave — without picking that up here too, the next document
+      // autosave (an entirely separate, unrelated edit) would carry this
+      // now-stale pre-toggle version and get a false 409 from racing
+      // against this same tab's own badge toggle.
+      const body = (await res.json()) as { version?: number };
+      if (typeof body.version === "number") {
+        useEditorStore.getState().setVersion(body.version);
+      }
     } catch {
       // Revert the optimistic flip rather than leaving the toggle showing a
       // state that never actually got saved.

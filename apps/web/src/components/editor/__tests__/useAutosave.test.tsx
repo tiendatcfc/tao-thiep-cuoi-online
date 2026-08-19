@@ -10,6 +10,7 @@ const INVITATION_ID = "inv-123";
 function resetStore() {
   useEditorStore.setState({
     document: createDefaultDocument(),
+    version: 0,
     selectedSectionId: null,
     dirty: false,
     saving: false,
@@ -24,7 +25,7 @@ beforeEach(() => {
   resetStore();
   fetchMock = vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ savedAt: Date.now() }),
+    json: async () => ({ savedAt: Date.now(), version: 1 }),
   });
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -61,6 +62,9 @@ describe("useAutosave", () => {
     expect(init.method).toBe("PATCH");
     const body = JSON.parse(init.body as string);
     expect(body.document.theme.primary).toBe("#111111");
+    // The store's current version travels with every PATCH so the server
+    // can detect a write racing against a stale read.
+    expect(body.version).toBe(0);
   });
 
   it("collapses rapid successive changes into a single PATCH call", async () => {
@@ -105,6 +109,9 @@ describe("useAutosave", () => {
     expect(useEditorStore.getState().dirty).toBe(false);
     expect(useEditorStore.getState().saving).toBe(false);
     expect(useEditorStore.getState().lastSavedAt).toEqual(expect.any(Number));
+    // Same call also confirms the store's version from the response, so the
+    // NEXT PATCH (whenever it happens) sends the row's real current version.
+    expect(useEditorStore.getState().version).toBe(1);
   });
 
   it("keeps dirty true and reports a 'network' error when the PATCH fails, then retries on the next change", async () => {
@@ -124,7 +131,7 @@ describe("useAutosave", () => {
     expect(result.current.error).toBe("network");
 
     // Next change retries — no infinite loop, exactly one more call.
-    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: Date.now() }) });
+    fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: Date.now(), version: 1 }) });
     act(() => {
       useEditorStore.getState().updateTheme({ primary: "#222222" });
     });
@@ -177,6 +184,9 @@ describe("useAutosave", () => {
       expect(init.keepalive).toBe(true);
       const body = JSON.parse(init.body as string);
       expect(body.document.theme.primary).toBe("#111111");
+      // The unmount keepalive flush must carry `version` too — the server
+      // has no other way to detect a stale write from an already-closing tab.
+      expect(body.version).toBe(0);
 
       // The pending debounce timer must have been cancelled too, not left
       // to *also* fire after the flush.
@@ -370,8 +380,8 @@ describe("useAutosave", () => {
     });
 
     it("joins an already-in-flight save instead of firing a second CONCURRENT request, then genuinely re-saves once it settles (so the latest document still lands) and resolves with that real outcome", async () => {
-      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
-      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>((resolve) => {
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>((resolve) => {
         resolveFirst = resolve;
       });
       fetchMock.mockImplementationOnce(() => firstResponse);
@@ -394,12 +404,12 @@ describe("useAutosave", () => {
       // edit arriving mid-flight would (this IS that same queuing
       // mechanism) — otherwise flush() couldn't guarantee the document as
       // of the flush call is what actually gets persisted.
-      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 222 }) });
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 222, version: 2 }) });
       const flushPromise = result.current.flush();
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
       await act(async () => {
-        resolveFirst({ ok: true, json: async () => ({ savedAt: 111 }) });
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111, version: 1 }) });
         for (let i = 0; i < 6; i++) await Promise.resolve();
       });
       const outcome = await flushPromise;
@@ -430,8 +440,8 @@ describe("useAutosave", () => {
 
   describe("serialised saves", () => {
     it("queues an edit that arrives mid-flight instead of firing a second concurrent PATCH, sends it immediately once the first settles with the latest document, and never lets the stale first response clear dirty", async () => {
-      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
-      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>(
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
         (resolve) => {
           resolveFirst = resolve;
         },
@@ -466,10 +476,10 @@ describe("useAutosave", () => {
       // Queue up the second (fresh) request's response before resolving
       // the first, since the queued retry fires synchronously once the
       // first settles.
-      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 222 }) });
+      fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ savedAt: 222, version: 2 }) });
 
       await act(async () => {
-        resolveFirst({ ok: true, json: async () => ({ savedAt: 111 }) });
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111, version: 1 }) });
         // Flush the microtask chain: await res.json() -> markSaved/setError
         // -> finally -> queued performSave() -> its own await fetch() ->
         // await res.json().
@@ -490,14 +500,14 @@ describe("useAutosave", () => {
     });
 
     it("keeps dirty true while the fresh follow-up request is still in flight after a stale response resolves", async () => {
-      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
-      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>(
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
         (resolve) => {
           resolveFirst = resolve;
         },
       );
-      let resolveSecond!: (value: { ok: boolean; json: () => Promise<{ savedAt: number }> }) => void;
-      const secondResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number }> }>(
+      let resolveSecond!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const secondResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
         (resolve) => {
           resolveSecond = resolve;
         },
@@ -522,7 +532,7 @@ describe("useAutosave", () => {
 
       fetchMock.mockImplementationOnce(() => secondResponse);
       await act(async () => {
-        resolveFirst({ ok: true, json: async () => ({ savedAt: 111 }) });
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111, version: 1 }) });
         for (let i = 0; i < 6; i++) await Promise.resolve();
       });
 
@@ -532,12 +542,135 @@ describe("useAutosave", () => {
       expect(useEditorStore.getState().saving).toBe(true);
 
       await act(async () => {
-        resolveSecond({ ok: true, json: async () => ({ savedAt: 222 }) });
+        resolveSecond({ ok: true, json: async () => ({ savedAt: 222, version: 2 }) });
         for (let i = 0; i < 6; i++) await Promise.resolve();
       });
 
       expect(useEditorStore.getState().dirty).toBe(false);
       expect(useEditorStore.getState().lastSavedAt).toBe(222);
+    });
+  });
+
+  // The two-tab data-loss bug this whole task exists to close: the server
+  // rejects a stale-version write with 409. The autosave hook's job on that
+  // response is to stop completely, not to paper over it with a retry —
+  // retrying would silently perform the exact overwrite the version check
+  // was there to prevent.
+  describe("409 conflict handling", () => {
+    it("sets error to 'conflict', leaves dirty true, does not markSaved, and never sends another PATCH even as the user keeps typing", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "Thiệp đã được chỉnh sửa ở nơi khác.", currentVersion: 5 }),
+      });
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe("conflict");
+      expect(useEditorStore.getState().dirty).toBe(true);
+      expect(useEditorStore.getState().saving).toBe(false);
+
+      // The couple keeps typing after the conflict — a real editor session
+      // wouldn't just freeze. None of it may reach the server: the whole
+      // point of stopping is that any further write from this stale tab
+      // would itself be exactly the overwrite being guarded against.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe("conflict");
+    });
+
+    it("does not resolve the conflict via an explicit flush() either", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => ({ error: "conflict", currentVersion: 5 }),
+      });
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe("conflict");
+
+      const outcome = await result.current.flush();
+
+      expect(outcome).toBe("conflict");
+      // flush() must not have fired a second network request once conflicted.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // Proves the "revision guard" (which correctly protects `markSaved` from a
+  // stale response) must NOT also gate `setVersion`. If it did, a slow first
+  // save whose response arrives after a second edit was already queued would
+  // leave the store holding the pre-increment version — so the very next
+  // (legitimate, same-tab) save would send that stale version and get a
+  // FALSE 409 from the server, purely from racing against itself.
+  describe("version tracking survives the stale-response race", () => {
+    it("updates the store's version from a response even when a newer edit arrived first (so the queued follow-up save doesn't falsely conflict)", async () => {
+      let resolveFirst!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const firstResponse = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
+        (resolve) => {
+          resolveFirst = resolve;
+        },
+      );
+      fetchMock.mockImplementationOnce(() => firstResponse);
+
+      renderHook(() => useAutosave(INVITATION_ID));
+
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // A second edit lands while the first request is still in flight —
+      // its own debounce elapses too, so it's queued (serialised saves).
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // The queued follow-up (for the second edit) must be sent with the
+      // server's real post-increment version (1), not the stale 0 the store
+      // held before the first response landed.
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        expect(body.version).toBe(1);
+        return Promise.resolve({ ok: true, json: async () => ({ savedAt: 222, version: 2 }) });
+      });
+
+      await act(async () => {
+        resolveFirst({ ok: true, json: async () => ({ savedAt: 111, version: 1 }) });
+        for (let i = 0; i < 6; i++) await Promise.resolve();
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(useEditorStore.getState().dirty).toBe(false);
+      expect(useEditorStore.getState().version).toBe(2);
     });
   });
 });

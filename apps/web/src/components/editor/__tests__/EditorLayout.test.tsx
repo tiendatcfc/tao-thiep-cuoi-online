@@ -35,6 +35,7 @@ function mockViewport(isDesktop: boolean) {
 function resetStore() {
   useEditorStore.setState({
     document: createDefaultDocument(),
+    version: 0,
     selectedSectionId: null,
     dirty: false,
     saving: false,
@@ -52,15 +53,17 @@ const baseProps = {
   invitationId: "inv-1",
   slug: "demo",
   initialDocument: createDefaultDocument(),
+  initialVersion: 0,
   initialShowBadge: true,
 };
 
 describe("EditorLayout", () => {
-  it("seeds the store with the initial document on mount", () => {
+  it("seeds the store with the initial document and version on mount", () => {
     const doc = createDefaultDocument();
     doc.theme.primary = "#TESTVAL";
-    render(<EditorLayout {...baseProps} initialDocument={doc} />);
+    render(<EditorLayout {...baseProps} initialDocument={doc} initialVersion={3} />);
     expect(useEditorStore.getState().document.theme.primary).toBe("#TESTVAL");
+    expect(useEditorStore.getState().version).toBe(3);
   });
 
   it("shows the document-level property tabs when no section is selected (desktop)", () => {
@@ -200,6 +203,81 @@ describe("EditorLayout", () => {
         expect(screen.getByText(/^Đã lưu lúc \d{2}:\d{2}$/)).toBeInTheDocument();
       } finally {
         vi.useRealTimers();
+      }
+    });
+  });
+
+  // The load-bearing UI counterpart of the 409 handling in useAutosave: a
+  // couple must never be left staring at a "Thử lưu lại" button that would,
+  // if clicked, perform exactly the overwrite the version check exists to
+  // prevent — so this state gets its own message and action, and hides the
+  // retry button entirely rather than just disabling it.
+  describe("conflict (409) state", () => {
+    it("shows a distinct 'edited elsewhere' message with a reload action, and hides 'Thử lưu lại'", async () => {
+      vi.useFakeTimers();
+      try {
+        fetchMock.mockResolvedValue({
+          ok: false,
+          status: 409,
+          json: async () => ({ error: "Thiệp đã được chỉnh sửa ở nơi khác.", currentVersion: 5 }),
+        });
+        render(<EditorLayout {...baseProps} />);
+        act(() => {
+          useEditorStore.getState().updateTheme({ primary: "#111111" });
+        });
+
+        await act(async () => {
+          vi.advanceTimersByTime(2000);
+        });
+
+        const status = screen.getByText(
+          "Thiệp đã được chỉnh sửa ở nơi khác — tải lại trang để tránh mất dữ liệu.",
+          { exact: false },
+        );
+        expect(status).toBeInTheDocument();
+        // Distinct wording and styling from the plain network-failure state.
+        expect(screen.queryByText("Lưu thất bại — vui lòng thử lưu lại.", { exact: false })).not.toBeInTheDocument();
+        expect(status.className).toMatch(/text-red-700/);
+
+        expect(screen.getByRole("button", { name: "Tải lại" })).toBeInTheDocument();
+        // The retry button would just re-perform the overwrite being
+        // guarded against — it must not be offered at all in this state.
+        expect(screen.queryByRole("button", { name: "Thử lưu lại" })).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("'Tải lại' reloads the page", async () => {
+      vi.useFakeTimers();
+      const reloadSpy = vi.fn();
+      const originalLocation = window.location;
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { ...originalLocation, reload: reloadSpy },
+      });
+      try {
+        fetchMock.mockResolvedValue({
+          ok: false,
+          status: 409,
+          json: async () => ({ error: "conflict", currentVersion: 5 }),
+        });
+        render(<EditorLayout {...baseProps} />);
+        act(() => {
+          useEditorStore.getState().updateTheme({ primary: "#111111" });
+        });
+        await act(async () => {
+          vi.advanceTimersByTime(2000);
+        });
+
+        act(() => {
+          screen.getByRole("button", { name: "Tải lại" }).click();
+        });
+
+        expect(reloadSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+        Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
       }
     });
   });

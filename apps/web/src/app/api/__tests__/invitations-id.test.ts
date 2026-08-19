@@ -92,7 +92,7 @@ describe("GET /api/invitations/[id]", () => {
     expect(missingBody).toEqual(notOwnedBody);
   });
 
-  it("returns {invitation: {id, slug, status, document, settings}} for the owner", async () => {
+  it("returns {invitation: {id, slug, status, document, settings, version}} for the owner", async () => {
     const { id, slug } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
@@ -100,12 +100,33 @@ describe("GET /api/invitations/[id]", () => {
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(Object.keys(body.invitation).sort()).toEqual(["document", "id", "settings", "slug", "status"]);
+    expect(Object.keys(body.invitation).sort()).toEqual([
+      "document",
+      "id",
+      "settings",
+      "slug",
+      "status",
+      "version",
+    ]);
     expect(body.invitation.id).toBe(id);
     expect(body.invitation.slug).toBe(slug);
     expect(body.invitation.status).toBe("draft");
     expect(body.invitation.document.version).toBe(1);
     expect(body.invitation.settings).toEqual({ showBadge: true });
+  });
+
+  // Load-bearing for the whole feature: a fresh row's row-level `version`
+  // (distinct from `document.version`, the document *format* version above)
+  // starts at 0 and is what the client must echo back on its first PATCH.
+  it("returns the row's current version (starts at 0 for a freshly created invitation)", async () => {
+    const { id } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    const res = await GET(new Request("http://localhost/api/test"), { params: Promise.resolve({ id }) });
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.invitation.version).toBe(0);
   });
 });
 
@@ -142,9 +163,10 @@ describe("PATCH /api/invitations/[id]", () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
-    const res = await PATCH(jsonRequest({ document: { version: 1, sections: "not-an-array" } }, "PATCH"), {
-      params: Promise.resolve({ id }),
-    });
+    const res = await PATCH(
+      jsonRequest({ document: { version: 1, sections: "not-an-array" }, version: 0 }, "PATCH"),
+      { params: Promise.resolve({ id }) },
+    );
 
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -154,18 +176,19 @@ describe("PATCH /api/invitations/[id]", () => {
     expect(body.error).toMatch(/[ạảãàáâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i);
   });
 
-  it("returns 200 {savedAt}, persists the document, and leaves publishedDocument untouched", async () => {
+  it("returns 200 {savedAt, version}, persists the document, and leaves publishedDocument untouched", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
     const before = await prisma.invitation.findUnique({ where: { id } });
     expect(before?.publishedDocument).toBeNull();
+    expect(before?.version).toBe(0);
 
     const updatedDoc = createDefaultDocument();
     updatedDoc.theme.primary = "#ABCDEF";
 
     const before2 = Date.now();
-    const res = await PATCH(jsonRequest({ document: updatedDoc }, "PATCH"), {
+    const res = await PATCH(jsonRequest({ document: updatedDoc, version: 0 }, "PATCH"), {
       params: Promise.resolve({ id }),
     });
     const after2 = Date.now();
@@ -175,10 +198,12 @@ describe("PATCH /api/invitations/[id]", () => {
     expect(typeof body.savedAt).toBe("number");
     expect(body.savedAt).toBeGreaterThanOrEqual(before2);
     expect(body.savedAt).toBeLessThanOrEqual(after2);
+    expect(body.version).toBe(1);
 
     const stored = await prisma.invitation.findUnique({ where: { id } });
     expect((stored?.document as { theme: { primary: string } }).theme.primary).toBe("#ABCDEF");
     expect(stored?.publishedDocument).toBeNull();
+    expect(stored?.version).toBe(1);
   });
 
   it("returns 400 when the request body isn't valid JSON", async () => {
@@ -197,30 +222,32 @@ describe("PATCH /api/invitations/[id]", () => {
     expect(res.status).toBe(400);
   });
 
-  it("accepts {settings} alone, persisting it without touching document", async () => {
+  it("accepts {settings} alone, persisting it without touching document, and still bumps version", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
     const before = await prisma.invitation.findUnique({ where: { id } });
 
-    const res = await PATCH(jsonRequest({ settings: { showBadge: false } }, "PATCH"), {
+    const res = await PATCH(jsonRequest({ settings: { showBadge: false }, version: 0 }, "PATCH"), {
       params: Promise.resolve({ id }),
     });
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(typeof body.savedAt).toBe("number");
+    expect(body.version).toBe(1);
 
     const stored = await prisma.invitation.findUnique({ where: { id } });
     expect(stored?.settings).toEqual({ showBadge: false });
     expect(stored?.document).toEqual(before?.document);
+    expect(stored?.version).toBe(1);
   });
 
   it("returns 400 when settings.showBadge isn't a boolean", async () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
-    const res = await PATCH(jsonRequest({ settings: { showBadge: "yes" } }, "PATCH"), {
+    const res = await PATCH(jsonRequest({ settings: { showBadge: "yes" }, version: 0 }, "PATCH"), {
       params: Promise.resolve({ id }),
     });
 
@@ -231,9 +258,93 @@ describe("PATCH /api/invitations/[id]", () => {
     const { id } = await createTestInvitation();
     authMock.mockResolvedValue({ user: { id: userId } });
 
-    const res = await PATCH(jsonRequest({}, "PATCH"), { params: Promise.resolve({ id }) });
+    const res = await PATCH(jsonRequest({ version: 0 }, "PATCH"), { params: Promise.resolve({ id }) });
 
     expect(res.status).toBe(400);
+  });
+
+  describe("optimistic concurrency (version)", () => {
+    it("saves and returns the incremented version when version matches the row's current version", async () => {
+      const { id } = await createTestInvitation();
+      authMock.mockResolvedValue({ user: { id: userId } });
+
+      const res = await PATCH(jsonRequest({ document: createDefaultDocument(), version: 0 }, "PATCH"), {
+        params: Promise.resolve({ id }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.version).toBe(1);
+
+      const stored = await prisma.invitation.findUnique({ where: { id } });
+      expect(stored?.version).toBe(1);
+    });
+
+    // THE load-bearing test: this is the exact data-loss bug the whole task
+    // exists to close. Tab A and tab B both loaded version 0. Tab A saves
+    // first (0 -> 1). Tab B, unaware, then tries to save against its own
+    // (now stale) version 0. Before this feature, the second PATCH would
+    // blindly `update()` and silently destroy tab A's write. The response
+    // status alone isn't enough proof — the body could lie — so this reads
+    // straight from the database afterward to confirm tab A's content
+    // actually survived.
+    it("returns 409 and does NOT overwrite the row when version is stale (two-tab overwrite scenario)", async () => {
+      const { id } = await createTestInvitation();
+      authMock.mockResolvedValue({ user: { id: userId } });
+
+      const tabADoc = createDefaultDocument();
+      tabADoc.theme.primary = "#AAAAAA";
+      const tabAFirstSave = await PATCH(jsonRequest({ document: tabADoc, version: 0 }, "PATCH"), {
+        params: Promise.resolve({ id }),
+      });
+      expect(tabAFirstSave.status).toBe(200);
+      expect((await tabAFirstSave.json()).version).toBe(1);
+
+      const tabBDoc = createDefaultDocument();
+      tabBDoc.theme.primary = "#BBBBBB";
+      const tabBStaleSave = await PATCH(jsonRequest({ document: tabBDoc, version: 0 }, "PATCH"), {
+        params: Promise.resolve({ id }),
+      });
+
+      expect(tabBStaleSave.status).toBe(409);
+
+      // Re-read from the database — never trust the response body for this
+      // assertion. The row must still hold tab A's content and version,
+      // completely untouched by tab B's rejected write.
+      const stored = await prisma.invitation.findUnique({ where: { id } });
+      expect((stored?.document as { theme: { primary: string } }).theme.primary).toBe("#AAAAAA");
+      expect(stored?.version).toBe(1);
+    });
+
+    it("includes currentVersion in the 409 body so the client knows how far it's behind", async () => {
+      const { id } = await createTestInvitation();
+      authMock.mockResolvedValue({ user: { id: userId } });
+
+      await PATCH(jsonRequest({ document: createDefaultDocument(), version: 0 }, "PATCH"), {
+        params: Promise.resolve({ id }),
+      });
+
+      const staleRes = await PATCH(jsonRequest({ document: createDefaultDocument(), version: 0 }, "PATCH"), {
+        params: Promise.resolve({ id }),
+      });
+
+      expect(staleRes.status).toBe(409);
+      const body = await staleRes.json();
+      expect(body.currentVersion).toBe(1);
+      expect(typeof body.error).toBe("string");
+      expect(body.error.length).toBeGreaterThan(0);
+    });
+
+    it("returns 400 when version is missing from the body", async () => {
+      const { id } = await createTestInvitation();
+      authMock.mockResolvedValue({ user: { id: userId } });
+
+      const res = await PATCH(jsonRequest({ document: createDefaultDocument() }, "PATCH"), {
+        params: Promise.resolve({ id }),
+      });
+
+      expect(res.status).toBe(400);
+    });
   });
 });
 

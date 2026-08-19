@@ -26,6 +26,7 @@ import { WishesPanel } from "../WishesPanel";
 function resetStore() {
   useEditorStore.setState({
     document: createDefaultDocument(),
+    version: 0,
     selectedSectionId: null,
     dirty: false,
     saving: false,

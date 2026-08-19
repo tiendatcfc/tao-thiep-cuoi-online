@@ -13,11 +13,16 @@ const settingsSchema = z.object({ showBadge: z.boolean() }).strict();
 // only ever sends `document`) and `PublishDialog`'s badge toggle (which
 // only ever sends `settings`) can each PATCH just their own piece — but at
 // least one of the two must be present, or this would silently be a no-op
-// PATCH that still reports success.
+// PATCH that still reports success. `version` is required (never defaulted)
+// — a request that omits it is rejected with 400 rather than treated as
+// version 0, since defaulting it would silently reintroduce the blind
+// last-write-wins overwrite this whole check exists to prevent for any
+// client that isn't sending it.
 const patchBodySchema = z
   .object({
     document: InvitationDocumentSchema.optional(),
     settings: settingsSchema.optional(),
+    version: z.number().int().min(0),
   })
   .refine((data) => data.document !== undefined || data.settings !== undefined, {
     message: INVALID_DOCUMENT_MESSAGE,
@@ -43,6 +48,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       status: invitation.status,
       document: invitation.document,
       settings: invitation.settings,
+      version: invitation.version,
     },
   });
 }
@@ -82,9 +88,37 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (parsed.data.document !== undefined) data.document = parsed.data.document;
   if (parsed.data.settings !== undefined) data.settings = parsed.data.settings;
 
-  await prisma.invitation.update({ where: { id }, data });
+  // Optimistic concurrency: only apply the write if the row's version still
+  // matches what the client last read. `updateMany` (not `update`) is used
+  // deliberately — it lets the `version` mismatch case fail as "0 rows
+  // matched" instead of a thrown not-found error, so it can be told apart
+  // from a real 404/401 below.
+  const result = await prisma.invitation.updateMany({
+    where: { id, version: parsed.data.version },
+    data: { ...data, version: { increment: 1 } },
+  });
 
-  return NextResponse.json({ savedAt: Date.now() });
+  if (result.count === 0) {
+    // Ownership was already confirmed by `findOwnedInvitation` above, and
+    // the row's existence was implied by that same lookup succeeding, so
+    // the only way `updateMany` can have matched zero rows here is that
+    // `version` no longer matches — someone else (another tab, or this same
+    // tab left open) saved in between this client's last read and this
+    // PATCH.
+    const current = await prisma.invitation.findUnique({
+      where: { id },
+      select: { version: true },
+    });
+    return NextResponse.json(
+      {
+        error: "Thiệp đã được chỉnh sửa ở nơi khác. Hãy tải lại trang để lấy bản mới nhất.",
+        currentVersion: current?.version ?? null,
+      },
+      { status: 409 },
+    );
+  }
+
+  return NextResponse.json({ savedAt: Date.now(), version: parsed.data.version + 1 });
 }
 
 /**

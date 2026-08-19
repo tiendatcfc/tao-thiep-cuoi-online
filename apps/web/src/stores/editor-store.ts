@@ -13,11 +13,20 @@ import { create } from "zustand";
 
 export type EditorState = {
   document: InvitationDocument;
+  /**
+   * The row's `version` as last confirmed by the server (either the initial
+   * GET load, via `setDocument`, or a successful autosave, via
+   * `setVersion`). Sent back on every PATCH so the server can detect a
+   * write from a stale read — see `useAutosave` and
+   * `PATCH /api/invitations/[id]`.
+   */
+  version: number;
   selectedSectionId: string | null;
   dirty: boolean;
   saving: boolean;
   lastSavedAt: number | null;
-  setDocument(doc: InvitationDocument): void;
+  setDocument(doc: InvitationDocument, version: number): void;
+  setVersion(v: number): void;
   selectSection(id: string | null): void;
   updateSectionProps(id: string, patch: Record<string, unknown>): void;
   updateTheme(patch: Partial<Theme>): void;
@@ -42,19 +51,30 @@ export type EditorState = {
  */
 export const useEditorStore = create<EditorState>()((set) => ({
   document: createDefaultDocument(),
+  version: 0,
   selectedSectionId: null,
   dirty: false,
   saving: false,
   lastSavedAt: null,
 
-  setDocument(doc) {
+  setDocument(doc, version) {
     // C6: `lastSavedAt` is a module-level singleton — without resetting it
     // here, opening invitation B right after editing invitation A shows A's
     // stale save timestamp until B's own first save. `EditorLayout` calls
     // `setDocument` exactly once, on mount, with whatever the server loaded
     // — that's a fresh load, never itself a "just saved" moment, so `null`
-    // (not shown yet) is always the right value here.
-    set({ document: doc, dirty: false, lastSavedAt: null });
+    // (not shown yet) is always the right value here. `version` is seeded
+    // from the same server read, so the first autosave PATCH after opening
+    // the editor checks against the row's actual current version instead of
+    // a stale leftover from whatever invitation was open before.
+    set({ document: doc, version, dirty: false, lastSavedAt: null });
+  },
+
+  setVersion(v) {
+    // Deliberately touches only `version` — `markSaved` (called alongside
+    // this by `useAutosave` on a successful PATCH) already owns
+    // `dirty`/`lastSavedAt`, so this must not race or double-set either one.
+    set({ version: v });
   },
 
   selectSection(id) {
