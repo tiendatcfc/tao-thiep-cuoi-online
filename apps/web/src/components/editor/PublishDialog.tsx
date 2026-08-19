@@ -204,6 +204,21 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
         setError(GENERIC_PUBLISH_ERROR);
         return;
       }
+      if (flushResult === "conflict") {
+        // BLOCKER B2 (final review): unlike "network" above, this isn't a
+        // RISK of publishing something stale — it's a certainty. `flush()`
+        // only returns "conflict" once `useAutosave` has already latched
+        // (this tab's `version` is behind, for real — see `useAutosave`'s
+        // own reconciliation of a same-tab false 409 before it ever
+        // surfaces this to a caller). The publish route re-reads
+        // `invitation.document` straight from the DB, so proceeding here
+        // would silently snapshot whatever the OTHER writer last saved —
+        // not anything this tab ever showed the couple — into
+        // `publishedDocument`, then report success as if it had published
+        // what's on screen.
+        setError("Thiệp đã được chỉnh sửa ở nơi khác. Hãy tải lại trang trước khi xuất bản.");
+        return;
+      }
 
       const res = await fetch(`/api/invitations/${invitationId}/publish`, {
         method: "POST",

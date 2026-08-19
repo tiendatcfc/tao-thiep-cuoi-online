@@ -8,25 +8,27 @@ const AUTOSAVE_DEBOUNCE_MS = 2000;
 
 /**
  * `null` — nothing to report (idle, or the last attempt succeeded).
- * `"network"` — the PATCH itself failed (offline, 5xx, ...). No automatic
- * retry loop runs on its own (see `performSave`'s comment) — the header
- * shows a manual "Thử lưu lại" action (`flush`, below) instead of claiming
- * one will happen by itself.
+ * `"network"` — the PATCH's outcome is UNKNOWN: the request itself failed
+ * (offline, a dropped connection), the response was a non-OK/non-409 status
+ * (e.g. a 502/504 from a proxy), or the response body couldn't even be
+ * parsed (a truncated body). Critically, none of these mean the write did
+ * NOT reach the server — see `unconfirmedVersion` below for how the next
+ * save tells a lost response apart from a real cross-session conflict. No
+ * automatic retry loop runs on its own (see `performSave`'s comment) — the
+ * header shows a manual "Thử lưu lại" action (`flush`, below) instead of
+ * claiming one will happen by itself.
  * `"invalid"` — the document fails `InvitationDocumentSchema` client-side.
  * Whole-document validation means one bad field anywhere blocks the entire
  * save on every retry forever, so this gets its own distinct message
  * instead of being lumped in with "network failed".
- * `"conflict"` — the server rejected the PATCH with 409: this tab's
- * `version` is behind (another tab, or this same tab left open elsewhere,
- * saved in between). Unlike `"network"`, this is terminal for the rest of
- * this hook instance — see `performSave`'s `conflicted` flag below for why
- * retrying is never attempted.
+ * `"conflict"` — the server rejected the PATCH with 409, and this hook could
+ * not explain the gap as its own previously-unconfirmed write landing (see
+ * `unconfirmedVersion`): another tab, or this same tab left open elsewhere,
+ * really did save in between. Unlike `"network"`, this is terminal for the
+ * rest of this hook instance — see `performSave`'s `conflicted` flag below
+ * for why retrying is never attempted.
  */
 export type AutosaveErrorKind = "network" | "invalid" | "conflict" | null;
-
-function isAbortError(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError";
-}
 
 /** Shape of the `settings` write PublishDialog's badge toggle needs — kept minimal (just what exists today) rather than the full `{showBadge: boolean}` settings schema, since nothing else currently PATCHes `settings` through this hook. */
 export type SettingsPayload = { showBadge: boolean };
@@ -61,21 +63,36 @@ function buildInvitationPatchRequest(
  * false→true transition would never re-arm the timer for the "edit again
  * after a failure" retry case.
  *
- * Three durability/correctness properties beyond the basic debounce:
+ * Four durability/correctness properties beyond the basic debounce:
  *
- * 1. **Flush on unmount.** A Next.js client-side route change or the Back
- *    button unmounts this hook WITHOUT firing `beforeunload` (that only
- *    fires on an actual page unload) — the ordinary way someone leaves
- *    `/editor/[id]`. Without an unmount flush, a debounce still pending at
- *    that moment silently drops the couple's last edits. The flush is
- *    fire-and-forget with `keepalive: true` (so it also survives a real
- *    page unload, if that's what triggered the unmount) — nothing here can
- *    react to its result after teardown anyway. If a save is already in
- *    flight at unmount time, it's `abort()`ed first: otherwise that older
- *    request and the flush's newer one would both be in flight at once,
- *    and the server (last-write-wins, no ordering guarantee) could apply
- *    the older one *after* the newer one — silently reverting to stale
- *    content with the tab already closed and nothing left to retry.
+ * 1. **Flush on unmount, without ever aborting an in-flight save.** A
+ *    Next.js client-side route change or the Back button unmounts this hook
+ *    WITHOUT firing `beforeunload` (that only fires on an actual page
+ *    unload) — the ordinary way someone leaves `/editor/[id]`. Without an
+ *    unmount flush, a debounce still pending at that moment silently drops
+ *    the couple's last edits, so a final best-effort `keepalive` PATCH is
+ *    sent here (fire-and-forget: nothing can react to its result after
+ *    teardown anyway).
+ *
+ *    If a save is ALREADY in flight at unmount time, it is never aborted.
+ *    An earlier version of this hook called `abort()` on it first, reasoning
+ *    that otherwise the older request and the new flush could both be in
+ *    flight and land out of order. That reasoning doesn't hold: aborting the
+ *    CLIENT's `fetch` does not stop the SERVER's write from committing —
+ *    `route.ts` never consults the request's abort signal — so the in-flight
+ *    request could still commit and bump the row's `version` on the server
+ *    a moment after this tab gave up on ever learning that. The flush that
+ *    followed then sent the STALE pre-abort `version`, got an honest 409 for
+ *    a write this very tab made, and (before this fix) that looked exactly
+ *    like another session's conflict with nothing left to retry — losing
+ *    the newest edits for good. Instead, the final write is CHAINED onto the
+ *    in-flight one via the same `waiters` queue `flush()` uses: once it
+ *    settles (successfully, or via this hook's own same-tab reconciliation
+ *    below), the keepalive fires with whatever `version` that produced, and
+ *    the CURRENT (latest) document — never the stale one from when the
+ *    in-flight request was sent. On SPA navigation the JS context survives
+ *    to actually run this; a genuine page unload is already covered by the
+ *    `beforeunload` prompt below.
  *
  * 2. **Serialised saves.** Requests are never sent concurrently: if a save
  *    is requested while one is already in flight, it's queued
@@ -88,15 +105,22 @@ function buildInvitationPatchRequest(
  *    (now-stale) success response must not clear `dirty`, since the edit it
  *    raced with was never part of what got persisted.
  *
- * 3. **Explicit flush.** `flush()` (returned below) lets a caller — the
- *    "Thử lưu lại" retry button, and `PublishDialog` before it publishes
- *    (see C2: publishing used to snapshot whatever the DB already had,
- *    which can be up to `AUTOSAVE_DEBOUNCE_MS` behind the live editor) —
- *    force an immediate save and `await` its real outcome, including when
- *    one was already in flight: it joins the existing attempt (and any
- *    attempt queued after it) rather than firing a second overlapping
- *    request, and resolves once a save reflecting the CURRENT document has
- *    actually settled.
+ * 3. **A lost response is not a conflict.** `Invitation.version` is
+ *    incremented by exactly one place in the whole app — this route's PATCH
+ *    handler — so "the row's version moved" does not by itself imply
+ *    ANOTHER session wrote: it can just as easily be this same tab's own
+ *    prior write, which committed on the server but whose result this tab
+ *    never learned (a dropped connection, a 502/504, a truncated body).
+ *    `unconfirmedVersion` (below, inside the effect) remembers the version
+ *    that was in flight the last time that happened. The next 409 checks
+ *    whether the server's `currentVersion` is EXACTLY `unconfirmedVersion +
+ *    1` — i.e. explained by precisely one write landing, which can only be
+ *    this tab's own unconfirmed one — and if so, treats it as confirmation
+ *    rather than a conflict: it adopts the confirmed version and re-sends
+ *    once with the current live document (a strict continuation of the
+ *    write that just landed) instead of latching. A gap that isn't exactly
+ *    `+1`, or a second 409 on the re-send itself, is genuinely unexplained
+ *    by this tab's own history and latches for good, exactly as before.
  *
  * 4. **Settings share the same writer.** `saveSettings` (returned below)
  *    lets `PublishDialog`'s badge toggle PATCH `{settings}` through this
@@ -146,11 +170,19 @@ export function useAutosave(invitationId: string) {
     // would perform exactly the overwrite the version check exists to
     // prevent.
     let conflicted = false;
-    let activeAbortController: AbortController | null = null;
+    // The `version` that was in flight the last time a save's outcome came
+    // back unknown ("network" — see the type's own doc comment above) —
+    // `null` whenever nothing is currently unconfirmed. Cleared on every
+    // successful save. Read (and, on a match, cleared) by the very next
+    // 409 to distinguish this tab's own unconfirmed write landing from a
+    // genuine conflict — see point 3 above.
+    let unconfirmedVersion: number | null = null;
     // Resolved once a save cycle — including any `pendingAgain` rerun
     // chained after it — truly settles with nothing left queued. `flush()`
     // joins this instead of firing its own overlapping request when a save
-    // is already in flight.
+    // is already in flight; the unmount cleanup below does too, to chain
+    // its final keepalive write onto an in-flight save rather than
+    // aborting it.
     let waiters: Array<(result: AutosaveErrorKind) => void> = [];
 
     function clearPendingTimer() {
@@ -180,12 +212,9 @@ export function useAutosave(invitationId: string) {
 
       if (inFlight) {
         // Something is already in flight — don't fire a second, overlapping
-        // request (the server does a plain last-write-wins overwrite with
-        // no concurrency control, so two in-flight requests can complete
-        // out of order and silently revert to the older one). Run again,
-        // immediately, once the current one settles, and resolve THIS
-        // call's promise once that (or a further chained rerun) truly
-        // settles — see `resolveWaiters`.
+        // request. Run again, immediately, once the current one settles,
+        // and resolve THIS call's promise once that (or a further chained
+        // rerun) truly settles — see `resolveWaiters`.
         pendingAgain = true;
         return new Promise<AutosaveErrorKind>((resolve) => {
           waiters.push(resolve);
@@ -202,7 +231,6 @@ export function useAutosave(invitationId: string) {
 
       inFlight = true;
       const revisionAtSend = revision;
-      const versionAtSend = useEditorStore.getState().version;
       // Snapshot whatever settings write is currently pending (if any) —
       // `pendingSettings` itself can be reassigned to a NEWER value by
       // `saveSettings` while this request is in flight (mirrors how
@@ -210,79 +238,115 @@ export function useAutosave(invitationId: string) {
       // send/compare against the value as of THIS send, not whatever
       // `pendingSettings` holds by the time the response comes back.
       const settingsAtSend = pendingSettings;
-      const controller = new AbortController();
-      activeAbortController = controller;
       useEditorStore.getState().setSaving(true);
       let result: AutosaveErrorKind = null;
+      // At most one automatic re-send per save cycle (point 3 above) — a
+      // server that (incorrectly) kept reporting `currentVersion ===
+      // lastSentVersion + 1` forever could otherwise spin. Local to this
+      // `performSave` call: each fresh call gets its own chance.
+      let autoResendUsed = false;
+
       try {
-        const res = await fetch(
-          ...buildInvitationPatchRequest(
-            invitationId,
-            versionAtSend,
-            { document, settings: settingsAtSend ?? undefined },
-            { signal: controller.signal },
-          ),
-        );
-        if (res.status === 409) {
-          // This tab's `version` is behind — another tab (or this same one,
-          // left open elsewhere) already saved. Stop for good: see
-          // `conflicted`'s declaration above for why no retry is attempted.
-          // `markSaved`/`setVersion` are deliberately NOT called — nothing
-          // here was actually persisted.
-          conflicted = true;
-          setError("conflict");
-          result = "conflict";
-        } else if (!res.ok) {
-          throw new Error(`Autosave failed with status ${res.status}`);
-        } else {
-          const body = (await res.json()) as { savedAt?: number; version?: number };
-          // The server really did persist this write and bump the row's
-          // version regardless of what's happened locally since — the next
-          // save (whenever it fires) MUST send that new version, or it will
-          // race against its own prior success and get a false 409. This is
-          // why `setVersion` runs unconditionally, unlike `markSaved` below.
-          if (typeof body.version === "number") {
-            useEditorStore.getState().setVersion(body.version);
+        // Loops at most twice: the normal attempt, and — only when the 409
+        // it gets back is fully explained by THIS tab's own previously
+        // unconfirmed write landing on the server — exactly one automatic
+        // re-send with the now-confirmed version.
+        for (;;) {
+          const versionAtSend = useEditorStore.getState().version;
+          try {
+            const res = await fetch(
+              ...buildInvitationPatchRequest(invitationId, versionAtSend, {
+                document,
+                settings: settingsAtSend ?? undefined,
+              }),
+            );
+
+            if (res.status === 409) {
+              const body = (await res.json()) as { currentVersion?: number };
+              const currentVersion = typeof body.currentVersion === "number" ? body.currentVersion : null;
+              if (!autoResendUsed && unconfirmedVersion !== null && currentVersion === unconfirmedVersion + 1) {
+                // The row moved by EXACTLY one version past our last
+                // unconfirmed send — the only writer of `version` in this
+                // app is this very route, so that gap can only be this
+                // tab's own earlier write finally landing (a dropped
+                // response, a proxy timeout, ...), not another session.
+                // Confirm it and loop once more with the current live
+                // document — a strict continuation of the write that just
+                // landed — instead of latching a false conflict.
+                autoResendUsed = true;
+                unconfirmedVersion = null;
+                useEditorStore.getState().setVersion(currentVersion);
+                continue;
+              }
+              // Either nothing was unconfirmed to explain the gap, the gap
+              // isn't exactly one write, or the re-send above ALSO
+              // conflicted — genuinely explained only by another session.
+              // Stop for good: see `conflicted`'s declaration above for why
+              // no further retry is attempted.
+              conflicted = true;
+              setError("conflict");
+              result = "conflict";
+              break;
+            }
+
+            if (!res.ok) {
+              throw new Error(`Autosave failed with status ${res.status}`);
+            }
+
+            const body = (await res.json()) as { savedAt?: number; version?: number };
+            // The server really did persist this write and bump the row's
+            // version regardless of what's happened locally since — the
+            // next save (whenever it fires) MUST send that new version, or
+            // it will race against its own prior success and get a false
+            // 409. This is why `setVersion` runs unconditionally, unlike
+            // `markSaved` below.
+            unconfirmedVersion = null;
+            if (typeof body.version === "number") {
+              useEditorStore.getState().setVersion(body.version);
+            }
+            // If a newer edit landed while this request was in flight, this
+            // response reflects an older document — it must not clear
+            // `dirty`, or the newer edit would silently look "saved" when
+            // it isn't yet.
+            if (revision === revisionAtSend) {
+              useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
+            }
+            // Clear the pending settings write, but only if nothing newer
+            // overwrote it while this request was in flight — same
+            // "don't clear something the response doesn't actually
+            // reflect" reasoning as the `revision` check above, applied to
+            // settings.
+            if (settingsAtSend !== null && pendingSettings === settingsAtSend) {
+              pendingSettings = null;
+            }
+            setError(null);
+            result = null;
+            break;
+          } catch {
+            // Covers `fetch()` itself rejecting (offline, a dropped mobile
+            // connection before any response arrives), a non-OK/non-409
+            // status (a 502/504 from a proxy), AND `res.json()` throwing on
+            // a truncated body — every one of these means the OUTCOME of
+            // THIS specific send is unknown, not that it definitely never
+            // reached (or committed on) the server. `unconfirmedVersion`
+            // (above) is exactly for letting a LATER save tell the two
+            // apart. Leave `dirty: true` — the next mutation, OR an
+            // explicit `flush()` (the "Thử lưu lại" button), re-arms this.
+            // No automatic retry loop is started here.
+            unconfirmedVersion = versionAtSend;
+            setError("network");
+            result = "network";
+            break;
           }
-          // If a newer edit landed while this request was in flight, this
-          // response reflects an older document — it must not clear
-          // `dirty`, or the newer edit would silently look "saved" when it
-          // isn't yet.
-          if (revision === revisionAtSend) {
-            useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
-          }
-          // Clear the pending settings write, but only if nothing newer
-          // overwrote it while this request was in flight — same
-          // "don't clear something the response doesn't actually reflect"
-          // reasoning as the `revision` check above, applied to settings.
-          if (settingsAtSend !== null && pendingSettings === settingsAtSend) {
-            pendingSettings = null;
-          }
-          setError(null);
-        }
-      } catch (err) {
-        // An abort is deliberate (the unmount flush below cancels an
-        // in-flight save on purpose) — not a real failure, so it must not
-        // be reported as one.
-        if (!isAbortError(err)) {
-          // Leave `dirty: true` — the next mutation, OR an explicit
-          // `flush()` (the "Thử lưu lại" button), re-arms this. No
-          // automatic retry loop is started here: without one of those,
-          // nothing calls `performSave()` again.
-          setError("network");
-          result = "network";
         }
       } finally {
         useEditorStore.getState().setSaving(false);
         inFlight = false;
-        if (activeAbortController === controller) {
-          activeAbortController = null;
-        }
         if (pendingAgain && !conflicted) {
           pendingAgain = false;
-          // The waiters queued above (including any `flush()` callers) are
-          // resolved by THIS rerun's own settle, not by the call that's
-          // returning right now.
+          // The waiters queued above (including any `flush()` callers, and
+          // the unmount cleanup's chained keepalive) are resolved by THIS
+          // rerun's own settle, not by the call that's returning right now.
           void performSave();
         } else {
           // A conflict cancels any queued rerun too — anyone waiting
@@ -357,18 +421,6 @@ export function useAutosave(invitationId: string) {
       flushRef.current = async () => null;
       saveSettingsRef.current = async () => null;
 
-      // See "Flush on unmount" above: a save already in flight can't be
-      // un-sent, but it CAN be aborted — without this, the flush below
-      // would race an older in-flight write against a newer one. Clearing
-      // `pendingAgain` first stops the aborted call's own `finally` block
-      // from re-firing a save of its own once it settles; the flush right
-      // after is this hook's one, sole, superseding save attempt.
-      if (activeAbortController) {
-        pendingAgain = false;
-        activeAbortController.abort();
-        activeAbortController = null;
-      }
-
       // `beforeunload` doesn't cover the ordinary SPA-navigation-away-from-
       // the-editor case, so a still-dirty document (or a settings write
       // still sitting in `pendingSettings` — e.g. the badge toggle fired
@@ -381,17 +433,39 @@ export function useAutosave(invitationId: string) {
       // never read (fire-and-forget), so there's nothing here that could
       // act on it and overwrite anything. Silently doing nothing IS the
       // correct outcome.
-      const { dirty, document, version } = useEditorStore.getState();
-      const validDocument = dirty && InvitationDocumentSchema.safeParse(document).success;
-      if (validDocument || pendingSettings !== null) {
-        fetch(
-          ...buildInvitationPatchRequest(
-            invitationId,
-            version,
-            { document: validDocument ? document : undefined, settings: pendingSettings ?? undefined },
-            { keepalive: true },
-          ),
-        ).catch(() => {});
+      function sendFinalKeepalive() {
+        const { dirty, document, version } = useEditorStore.getState();
+        const validDocument = dirty && InvitationDocumentSchema.safeParse(document).success;
+        if (validDocument || pendingSettings !== null) {
+          fetch(
+            ...buildInvitationPatchRequest(
+              invitationId,
+              version,
+              { document: validDocument ? document : undefined, settings: pendingSettings ?? undefined },
+              { keepalive: true },
+            ),
+          ).catch(() => {});
+        }
+      }
+
+      if (inFlight) {
+        // A save is already in flight. It cannot be un-sent, and — as of
+        // this fix — it is NOT aborted either: see this hook's own
+        // docstring, point 1, for why aborting the client side used to
+        // cause exactly the false-conflict/lost-edit bug this exists to
+        // prevent. Instead, wait for it (and anything already queued
+        // behind it) to fully settle — reusing the same `waiters` queue
+        // `flush()` uses, WITHOUT setting `pendingAgain` (that would fire
+        // an extra non-`keepalive` rerun; this cleanup wants exactly one,
+        // `keepalive`, final write) — then send the final keepalive with
+        // whatever `version` that settle produced: either the server's
+        // real post-commit version, or this hook's own same-tab
+        // reconciliation of a false 409, either way reflecting the true
+        // current row state rather than the stale version that was in
+        // flight at unmount time.
+        waiters.push(() => sendFinalKeepalive());
+      } else {
+        sendFinalKeepalive();
       }
     };
   }, [invitationId]);

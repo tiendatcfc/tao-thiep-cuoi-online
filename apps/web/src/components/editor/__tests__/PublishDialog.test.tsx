@@ -265,6 +265,27 @@ describe("PublishDialog", () => {
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    // BLOCKER B2 (final review): a "conflict" outcome from flush() used to
+    // fall through both the "invalid" and "network" checks above and reach
+    // the publish POST anyway — unlike "network" (a mere RISK of a stale
+    // version), "conflict" means `useAutosave` has already latched: this
+    // tab's version is CONFIRMED behind. The publish route re-reads
+    // `invitation.document` from the DB, so proceeding would silently
+    // publish whatever the OTHER writer saved while reporting success here.
+    it("refuses to publish and shows a distinct Vietnamese message when flush() reports a conflict, without ever calling the publish route", async () => {
+      const flush = vi.fn().mockResolvedValue("conflict" as AutosaveErrorKind);
+      renderWithFlush(flush);
+
+      fireEvent.click(screen.getByRole("button", { name: "Xuất bản" }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByText("Thiệp đã được chỉnh sửa ở nơi khác. Hãy tải lại trang trước khi xuất bản."),
+        ).toBeInTheDocument(),
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it("proceeds to publish once flush() resolves successfully (null)", async () => {
       const flush = vi.fn().mockResolvedValue(null as AutosaveErrorKind);
       fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ slug: "minh-lan" }) });
