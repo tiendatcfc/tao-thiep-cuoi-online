@@ -273,6 +273,22 @@ describe("setSaving", () => {
   });
 });
 
+describe("updateSectionAnimation", () => {
+  it("patches only the target section's animation and keeps the document schema-valid", () => {
+    // seed a document with two sections via the store's own addSection
+    const { addSection, updateSectionAnimation } = useEditorStore.getState();
+    addSection("story");
+    addSection("text");
+    const [a, b] = useEditorStore.getState().document.sections;
+    updateSectionAnimation(a.id, { preset: "slide-up", durationMs: 1200 });
+    const next = useEditorStore.getState().document;
+    expect(next.sections[0].animation).toEqual({ preset: "slide-up", durationMs: 1200 });
+    expect(next.sections[1].animation).toEqual(b.animation);
+    expect(useEditorStore.getState().dirty).toBe(true);
+    expect(() => InvitationDocumentSchema.parse(next)).not.toThrow();
+  });
+});
+
 describe("schema invariant", () => {
   it("never produces a document that fails InvitationDocumentSchema.parse, across a sequence of mutations", () => {
     const ids = sectionIds();

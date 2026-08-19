@@ -29,6 +29,7 @@ export type EditorState = {
   setVersion(v: number): void;
   selectSection(id: string | null): void;
   updateSectionProps(id: string, patch: Record<string, unknown>): void;
+  updateSectionAnimation(id: string, patch: Partial<Section["animation"]>): void;
   updateTheme(patch: Partial<Theme>): void;
   updateOpening(patch: Partial<Opening>): void;
   updateMusic(patch: Partial<Music>): void;
@@ -96,6 +97,18 @@ export const useEditorStore = create<EditorState>()((set) => ({
           section.id === id
             ? ({ ...section, props: { ...section.props, ...patch } } as Section)
             : section,
+        ),
+      },
+      dirty: true,
+    }));
+  },
+
+  updateSectionAnimation(id, patch) {
+    set((state) => ({
+      document: {
+        ...state.document,
+        sections: state.document.sections.map((section) =>
+          section.id === id ? { ...section, animation: { ...section.animation, ...patch } } : section,
         ),
       },
       dirty: true,
