@@ -35,9 +35,19 @@ function createPlaceholderImage(): AlbumImage {
  * size), so this is defense-in-depth rather than the only guard: a
  * `0`/negative/fractional value should never be reachable here, but if it
  * ever were, this still can't produce a document that fails schema
- * validation.
+ * validation. A non-finite value (`NaN`/`±Infinity`) IS reachable in
+ * principle — e.g. a malformed 200 response body cast without validation
+ * upstream — and would otherwise slip through unguarded:
+ * `Math.round(NaN)` is itself `NaN`, and `Math.max(1, NaN)` stays `NaN`,
+ * which would write `NaN` into the document and fail
+ * `InvitationDocumentSchema.parse`, silently killing autosave for the
+ * WHOLE invitation (this repo's worst historical failure mode). So the
+ * finite check runs first and falls back to `1` before rounding/clamping
+ * ever sees the value, mirroring `clampDurationMs`'s non-finite fallback
+ * in `AnimationControl.tsx`.
  */
 export function clampPositiveInt(n: number): number {
+  if (!Number.isFinite(n)) return 1;
   return Math.max(1, Math.round(n));
 }
 

@@ -124,17 +124,21 @@ async function main() {
   );
   console.log(`Applied public-read policy to "${bucket}".`);
 
-  // The bucket has no CORS configuration by default, so a browser's direct
-  // PUT from ImageField (Task 16) to the presigned upload URL fails
-  // preflight (OPTIONS) before the PUT is even attempted — this is a
-  // same-origin *server* fetch generating the presigned URL, but the
-  // upload itself happens client-side, cross-origin, straight from
-  // localhost:3000 to localhost:9000 in dev. `PUT` uploads the file; `GET`
-  // lets a browser fetch the resulting public URL back (e.g. `ImageField`'s
-  // own thumbnail preview) without a CORS error either.
+  // Images no longer need bucket CORS: the server, not the browser, is now
+  // the only writer to storage (see `src/lib/upload.ts`'s
+  // `processAndStoreImage` and `src/app/api/uploads/route.ts`) — there is
+  // no more direct browser PUT to a presigned upload URL for this plan's
+  // image flow, so nothing in production actually depends on this call
+  // succeeding today.
+  //
+  // This config is still applied anyway: it costs nothing here, and a
+  // possible Phase 2 feature (e.g. direct-from-browser audio uploads) may
+  // reintroduce a presigned-PUT flow that would need it. `GET` also remains
+  // harmless/useful regardless, letting a browser fetch a public object URL
+  // back without a CORS error.
   //
   // This is the standard S3 bucket-CORS API and is what actually configures
-  // CORS on Cloudflare R2 in production — required there, no fallback.
+  // CORS on Cloudflare R2 in production.
   //
   // Against local MinIO (confirmed on RELEASE.2025-09-07, both via this SDK
   // and MinIO's own `mc cors set`), this call itself 501s with
@@ -143,9 +147,12 @@ async function main() {
   // *server* level instead, controlled by `api.cors_allow_origin`, which
   // defaults to `*` (verified with a real cross-origin `curl` OPTIONS
   // preflight, PUT, and GET straight against a presigned URL — see
-  // task-16-report.md). See `isKnownCorsUnsupportedBackend` above for why
-  // this 501 is only swallowed for a known-local backend, not on the error
-  // code alone.
+  // task-16-report.md, from when this flow was still browser-driven). See
+  // `isKnownCorsUnsupportedBackend` above for why this 501 is only swallowed
+  // for a known-local backend, not on the error code alone. Operators
+  // running an images-only deployment may reasonably decide to relax this
+  // requirement entirely (e.g. always swallow "NotImplemented") — that
+  // behavior change is out of scope here; this comment update is text-only.
   try {
     await client.send(
       new PutBucketCorsCommand({

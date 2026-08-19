@@ -31,10 +31,23 @@ export async function POST(request: Request) {
   }
 
   // Cheap pre-check on the DECLARED length, before the body is ever parsed.
-  // A missing or unparseable header falls through to the exact `file.size`
-  // check below instead of being rejected here.
+  // This is what actually bounds RAM: `request.formData()` buffers the
+  // ENTIRE body before `file.size` can be read, so a client that omits (or
+  // garbles) content-length — e.g. `Transfer-Encoding: chunked` with no
+  // length at all — could otherwise push an arbitrarily large body into
+  // memory before ever getting rejected. A real browser FormData upload
+  // ALWAYS sends a valid, finite, positive content-length, so requiring one
+  // here costs nothing for a legitimate upload: a missing, non-numeric, or
+  // empty header (which coerces to 0) is rejected outright with the generic
+  // invalid-body message — it isn't a size problem, so it doesn't get the
+  // size message. Only a header that parses but exceeds cap+margin gets the
+  // size message. `file.size` stays the exact, authoritative check once the
+  // body is actually parsed.
   const declaredLength = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_SIZE_BYTES + CONTENT_LENGTH_MARGIN_BYTES) {
+  if (!Number.isFinite(declaredLength) || declaredLength <= 0) {
+    return NextResponse.json({ error: "Dữ liệu gửi lên không hợp lệ." }, { status: 400 });
+  }
+  if (declaredLength > MAX_UPLOAD_SIZE_BYTES + CONTENT_LENGTH_MARGIN_BYTES) {
     return NextResponse.json({ error: "Kích thước ảnh tối đa là 10MB." }, { status: 400 });
   }
 

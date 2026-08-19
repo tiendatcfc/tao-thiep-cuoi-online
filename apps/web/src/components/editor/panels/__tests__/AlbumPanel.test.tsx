@@ -36,6 +36,12 @@ describe("clampPositiveInt", () => {
   it("rounds a fractional value to the nearest integer", () => {
     expect(clampPositiveInt(799.6)).toBe(800);
   });
+
+  it("returns 1 for non-finite input instead of propagating NaN into the document (B1-class autosave death otherwise)", () => {
+    expect(clampPositiveInt(Number.NaN)).toBe(1);
+    expect(clampPositiveInt(Number.POSITIVE_INFINITY)).toBe(1);
+    expect(clampPositiveInt(Number.NEGATIVE_INFINITY)).toBe(1);
+  });
 });
 
 describe("AlbumPanel", () => {

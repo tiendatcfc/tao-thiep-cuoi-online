@@ -24,10 +24,29 @@ function makeFile(name: string, type: string, bytes: Uint8Array<ArrayBuffer> | s
   return new File([data], name, { type });
 }
 
-function multipartRequest(file: File | null, fieldName = "file"): Request {
+// A `Request` built directly (rather than received off a real HTTP
+// connection) never gets its `content-length` header populated for a
+// FormData body — per the Fetch spec, Content-Length is a network-layer
+// header computed at send time, not one exposed via `Request.headers`
+// client-side (confirmed empirically against the installed undici: `new
+// Request(url, { body: someFormData }).headers.get("content-length")` is
+// always `null`, regardless of body size). A real Next.js request object,
+// though, reflects the actual wire-level header the browser's own HTTP
+// stack sent — which route.ts's pre-check now requires to be present. So
+// this helper encodes the FormData once to learn its real byte length,
+// then rebuilds the request with that length attached explicitly, mirroring
+// what the server actually sees for a genuine browser upload.
+async function multipartRequest(file: File | null, fieldName = "file"): Promise<Request> {
   const form = new FormData();
   if (file) form.append(fieldName, file);
-  return new Request("http://localhost/api/uploads", { method: "POST", body: form });
+  const probe = new Request("http://localhost/api/uploads", { method: "POST", body: form });
+  const contentType = probe.headers.get("content-type")!;
+  const bytes = await probe.arrayBuffer();
+  return new Request("http://localhost/api/uploads", {
+    method: "POST",
+    headers: { "content-type": contentType, "content-length": String(bytes.byteLength) },
+    body: bytes,
+  });
 }
 
 // Mirrors route.ts's MAX_UPLOAD_SIZE_BYTES (10MB) + CONTENT_LENGTH_MARGIN_BYTES
@@ -48,7 +67,7 @@ describe("POST /api/uploads", () => {
   it("401s before ever touching the body when unauthenticated", async () => {
     authMock.mockResolvedValue(null);
 
-    const res = await POST(multipartRequest(makeFile("a.jpg", "image/jpeg", "x")));
+    const res = await POST(await multipartRequest(makeFile("a.jpg", "image/jpeg", "x")));
 
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: "Bạn cần đăng nhập để tải ảnh lên." });
@@ -70,7 +89,7 @@ describe("POST /api/uploads", () => {
   });
 
   it("400s a multipart body with no file field", async () => {
-    const res = await POST(multipartRequest(null));
+    const res = await POST(await multipartRequest(null));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Dữ liệu gửi lên không hợp lệ." });
@@ -78,7 +97,7 @@ describe("POST /api/uploads", () => {
   });
 
   it("400s a disallowed content type", async () => {
-    const res = await POST(multipartRequest(makeFile("a.gif", "image/gif", "x")));
+    const res = await POST(await multipartRequest(makeFile("a.gif", "image/gif", "x")));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Định dạng ảnh phải là JPEG, PNG hoặc WebP." });
@@ -92,7 +111,7 @@ describe("POST /api/uploads", () => {
     // survive that, so this needs real bytes over the cap.
     const big = makeFile("big.jpg", "image/jpeg", new Uint8Array(11 * 1024 * 1024));
 
-    const res = await POST(multipartRequest(big));
+    const res = await POST(await multipartRequest(big));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Kích thước ảnh tối đa là 10MB." });
@@ -137,30 +156,66 @@ describe("POST /api/uploads", () => {
     // larger than this, but must still land well under the 1MB margin.
     const nearCap = makeFile("near-cap.jpg", "image/jpeg", new Uint8Array(10 * 1024 * 1024 - 1024));
 
-    const res = await POST(multipartRequest(nearCap));
+    const res = await POST(await multipartRequest(nearCap));
 
     expect(res.status).toBe(200);
     expect(processAndStoreImageMock).toHaveBeenCalled();
   });
 
-  it("falls through to the exact file.size check (not the pre-check) when content-length is missing", async () => {
+  it("400s a missing content-length header with the generic invalid-body message, without ever calling formData", async () => {
+    // A missing declared length is exactly the case the pre-check exists to
+    // catch (a non-browser client could omit it and stream an unbounded
+    // body) — every real browser FormData upload always sends this header,
+    // so rejecting its absence costs nothing legitimate.
     const big = makeFile("big.jpg", "image/jpeg", new Uint8Array(11 * 1024 * 1024));
-    const req = multipartRequest(big);
-    // Simulate a missing/unparseable content-length header without
-    // disturbing any other header lookup the real formData() parse needs.
+    const req = await multipartRequest(big);
+    // Simulate a missing content-length header without disturbing any other
+    // header lookup.
     const originalGet = req.headers.get.bind(req.headers);
     vi.spyOn(req.headers, "get").mockImplementation((name: string) =>
       name.toLowerCase() === "content-length" ? null : originalGet(name),
     );
-    const formDataSpy = vi.spyOn(req, "formData");
+    const formDataSpy = vi.spyOn(req, "formData").mockImplementation(() => {
+      throw new Error("formData() must never be called once the content-length pre-check rejects");
+    });
 
     const res = await POST(req);
 
-    // Still rejected — but only because file.size caught it after a real
-    // parse, proving the missing header didn't short-circuit anything.
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Kích thước ảnh tối đa là 10MB." });
-    expect(formDataSpy).toHaveBeenCalled();
+    expect(await res.json()).toEqual({ error: "Dữ liệu gửi lên không hợp lệ." });
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("400s a garbage (non-numeric) content-length header with the generic invalid-body message, without ever calling formData", async () => {
+    const req = new Request("http://localhost/api/uploads", {
+      method: "POST",
+      headers: { "content-length": "abc" },
+    });
+    const formDataSpy = vi.spyOn(req, "formData").mockImplementation(() => {
+      throw new Error("formData() must never be called once the content-length pre-check rejects");
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Dữ liệu gửi lên không hợp lệ." });
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("400s an empty-string content-length header (coerces to 0, not a valid declared length) with the generic invalid-body message, without ever calling formData", async () => {
+    const req = new Request("http://localhost/api/uploads", {
+      method: "POST",
+      headers: { "content-length": "" },
+    });
+    const formDataSpy = vi.spyOn(req, "formData").mockImplementation(() => {
+      throw new Error("formData() must never be called once the content-length pre-check rejects");
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Dữ liệu gửi lên không hợp lệ." });
+    expect(formDataSpy).not.toHaveBeenCalled();
   });
 
   it("400s garbage bytes that aren't a decodable image (real sharp, no mock)", async () => {
@@ -168,7 +223,7 @@ describe("POST /api/uploads", () => {
     processAndStoreImageMock.mockImplementation(real.processAndStoreImage);
 
     const garbage = makeFile("not-an-image.jpg", "image/jpeg", "this is definitely not image bytes");
-    const res = await POST(multipartRequest(garbage));
+    const res = await POST(await multipartRequest(garbage));
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Tệp không phải là ảnh hợp lệ, vui lòng thử lại." });
@@ -184,7 +239,7 @@ describe("POST /api/uploads", () => {
     });
 
     const file = makeFile("photo.jpg", "image/jpeg", "fake-bytes");
-    const res = await POST(multipartRequest(file));
+    const res = await POST(await multipartRequest(file));
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -206,7 +261,7 @@ describe("POST /api/uploads", () => {
     processAndStoreImageMock.mockRejectedValue(new Error("S3 unreachable"));
 
     const file = makeFile("photo.jpg", "image/jpeg", "fake-bytes");
-    const res = await POST(multipartRequest(file));
+    const res = await POST(await multipartRequest(file));
 
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Không thể tải ảnh lên, vui lòng thử lại." });
