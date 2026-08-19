@@ -417,3 +417,54 @@ describe("POST /api/invitations/[id]/publish — slug-history TOCTOU (ownership 
     }
   });
 });
+
+// S1 (final review): `document` used to be read (via `findOwnedInvitation`)
+// and validated BEFORE the transaction opened, then that same
+// already-in-memory value was snapshotted into `publishedDocument` inside
+// the transaction. A `PATCH /api/invitations/[id]` autosave committing in
+// the window between that read and the transaction actually running would
+// be silently dropped from the publish — the couple would see "published"
+// while the live page showed a version behind what they were just editing.
+describe("POST /api/invitations/[id]/publish — re-reads `document` inside its own transaction (S1)", () => {
+  it("publishes the document as it stands at transaction time, not a stale pre-transaction read", async () => {
+    const oldDocument = { ...createDefaultDocument(), theme: { ...createDefaultDocument().theme, primary: "#OLD" } };
+    const newDocument = { ...createDefaultDocument(), theme: { ...createDefaultDocument().theme, primary: "#NEW" } };
+    const { id, slug } = await createTestInvitation({ document: oldDocument });
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    // Snapshot the row as `findOwnedInvitation`'s pre-transaction read would
+    // see it (still holding the OLD document) — captured for real, before
+    // the "concurrent autosave" below ever runs.
+    const staleSnapshot = await prisma.invitation.findUnique({ where: { id } });
+
+    // Simulate a concurrent `PATCH /api/invitations/[id]` autosave
+    // committing in the window between that read and the publish
+    // transaction actually opening: a real, already-committed write.
+    await prisma.invitation.update({ where: { id }, data: { document: newDocument as never } });
+
+    // Force the route's OWN pre-transaction ownership read (the first call
+    // to `prisma.invitation.findUnique`, inside `findOwnedInvitation`) to
+    // see the STALE snapshot — exactly reproducing "the pre-transaction read
+    // is older than the row by the time the transaction runs". Anything
+    // else, including the transaction's own re-read through `tx` (a
+    // distinct object from `prisma`), still hits the real, already-updated
+    // row.
+    const findUniqueSpy = vi.spyOn(prisma.invitation, "findUnique").mockResolvedValueOnce(staleSnapshot);
+
+    try {
+      const res = await POST(jsonRequest({ slug }), { params: Promise.resolve({ id }) });
+
+      expect(res.status).toBe(200);
+
+      // Pinned to the exact failure this bug produces: reading `document`
+      // outside the transaction would publish `oldDocument` (what
+      // `findOwnedInvitation` saw) even though the row's real, committed
+      // document was already `newDocument` by the time the transaction ran.
+      const persisted = await prisma.invitation.findUnique({ where: { id } });
+      const publishedTheme = (persisted?.publishedDocument as typeof newDocument | null)?.theme;
+      expect(publishedTheme?.primary).toBe("#NEW");
+    } finally {
+      findUniqueSpy.mockRestore();
+    }
+  });
+});

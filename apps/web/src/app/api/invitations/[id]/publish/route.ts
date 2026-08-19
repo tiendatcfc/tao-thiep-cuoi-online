@@ -32,6 +32,23 @@ const publishBodySchema = z.object({
 class SlugTakenError extends Error {}
 
 /**
+ * Thrown from inside the publish transaction (see below) when the
+ * in-transaction re-read of `document` fails `InvitationDocumentSchema` —
+ * mirrors the pre-transaction check this replaces, just re-homed to read
+ * the row at the moment it's actually about to be snapshotted.
+ */
+class InvalidDraftDocumentError extends Error {}
+
+/**
+ * Thrown from inside the publish transaction when the row has been deleted
+ * entirely between `findOwnedInvitation` above and the transaction actually
+ * running (Prisma's interactive transactions don't open a real DB
+ * transaction until the first query inside the callback executes, so this
+ * window is real, not theoretical).
+ */
+class InvitationGoneError extends Error {}
+
+/**
  * Publishes the current draft: validates the requested slug (format +
  * uniqueness against every OTHER invitation's current slug AND its slug
  * history — re-publishing under the invitation's own current or past slug
@@ -42,12 +59,9 @@ class SlugTakenError extends Error {}
  * `publishedDocument`, flips `status`/`publishedAt`, and records `slug` in
  * `InvitationSlug` so it stays permanently attributed to this invitation.
  *
- * `revalidatePath` busts the Next.js full-route cache for the public page.
- * When this publish changes the slug, BOTH the old and new path are busted:
- * the new one so a couple re-publishing sees their changes immediately
- * instead of a stale cached render, the old one so its cached page picks up
- * the permanent redirect to the new slug (`/i/[slug]/page.tsx`) instead of
- * continuing to serve whatever was cached before this publish.
+ * Also calls `revalidatePath` for the public page (both the old and new
+ * slug, when the slug changed) — see the comment at the call site below for
+ * why this is currently decorative rather than load-bearing.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -96,15 +110,30 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: SLUG_TAKEN_MESSAGE }, { status: 409 });
   }
 
-  const parsedDocument = InvitationDocumentSchema.safeParse(invitation.document);
-  if (!parsedDocument.success) {
-    return NextResponse.json({ error: INVALID_DOCUMENT_MESSAGE }, { status: 400 });
-  }
-
   const previousSlug = invitation.slug;
   const publishedAt = new Date();
   try {
     await prisma.$transaction(async (tx) => {
+      // S1 (final review): re-read `document` HERE, inside the transaction,
+      // rather than trusting the `invitation.document` fetched above by
+      // `findOwnedInvitation` — that read happened before this transaction
+      // even opened, and everything between here and there (the slug
+      // uniqueness checks, awaiting the request body, ...) is a window a
+      // concurrent autosave PATCH can commit in. Snapshotting the STALE
+      // pre-transaction read would silently publish a draft one (or more)
+      // versions behind what the couple was just looking at, with nothing
+      // anywhere indicating it happened. Re-reading via `tx` guarantees
+      // this sees the true, currently-committed draft at the instant it's
+      // actually snapshotted into `publishedDocument`.
+      const current = await tx.invitation.findUnique({ where: { id }, select: { document: true } });
+      if (!current) {
+        throw new InvitationGoneError();
+      }
+      const parsedDocument = InvitationDocumentSchema.safeParse(current.document);
+      if (!parsedDocument.success) {
+        throw new InvalidDraftDocumentError();
+      }
+
       await tx.invitation.update({
         where: { id },
         data: {
@@ -150,6 +179,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (error instanceof SlugTakenError) {
       return NextResponse.json({ error: SLUG_TAKEN_MESSAGE }, { status: 409 });
     }
+    if (error instanceof InvalidDraftDocumentError) {
+      return NextResponse.json({ error: INVALID_DOCUMENT_MESSAGE }, { status: 400 });
+    }
+    if (error instanceof InvitationGoneError) {
+      return NextResponse.json({ error: NOT_FOUND_MESSAGE }, { status: 404 });
+    }
     // The two pre-checks above (`slugOwner`, `slugHistoryOwner`) — and the
     // in-transaction re-check above — still leave a TOCTOU gap for a
     // brand-new slug nobody has ever claimed: two requests can both find
@@ -164,11 +199,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     throw error;
   }
 
-  // If this publish changed the slug, the OLD slug's cached page must be
-  // busted too: `/i/[slug]/page.tsx` now permanently redirects a historical
-  // slug to the invitation's current one instead of 404ing, so a stale
-  // cached render of the old page (from before this publish) would keep
-  // serving the previous content instead of picking up the new redirect.
+  // S3 (final review): these calls are currently DECORATIVE, not
+  // load-bearing — `/i/[slug]/page.tsx` awaits `searchParams` and has no
+  // `unstable_cache`/`fetch` caching of its own, so Next renders it
+  // dynamically on every request and there is no full-route cache entry
+  // here for `revalidatePath` to bust. Every reader (this publish route
+  // included) already sees a fresh row on the very next request with no
+  // help from these calls. They're kept anyway — harmless today, and cheap
+  // insurance against the page ever gaining real caching later, at which
+  // point busting BOTH the old slug (so its cache picks up the redirect
+  // added by Phase 1 Hardening Task 2 instead of continuing to serve
+  // whatever rendered before this publish) and the new one (so a re-publish
+  // is reflected immediately) would become genuinely necessary. If you're
+  // reading this because you just added caching to that page: good catch,
+  // these two lines are why it'll keep working.
   if (previousSlug !== slug) {
     revalidatePath(`/i/${previousSlug}`);
   }
