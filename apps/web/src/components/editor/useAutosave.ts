@@ -12,8 +12,8 @@ const AUTOSAVE_DEBOUNCE_MS = 2000;
  * (offline, a dropped connection), the response was a non-OK/non-409 status
  * (e.g. a 502/504 from a proxy), or the response body couldn't even be
  * parsed (a truncated body). Critically, none of these mean the write did
- * NOT reach the server — see `unconfirmedVersion` below for how the next
- * save tells a lost response apart from a real cross-session conflict. No
+ * NOT reach the server — see `unconfirmedSend` below for how the next save
+ * tells a lost response apart from a real cross-session conflict. No
  * automatic retry loop runs on its own (see `performSave`'s comment) — the
  * header shows a manual "Thử lưu lại" action (`flush`, below) instead of
  * claiming one will happen by itself.
@@ -22,8 +22,8 @@ const AUTOSAVE_DEBOUNCE_MS = 2000;
  * save on every retry forever, so this gets its own distinct message
  * instead of being lumped in with "network failed".
  * `"conflict"` — the server rejected the PATCH with 409, and this hook could
- * not explain the gap as its own previously-unconfirmed write landing (see
- * `unconfirmedVersion`): another tab, or this same tab left open elsewhere,
+ * not VERIFY the gap as its own previously-unconfirmed write landing (see
+ * `unconfirmedSend`): another tab, or this same tab left open elsewhere,
  * really did save in between. Unlike `"network"`, this is terminal for the
  * rest of this hook instance — see `performSave`'s `conflicted` flag below
  * for why retrying is never attempted.
@@ -55,6 +55,50 @@ function buildInvitationPatchRequest(
 }
 
 /**
+ * Structural equality, order-independent for object keys (Postgres `jsonb`
+ * does not guarantee it round-trips key order) but order-DEPENDENT for
+ * arrays (a `sections` array's order is meaningful). Used only to compare
+ * "the document we sent" against "what the server says it actually has" —
+ * see `performSave`'s 409-reconciliation branch (point 3 below) for why a
+ * raw `JSON.stringify` comparison would be too fragile for that.
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, i) => deepEqual(item, b[i]));
+  }
+  const aRecord = a as Record<string, unknown>;
+  const bRecord = b as Record<string, unknown>;
+  const aKeys = Object.keys(aRecord);
+  const bKeys = Object.keys(bRecord);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every((key) => Object.hasOwn(bRecord, key) && deepEqual(aRecord[key], bRecord[key]));
+}
+
+/**
+ * Fetches this invitation's CURRENT server-side state for the sole purpose
+ * of verifying a reconciliation (point 3 below) — never used for anything
+ * else, and deliberately swallows every failure into `null` ("couldn't
+ * verify") rather than throwing, since the caller's only correct response
+ * to "couldn't verify" is to fail closed (latch a conflict) either way.
+ */
+async function fetchServerInvitationState(
+  invitationId: string,
+): Promise<{ document: unknown; version: number } | null> {
+  try {
+    const res = await fetch(`/api/invitations/${invitationId}`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { invitation?: { document?: unknown; version?: unknown } };
+    if (!body.invitation || typeof body.invitation.version !== "number") return null;
+    return { document: body.invitation.document, version: body.invitation.version };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Subscribes to the editor store and PATCHes the document to
  * `/api/invitations/[id]` 2s after it goes idle following a mutation.
  * Debounced on `document` reference changes (every mutating store action
@@ -65,7 +109,9 @@ function buildInvitationPatchRequest(
  *
  * Four durability/correctness properties beyond the basic debounce:
  *
- * 1. **Flush on unmount, without ever aborting an in-flight save.** A
+ * 1. **Flush on unmount, without ever aborting an in-flight save, and
+ *    without letting a save that settles AFTER unmount touch whatever
+ *    invitation's state now lives in the shared, module-level store.** A
  *    Next.js client-side route change or the Back button unmounts this hook
  *    WITHOUT firing `beforeunload` (that only fires on an actual page
  *    unload) — the ordinary way someone leaves `/editor/[id]`. Without an
@@ -81,18 +127,29 @@ function buildInvitationPatchRequest(
  *    CLIENT's `fetch` does not stop the SERVER's write from committing —
  *    `route.ts` never consults the request's abort signal — so the in-flight
  *    request could still commit and bump the row's `version` on the server
- *    a moment after this tab gave up on ever learning that. The flush that
- *    followed then sent the STALE pre-abort `version`, got an honest 409 for
- *    a write this very tab made, and (before this fix) that looked exactly
- *    like another session's conflict with nothing left to retry — losing
- *    the newest edits for good. Instead, the final write is CHAINED onto the
- *    in-flight one via the same `waiters` queue `flush()` uses: once it
- *    settles (successfully, or via this hook's own same-tab reconciliation
- *    below), the keepalive fires with whatever `version` that produced, and
- *    the CURRENT (latest) document — never the stale one from when the
- *    in-flight request was sent. On SPA navigation the JS context survives
- *    to actually run this; a genuine page unload is already covered by the
- *    `beforeunload` prompt below.
+ *    a moment after this tab gave up on ever learning that. Instead, the
+ *    final write is CHAINED onto the in-flight one via the same `waiters`
+ *    queue `flush()` uses: once it settles, the keepalive fires. On SPA
+ *    navigation the JS context survives to actually run this; a genuine
+ *    page unload is already covered by the `beforeunload` prompt below.
+ *
+ *    `dirty`, `document`, and `pendingSettings` for that final keepalive are
+ *    snapshotted SYNCHRONOUSLY at the moment this cleanup runs — not read
+ *    again later when the in-flight save actually settles. The store is a
+ *    SINGLE module-level instance shared by every editor route, reseeded by
+ *    the next invitation's own `EditorLayout` mount in between (its own
+ *    `setDocument` call) — reading `document`/`dirty` again at settle time
+ *    would silently read that OTHER invitation's state and could PATCH THIS
+ *    invitation's id with THAT invitation's content. `version` is instead
+ *    taken from `confirmedVersion` (below), a value this hook instance
+ *    tracks entirely on its own — never read back out of the shared store —
+ *    so a later mount changing the store's `version` can't affect it either.
+ *    For the same reason, every store WRITE `performSave` makes
+ *    (`setVersion`, `markSaved`, `setSaving`) is skipped once `unmounted`
+ *    (below) is `true`, and a save that was merely QUEUED (`pendingAgain`)
+ *    before unmount no longer starts a fresh send afterward — it would
+ *    otherwise read the (possibly already-reseeded) store's CURRENT
+ *    `document` and send it under THIS invitation's id.
  *
  * 2. **Serialised saves.** Requests are never sent concurrently: if a save
  *    is requested while one is already in flight, it's queued
@@ -105,22 +162,35 @@ function buildInvitationPatchRequest(
  *    (now-stale) success response must not clear `dirty`, since the edit it
  *    raced with was never part of what got persisted.
  *
- * 3. **A lost response is not a conflict.** `Invitation.version` is
- *    incremented by exactly one place in the whole app — this route's PATCH
- *    handler — so "the row's version moved" does not by itself imply
- *    ANOTHER session wrote: it can just as easily be this same tab's own
- *    prior write, which committed on the server but whose result this tab
- *    never learned (a dropped connection, a 502/504, a truncated body).
- *    `unconfirmedVersion` (below, inside the effect) remembers the version
- *    that was in flight the last time that happened. The next 409 checks
- *    whether the server's `currentVersion` is EXACTLY `unconfirmedVersion +
- *    1` — i.e. explained by precisely one write landing, which can only be
- *    this tab's own unconfirmed one — and if so, treats it as confirmation
- *    rather than a conflict: it adopts the confirmed version and re-sends
- *    once with the current live document (a strict continuation of the
- *    write that just landed) instead of latching. A gap that isn't exactly
- *    `+1`, or a second 409 on the re-send itself, is genuinely unexplained
- *    by this tab's own history and latches for good, exactly as before.
+ * 3. **A lost response is not a conflict — but it must be VERIFIED, not
+ *    inferred.** `Invitation.version` is incremented by exactly one place in
+ *    the whole app — this route's PATCH handler — so "the row's version
+ *    moved" does not by itself imply ANOTHER session wrote: it can just as
+ *    easily be this same tab's own prior write, which committed on the
+ *    server but whose result this tab never learned (a dropped connection,
+ *    a 502/504, a truncated body). `unconfirmedSend` (below, inside the
+ *    effect) remembers the `{ version, document }` that was in flight the
+ *    last time that happened.
+ *
+ *    A later 409 whose `currentVersion` is EXACTLY `unconfirmedSend.version
+ *    + 1` is consistent with "this tab's own write landed" — but version
+ *    arithmetic ALONE cannot tell that apart from "this tab's write never
+ *    arrived at all, and exactly one foreign write landed instead": both
+ *    produce the identical `currentVersion`. Trusting the arithmetic alone
+ *    would silently overwrite that foreign write. So this doesn't infer —
+ *    it verifies: it re-fetches the invitation (`GET`) and reconciles ONLY
+ *    if the server's `document` deep-equals `unconfirmedSend.document` —
+ *    the payload that was ACTUALLY SENT during the unconfirmed attempt, not
+ *    whatever the live document looks like now. A match means the server
+ *    has exactly what this tab tried to write and nothing else landed in
+ *    between — safe to adopt the confirmed version and re-send once with
+ *    the document this save cycle is already sending (a strict continuation
+ *    of the write that just landed) instead of latching. A mismatch (or a
+ *    failed/inconclusive verification GET) means this tab's write did NOT
+ *    land and something else's did — latching is the only safe outcome,
+ *    since resending would silently overwrite that other write. A gap that
+ *    isn't exactly `+1`, or a second 409 on the re-send itself, is likewise
+ *    genuinely unexplained and latches for good, exactly as before.
  *
  * 4. **Settings share the same writer.** `saveSettings` (returned below)
  *    lets `PublishDialog`'s badge toggle PATCH `{settings}` through this
@@ -162,21 +232,41 @@ export function useAutosave(invitationId: string) {
     // document side — see point 4 above for why this shares the writer
     // instead of PATCHing independently.
     let pendingSettings: SettingsPayload | null = null;
-    // Set once a save gets a 409 back and never cleared for the rest of
-    // this hook instance (only a remount — i.e. reloading, per the "Tải
-    // lại" button — starts a fresh one). Once true, `scheduleSave` becomes
-    // a no-op and `performSave` short-circuits before ever calling
-    // `fetch()` again: retrying a save this tab already knows is stale
-    // would perform exactly the overwrite the version check exists to
-    // prevent.
+    // Set once a save gets a 409 back that this hook could NOT verify as its
+    // own write landing, and never cleared for the rest of this hook
+    // instance (only a remount — i.e. reloading, per the "Tải lại" button —
+    // starts a fresh one). Once true, `scheduleSave` becomes a no-op and
+    // `performSave` short-circuits before ever calling `fetch()` again:
+    // retrying a save this tab already knows is stale would perform exactly
+    // the overwrite the version check exists to prevent.
     let conflicted = false;
-    // The `version` that was in flight the last time a save's outcome came
-    // back unknown ("network" — see the type's own doc comment above) —
-    // `null` whenever nothing is currently unconfirmed. Cleared on every
-    // successful save. Read (and, on a match, cleared) by the very next
-    // 409 to distinguish this tab's own unconfirmed write landing from a
-    // genuine conflict — see point 3 above.
-    let unconfirmedVersion: number | null = null;
+    // This hook instance's own record of "what did I send that I never got
+    // confirmation for" — `{ version, document }` as of that specific send,
+    // or `null` when nothing is currently unconfirmed. Cleared on every
+    // successful save. Read by the very next 409 to decide whether a
+    // VERIFIED reconciliation (point 3 above) is even worth attempting —
+    // never trusted on its own.
+    let unconfirmedSend: { version: number; document: InvitationDocument } | null = null;
+    // This hook instance's own last-confirmed `version` — updated ONLY by
+    // this hook's own successful writes (a plain 200, or a verified
+    // reconciliation), and read back ONLY by this hook's own final-write
+    // chain at unmount (see point 1 above). Deliberately never read FROM
+    // the shared store (unlike the store's own `version` field, which a
+    // later invitation's editor mount can freely reseed) so that a stale
+    // continuation of THIS invitation's save can't be confused by whatever
+    // a DIFFERENT invitation's editor has since done to the shared store.
+    let confirmedVersion = useEditorStore.getState().version;
+    // Set at the very top of this effect's cleanup (unmount), before
+    // anything else. Once `true`, `performSave` skips every WRITE it would
+    // otherwise make to the shared store (`setVersion`/`markSaved`/
+    // `setSaving`) — see point 1 above for why: the store may by then belong
+    // to a completely different invitation's editor. Does not stop an
+    // ALREADY in-flight request's own promise from resolving (it can't be
+    // un-sent), and does not stop a QUEUED (`pendingAgain`) rerun from being
+    // cancelled — see the `finally` block below — since starting a FRESH
+    // send after unmount would read the (possibly already-reseeded) store's
+    // CURRENT document under THIS invitation's id.
+    let unmounted = false;
     // Resolved once a save cycle — including any `pendingAgain` rerun
     // chained after it — truly settles with nothing left queued. `flush()`
     // joins this instead of firing its own overlapping request when a save
@@ -248,9 +338,15 @@ export function useAutosave(invitationId: string) {
 
       try {
         // Loops at most twice: the normal attempt, and — only when the 409
-        // it gets back is fully explained by THIS tab's own previously
-        // unconfirmed write landing on the server — exactly one automatic
-        // re-send with the now-confirmed version.
+        // it gets back is VERIFIED (point 3 above) as THIS tab's own
+        // previously unconfirmed write landing on the server — exactly one
+        // automatic re-send with the now-confirmed version. `document` (and
+        // `settingsAtSend`) are captured ONCE, above, before this loop —
+        // the re-send carries the same payload this save cycle already
+        // committed to sending, not whatever the live document has become
+        // since (a newer edit arriving mid-cycle is handled by the ordinary
+        // `pendingAgain` queueing in the `finally` block below, same as
+        // always).
         for (;;) {
           const versionAtSend = useEditorStore.getState().version;
           try {
@@ -262,27 +358,59 @@ export function useAutosave(invitationId: string) {
             );
 
             if (res.status === 409) {
-              const body = (await res.json()) as { currentVersion?: number };
-              const currentVersion = typeof body.currentVersion === "number" ? body.currentVersion : null;
-              if (!autoResendUsed && unconfirmedVersion !== null && currentVersion === unconfirmedVersion + 1) {
+              // A 409 is positive proof THIS specific send did not commit —
+              // unlike the generic `catch` below, nothing here is
+              // "unknown". A body that fails to parse just means
+              // `currentVersion` can't be read; it must not be treated as
+              // an unconfirmed send (that would claim the opposite of what
+              // just happened) and must not overwrite the real
+              // `unconfirmedSend` this attempt might need to preserve for a
+              // LATER save to reconcile against.
+              let currentVersion: number | null = null;
+              try {
+                const body = (await res.json()) as { currentVersion?: number };
+                currentVersion = typeof body.currentVersion === "number" ? body.currentVersion : null;
+              } catch {
+                currentVersion = null;
+              }
+
+              if (!autoResendUsed && unconfirmedSend !== null && currentVersion === unconfirmedSend.version + 1) {
                 // The row moved by EXACTLY one version past our last
-                // unconfirmed send — the only writer of `version` in this
-                // app is this very route, so that gap can only be this
-                // tab's own earlier write finally landing (a dropped
-                // response, a proxy timeout, ...), not another session.
-                // Confirm it and loop once more with the current live
-                // document — a strict continuation of the write that just
-                // landed — instead of latching a false conflict.
-                autoResendUsed = true;
-                unconfirmedVersion = null;
-                useEditorStore.getState().setVersion(currentVersion);
-                continue;
+                // unconfirmed send. Version arithmetic alone can't tell
+                // "our write landed, we didn't hear back" apart from "our
+                // write never arrived, and exactly one FOREIGN write landed
+                // instead" — both look identical here. Verify instead of
+                // inferring: fetch what the server actually has right now.
+                const serverState = await fetchServerInvitationState(invitationId);
+                if (
+                  serverState !== null &&
+                  serverState.version === currentVersion &&
+                  deepEqual(serverState.document, unconfirmedSend.document)
+                ) {
+                  // The server's document is EXACTLY what we sent and
+                  // nothing else landed — this really was our own write.
+                  // Confirm it and loop once more instead of latching.
+                  autoResendUsed = true;
+                  unconfirmedSend = null;
+                  confirmedVersion = currentVersion;
+                  if (!unmounted) {
+                    useEditorStore.getState().setVersion(currentVersion);
+                  }
+                  continue;
+                }
+                // Either the verification GET itself failed/was
+                // inconclusive (fail closed — nothing here can prove it's
+                // safe to overwrite), or the server's document does NOT
+                // match what we sent: our write never landed and a genuine
+                // foreign write did. Resending now would silently destroy
+                // that foreign write, so this falls through to the latch
+                // below exactly like any other unexplained conflict.
               }
               // Either nothing was unconfirmed to explain the gap, the gap
-              // isn't exactly one write, or the re-send above ALSO
-              // conflicted — genuinely explained only by another session.
-              // Stop for good: see `conflicted`'s declaration above for why
-              // no further retry is attempted.
+              // isn't exactly one write, verification failed, or the
+              // re-send above ALSO conflicted — genuinely explained only by
+              // another session. Stop for good: see `conflicted`'s
+              // declaration above for why no further retry is attempted.
               conflicted = true;
               setError("conflict");
               result = "conflict";
@@ -298,24 +426,31 @@ export function useAutosave(invitationId: string) {
             // version regardless of what's happened locally since — the
             // next save (whenever it fires) MUST send that new version, or
             // it will race against its own prior success and get a false
-            // 409. This is why `setVersion` runs unconditionally, unlike
-            // `markSaved` below.
-            unconfirmedVersion = null;
+            // 409. `confirmedVersion` (this hook's own bookkeeping) is
+            // updated unconditionally; the SHARED STORE write is skipped
+            // once `unmounted` — see point 1 above.
+            unconfirmedSend = null;
             if (typeof body.version === "number") {
-              useEditorStore.getState().setVersion(body.version);
+              confirmedVersion = body.version;
+              if (!unmounted) {
+                useEditorStore.getState().setVersion(body.version);
+              }
             }
             // If a newer edit landed while this request was in flight, this
             // response reflects an older document — it must not clear
             // `dirty`, or the newer edit would silently look "saved" when
-            // it isn't yet.
-            if (revision === revisionAtSend) {
+            // it isn't yet. Skipped entirely once `unmounted` — see point 1
+            // above.
+            if (!unmounted && revision === revisionAtSend) {
               useEditorStore.getState().markSaved(body.savedAt ?? Date.now());
             }
             // Clear the pending settings write, but only if nothing newer
             // overwrote it while this request was in flight — same
             // "don't clear something the response doesn't actually
             // reflect" reasoning as the `revision` check above, applied to
-            // settings.
+            // settings. `pendingSettings` is this hook's own closure
+            // variable, not the shared store, so this is safe regardless of
+            // `unmounted`.
             if (settingsAtSend !== null && pendingSettings === settingsAtSend) {
               pendingSettings = null;
             }
@@ -328,21 +463,23 @@ export function useAutosave(invitationId: string) {
             // status (a 502/504 from a proxy), AND `res.json()` throwing on
             // a truncated body — every one of these means the OUTCOME of
             // THIS specific send is unknown, not that it definitely never
-            // reached (or committed on) the server. `unconfirmedVersion`
-            // (above) is exactly for letting a LATER save tell the two
+            // reached (or committed on) the server. `unconfirmedSend`
+            // (above) is exactly for letting a LATER save verify the two
             // apart. Leave `dirty: true` — the next mutation, OR an
             // explicit `flush()` (the "Thử lưu lại" button), re-arms this.
             // No automatic retry loop is started here.
-            unconfirmedVersion = versionAtSend;
+            unconfirmedSend = { version: versionAtSend, document };
             setError("network");
             result = "network";
             break;
           }
         }
       } finally {
-        useEditorStore.getState().setSaving(false);
+        if (!unmounted) {
+          useEditorStore.getState().setSaving(false);
+        }
         inFlight = false;
-        if (pendingAgain && !conflicted) {
+        if (pendingAgain && !conflicted && !unmounted) {
           pendingAgain = false;
           // The waiters queued above (including any `flush()` callers, and
           // the unmount cleanup's chained keepalive) are resolved by THIS
@@ -352,7 +489,11 @@ export function useAutosave(invitationId: string) {
           // A conflict cancels any queued rerun too — anyone waiting
           // (`flush()` callers queued while this request was in flight)
           // gets "conflict" as their outcome instead of triggering a save
-          // this tab now knows would be rejected anyway.
+          // this tab now knows would be rejected anyway. Once `unmounted`,
+          // a queued rerun is cancelled the same way — see point 1 above
+          // for why starting a FRESH send after unmount is unsafe (it would
+          // read whatever a later invitation's editor has since done to the
+          // shared store).
           pendingAgain = false;
           resolveWaiters(result);
         }
@@ -415,6 +556,9 @@ export function useAutosave(invitationId: string) {
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
+      // Must be set before anything else below reads or decides based on
+      // it — see its own declaration above.
+      unmounted = true;
       clearPendingTimer();
       unsubscribe();
       window.removeEventListener("beforeunload", handleBeforeUnload);
@@ -427,21 +571,29 @@ export function useAutosave(invitationId: string) {
       // while a document save was in flight and got queued, then the
       // component unmounted before that queued rerun ever got to execute)
       // gets one last best-effort save attempt here instead of being
-      // silently dropped. This also carries `version`, same as every other
-      // PATCH — if the row was already saved elsewhere in the meantime, the
-      // server rejects this with 409 too, and that's fine: the response is
-      // never read (fire-and-forget), so there's nothing here that could
-      // act on it and overwrite anything. Silently doing nothing IS the
-      // correct outcome.
-      function sendFinalKeepalive() {
-        const { dirty, document, version } = useEditorStore.getState();
-        const validDocument = dirty && InvitationDocumentSchema.safeParse(document).success;
-        if (validDocument || pendingSettings !== null) {
+      // silently dropped.
+      //
+      // `dirty`/`document`/`pendingSettings` are captured SYNCHRONOUSLY
+      // right here, at cleanup time — not inside `sendFinalKeepalive` at
+      // the point it actually runs, which (when a save is still in flight)
+      // can be AFTER a completely different invitation's `EditorLayout` has
+      // already mounted and reseeded this same, module-level store. See
+      // point 1 in this hook's own docstring above.
+      const { dirty: dirtyAtCleanup, document: documentAtCleanup } = useEditorStore.getState();
+      const pendingSettingsAtCleanup = pendingSettings;
+      const validDocumentAtCleanup =
+        dirtyAtCleanup && InvitationDocumentSchema.safeParse(documentAtCleanup).success;
+
+      function sendFinalKeepalive(version: number) {
+        if (validDocumentAtCleanup || pendingSettingsAtCleanup !== null) {
           fetch(
             ...buildInvitationPatchRequest(
               invitationId,
               version,
-              { document: validDocument ? document : undefined, settings: pendingSettings ?? undefined },
+              {
+                document: validDocumentAtCleanup ? documentAtCleanup : undefined,
+                settings: pendingSettingsAtCleanup ?? undefined,
+              },
               { keepalive: true },
             ),
           ).catch(() => {});
@@ -457,15 +609,15 @@ export function useAutosave(invitationId: string) {
         // behind it) to fully settle — reusing the same `waiters` queue
         // `flush()` uses, WITHOUT setting `pendingAgain` (that would fire
         // an extra non-`keepalive` rerun; this cleanup wants exactly one,
-        // `keepalive`, final write) — then send the final keepalive with
-        // whatever `version` that settle produced: either the server's
-        // real post-commit version, or this hook's own same-tab
-        // reconciliation of a false 409, either way reflecting the true
-        // current row state rather than the stale version that was in
-        // flight at unmount time.
-        waiters.push(() => sendFinalKeepalive());
+        // `keepalive`, final write) — then send the final keepalive using
+        // `confirmedVersion` AS IT STANDS AT THAT LATER MOMENT (read inside
+        // the closure below, not captured now): either the server's real
+        // post-commit version, or this hook's own verified reconciliation
+        // of a false 409, either way tracked entirely by this hook
+        // instance and never read back out of the shared store.
+        waiters.push(() => sendFinalKeepalive(confirmedVersion));
       } else {
-        sendFinalKeepalive();
+        sendFinalKeepalive(confirmedVersion);
       }
     };
   }, [invitationId]);

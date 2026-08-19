@@ -300,6 +300,106 @@ describe("useAutosave", () => {
       // nothing rejected: v1 then v2, ending at version 2.
       expect(serverVersion).toBe(2);
     });
+
+    // R2 (final review): `useEditorStore` is a SINGLE module-level store
+    // shared by every editor route. If invitation A's save is still in
+    // flight when its `EditorLayout` unmounts, and invitation B's
+    // `EditorLayout` mounts before A's save settles (an ordinary SPA
+    // navigation from one invitation straight to another), A's late
+    // response must not read or write B's state — it must not clobber B's
+    // `version`, must not falsely clear B's `dirty`, and its own final
+    // keepalive write must carry A's OWN document/version to A's OWN id,
+    // never anything read from the store as it stands by settle time.
+    it("a save that settles after this invitation's editor has unmounted must not touch a DIFFERENT invitation's editor now sharing the same store", async () => {
+      let resolvePatch1!: (value: { ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }) => void;
+      const patch1Response = new Promise<{ ok: boolean; json: () => Promise<{ savedAt: number; version: number }> }>(
+        (resolve) => {
+          resolvePatch1 = resolve;
+        },
+      );
+
+      fetchMock.mockImplementationOnce((url: string) => {
+        expect(url).toBe("/api/invitations/inv-A");
+        return patch1Response;
+      });
+      fetchMock.mockImplementation((url: string) => {
+        if (url === "/api/invitations/inv-B") {
+          return Promise.resolve({ ok: true, json: async () => ({ savedAt: 222, version: 8 }) });
+        }
+        if (url === "/api/invitations/inv-A") {
+          return Promise.resolve({ ok: true, json: async () => ({ savedAt: 333, version: 2 }) });
+        }
+        throw new Error(`unexpected fetch to ${url}`);
+      });
+
+      const hookA = renderHook(() => useAutosave("inv-A"));
+
+      // Edit #A1 -> debounce -> PATCH#1 to inv-A fires and is held pending.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#A1" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Edit #A2 arrives before unmount; its own debounce is armed but
+      // never gets the chance to elapse.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#A2" });
+      });
+
+      hookA.unmount();
+      // Nothing new sent yet — PATCH#1 is still held.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Invitation B's `EditorLayout` now mounts on the SAME module-level
+      // store — exactly what a real SPA navigation from A straight to B
+      // does (`setDocument` runs in B's own effect before B's `useAutosave`
+      // effect body runs, same ordering as a real mount).
+      act(() => {
+        useEditorStore.getState().setDocument(createDefaultDocument(), 7);
+      });
+      const hookB = renderHook(() => useAutosave("inv-B"));
+
+      // The couple types into B.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#B-EDIT" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+      // B's own debounced save fires and succeeds, legitimately bumping the
+      // shared store's version to 8.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(useEditorStore.getState().version).toBe(8);
+      expect(useEditorStore.getState().dirty).toBe(false);
+
+      // NOW invitation A's stale PATCH#1 — sent long before B ever
+      // existed — finally resolves.
+      resolvePatch1({ ok: true, json: async () => ({ savedAt: 111, version: 1 }) });
+      await act(async () => {
+        for (let i = 0; i < 10; i++) await Promise.resolve();
+      });
+
+      // B's state must be completely untouched by A's late response:
+      // neither a clobbered version, nor a falsely-cleared dirty flag.
+      expect(useEditorStore.getState().version).toBe(8);
+      expect(useEditorStore.getState().dirty).toBe(false);
+
+      // A's own chained final write (fired once PATCH#1 settled) must
+      // target invitation A, with A's OWN confirmed version (1, from
+      // PATCH#1's own response) and A's OWN document (captured at unmount
+      // time — "#A2" — never read from the now-B-owned shared store).
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const [urlThird, initThird] = fetchMock.mock.calls[2];
+      expect(urlThird).toBe("/api/invitations/inv-A");
+      const bodyThird = JSON.parse(initThird.body as string);
+      expect(bodyThird.version).toBe(1);
+      expect(bodyThird.document.theme.primary).toBe("#A2");
+
+      hookB.unmount();
+    });
   });
 
   describe("client-side validation before sending", () => {
@@ -645,23 +745,128 @@ describe("useAutosave", () => {
       // flush() must not have fired a second network request once conflicted.
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    // R3 (final review): a 409 status IS positive proof this specific send
+    // did NOT commit — unlike a transport failure, there is nothing
+    // "unknown" about the outcome, even if the body happens to be
+    // unparsable. Misclassifying it as `"network"` (the pre-fix behavior,
+    // since a `res.json()` throw fell into the same shared `catch` as a
+    // genuine transport failure) would wrongly mark this send as
+    // "unconfirmed" — feeding the NEXT save's reconciliation logic a false
+    // premise it could later act on. The observable, load-bearing
+    // difference between the two error kinds is whether the hook ever
+    // retries on its own: `"network"` does not latch (typing again later
+    // sends another PATCH), `"conflict"` latches for good.
+    it("treats a 409 with an unparsable body as a conflict (latched), never as a network failure (which would NOT latch)", async () => {
+      fetchMock.mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        json: async () => {
+          throw new SyntaxError("Unexpected end of JSON input");
+        },
+      });
+
+      const { result } = renderHook(() => useAutosave(INVITATION_ID));
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#111111" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe("conflict");
+
+      // If this had been misclassified as "network", the next edit would
+      // trigger a second PATCH (network failures don't latch — see the
+      // "client-side validation" and top-level `AutosaveErrorKind` doc
+      // comment). A genuine conflict must not.
+      act(() => {
+        useEditorStore.getState().updateTheme({ primary: "#222222" });
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(result.current.error).toBe("conflict");
+    });
   });
 
-  // BLOCKER B1 (final review): `Invitation.version` is bumped by exactly one
-  // place in the whole app — this route's PATCH handler — so "the row's
-  // version moved" does not by itself mean ANOTHER session wrote. A PATCH
-  // that commits server-side but whose result THIS tab never learns (a
-  // dropped connection, a 502/504, a truncated body — see the `"network"`
-  // doc comment on `AutosaveErrorKind`) leaves the store one version behind,
-  // and the naive old behavior turned the very next save into a false,
-  // terminal 409. These tests prove the reconciliation added to close that,
-  // in both directions: recovers when the gap really is this tab's own
-  // unconfirmed write (a); still latches when it isn't (b).
-  describe("reconciling a 409 against this tab's own unconfirmed write", () => {
+  // A minimal fake server that tracks BOTH `version` and `document` (unlike
+  // a bare fetch spy, which can't tell "our write landed" apart from "a
+  // foreign write landed" — both just look like "the version moved"). Used
+  // by the reconciliation tests below: R1 (final review) requires verifying
+  // a reconciliation against the server's actual document, not just
+  // trusting version arithmetic, so these tests must model a server that
+  // actually HAS a document to compare against.
+  function createFakeInvitationServer(initialVersion: number, initialDocument: unknown) {
+    let version = initialVersion;
+    let document = initialDocument;
+    return {
+      get version() {
+        return version;
+      },
+      get document() {
+        return document;
+      },
+      /** Simulates a write from a COMPLETELY DIFFERENT session — never goes through this tab's own `fetch`. */
+      applyForeignWrite(newDocument: unknown) {
+        document = newDocument;
+        version += 1;
+      },
+      /** Simulates "the PATCH actually committed on the server, but this tab's fetch() call itself rejects" — Trigger 1's exact scenario. */
+      commitAsIfPatchSucceeded(newDocument: unknown) {
+        document = newDocument;
+        version += 1;
+      },
+      handle(_url: string, init?: RequestInit) {
+        if (!init || init.method === undefined) {
+          // GET /api/invitations/[id] — used by the hook's own verification
+          // step to check what the server actually has.
+          return Promise.resolve({ ok: true, json: async () => ({ invitation: { document, version } }) });
+        }
+        const body = JSON.parse(init.body as string) as { document?: unknown; version: number };
+        if (body.version !== version) {
+          return Promise.resolve({
+            ok: false,
+            status: 409,
+            json: async () => ({ error: "conflict", currentVersion: version }),
+          });
+        }
+        if (body.document !== undefined) document = body.document;
+        version += 1;
+        return Promise.resolve({ ok: true, json: async () => ({ savedAt: Date.now(), version }) });
+      },
+    };
+  }
+
+  // BLOCKER B1 (final review, round 2 — R1): `Invitation.version` is bumped
+  // by exactly one place in the whole app, so "the row's version moved by
+  // exactly one" does not by itself mean ANOTHER session wrote — it can
+  // equally mean THIS tab's own prior write committed but its response was
+  // lost. Version arithmetic alone cannot tell the two apart (both produce
+  // an identical `currentVersion`), so the hook must VERIFY — via a `GET`
+  // compared against the payload that went out unconfirmed — rather than
+  // infer. These tests prove both directions: (a) our write really did
+  // land, verification confirms it, reconcile and persist; (b) our write
+  // never landed and a genuine foreign write did, verification catches the
+  // mismatch, latch — and the foreign write survives untouched (this exact
+  // interleaving was the round-1 regression the coordinator's re-review
+  // found: version arithmetic alone accepted it and silently destroyed the
+  // foreign write).
+  describe("reconciling a 409 against this tab's own unconfirmed write (verified, not inferred)", () => {
     it("(a) recovers on the NEXT save after its own commit-but-response-lost failure, instead of latching a false conflict forever", async () => {
-      // Attempt 1: simulate a transport failure — the request is presumed
-      // to reach (and commit on) the server, but this tab never learns that.
-      fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+      const server = createFakeInvitationServer(0, useEditorStore.getState().document);
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => server.handle(url, init));
+
+      // Attempt 1: the PATCH actually reaches and commits on the server
+      // (the fake server is updated accordingly), but THIS tab's fetch()
+      // call itself rejects — the response never arrives cleanly.
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        server.commitAsIfPatchSucceeded(body.document);
+        return Promise.reject(new TypeError("Failed to fetch"));
+      });
 
       const { result } = renderHook(() => useAutosave(INVITATION_ID));
       act(() => {
@@ -675,93 +880,109 @@ describe("useAutosave", () => {
       expect(result.current.error).toBe("network");
       expect(useEditorStore.getState().dirty).toBe(true);
       // The store never learned attempt 1 actually committed — it's still
-      // holding the PRE-write version.
+      // holding the PRE-write version, even though the fake server is
+      // already at version 1.
       expect(useEditorStore.getState().version).toBe(0);
+      expect(server.version).toBe(1);
 
       // The couple keeps typing. This tab still only knows version 0, so it
       // sends that — the server (having actually committed attempt 1) is
-      // really at version 1, and correctly says so via 409.
+      // really at version 1, and correctly says so via 409. The hook must
+      // then VERIFY (a GET) before trusting that gap, find the server's
+      // document matches EXACTLY what attempt 1 sent, and only then
+      // reconcile and re-send the "#222222" edit.
       act(() => {
         useEditorStore.getState().updateTheme({ primary: "#222222" });
       });
-      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
-        const body = JSON.parse(init.body as string);
-        expect(body.version).toBe(0);
-        return Promise.resolve({
-          ok: false,
-          status: 409,
-          json: async () => ({ error: "conflict", currentVersion: 1 }),
-        });
-      });
-      // The gap (1) is exactly this tab's own unconfirmed send (0) + 1, so
-      // the hook must recognise it as its own write landing and
-      // automatically re-send once — with the CURRENT document (the "#222222"
-      // edit) and the now-confirmed version — rather than latching.
-      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
-        const body = JSON.parse(init.body as string);
-        expect(body.version).toBe(1);
-        expect(body.document.theme.primary).toBe("#222222");
-        return Promise.resolve({ ok: true, json: async () => ({ savedAt: 999, version: 2 }) });
-      });
-
       await act(async () => {
         vi.advanceTimersByTime(2000);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
       });
 
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      // Four real network calls: PATCH (rejects), PATCH (409), GET
+      // (verify), PATCH (resend, succeeds).
+      expect(fetchMock).toHaveBeenCalledTimes(4);
       expect(result.current.error).toBeNull();
       expect(useEditorStore.getState().dirty).toBe(false);
       expect(useEditorStore.getState().version).toBe(2);
+      // The fake server itself confirms the FULL, correct history landed:
+      // attempt 1's content, then the "#222222" edit — nothing lost,
+      // nothing duplicated.
+      expect(server.version).toBe(2);
+      expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#222222");
     });
 
-    it("(b) still latches a GENUINE cross-session conflict even with an unconfirmed send pending, when the version gap is not exactly this tab's own write", async () => {
-      // Same starting point as (a): a transport failure leaves an
-      // unconfirmed send behind.
-      fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    // Reproduces the coordinator re-review's exact interleaving: this is
+    // the scenario the round-1 (version-arithmetic-only) reconciliation got
+    // WRONG — it satisfied `currentVersion === unconfirmedVersion + 1` here
+    // too, adopted the version, and silently overwrote the partner's write.
+    it("(b) still latches a GENUINE cross-session conflict — and the OTHER session's write survives untouched — even though the version gap looks identical to (a)", async () => {
+      const server = createFakeInvitationServer(0, useEditorStore.getState().document);
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => server.handle(url, init));
+
+      // A edits — but this time the PATCH genuinely never reaches the
+      // server at all (no `commitAsIfPatchSucceeded`): the fake server
+      // stays at version 0 with the ORIGINAL document.
+      fetchMock.mockImplementationOnce(() => Promise.reject(new TypeError("Failed to fetch")));
 
       const { result } = renderHook(() => useAutosave(INVITATION_ID));
       act(() => {
-        useEditorStore.getState().updateTheme({ primary: "#111111" });
+        useEditorStore.getState().updateTheme({ primary: "#A-EDIT" });
       });
       await act(async () => {
         vi.advanceTimersByTime(2000);
       });
       expect(result.current.error).toBe("network");
+      expect(server.version).toBe(0);
 
-      // This time the server reports a gap of THREE versions (0 -> 3) —
-      // more than this tab's single unconfirmed send could explain, so it
-      // must be a real other session (or sessions), not just attempt 1
-      // landing late.
+      // The partner's phone saves once, for real, against the SAME
+      // invitation — a completely different session, never touching this
+      // tab's `fetch`.
+      server.applyForeignWrite({ ...useEditorStore.getState().document, theme: { primary: "#PARTNER" } });
+      expect(server.version).toBe(1);
+
+      // A types again. This tab still only knows version 0, so it sends
+      // that — the server is at version 1, so this gets a 409 with
+      // `currentVersion: 1`. That gap is IDENTICAL, in shape, to (a)'s.
       act(() => {
-        useEditorStore.getState().updateTheme({ primary: "#222222" });
+        useEditorStore.getState().updateTheme({ primary: "#A2" });
       });
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        json: async () => ({ error: "conflict", currentVersion: 3 }),
-      });
-
       await act(async () => {
         vi.advanceTimersByTime(2000);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
       });
 
-      // No automatic re-send attempted — exactly the two requests so far.
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // The hook's verification GET must have found the server's document
+      // is "#PARTNER" — NOT the "#A-EDIT" this tab's unconfirmed send
+      // actually contained — so it must NOT reconcile: exactly three calls
+      // (PATCH reject, PATCH 409, GET verify), no resend.
+      expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(result.current.error).toBe("conflict");
+
+      // The whole point: the partner's write is NOT silently gone.
+      expect(server.version).toBe(1);
+      expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#PARTNER");
 
       // And it stays latched: further edits never reach the server.
       act(() => {
-        useEditorStore.getState().updateTheme({ primary: "#333333" });
+        useEditorStore.getState().updateTheme({ primary: "#A3" });
       });
       await act(async () => {
         vi.advanceTimersByTime(5000);
       });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
       expect(result.current.error).toBe("conflict");
+      expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#PARTNER");
     });
 
-    it("gives up and latches if the automatic re-send itself ALSO gets a 409 (at most one re-send per save cycle)", async () => {
-      fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    it("gives up and latches if the automatic re-send itself ALSO gets a 409 (at most one re-send, and at most one verification GET, per save cycle)", async () => {
+      const server = createFakeInvitationServer(0, useEditorStore.getState().document);
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => server.handle(url, init));
+      fetchMock.mockImplementationOnce((_url: string, init: RequestInit) => {
+        const body = JSON.parse(init.body as string);
+        server.commitAsIfPatchSucceeded(body.document);
+        return Promise.reject(new TypeError("Failed to fetch"));
+      });
 
       const { result } = renderHook(() => useAutosave(INVITATION_ID));
       act(() => {
@@ -771,32 +992,35 @@ describe("useAutosave", () => {
         vi.advanceTimersByTime(2000);
       });
       expect(result.current.error).toBe("network");
+      expect(server.version).toBe(1);
 
       act(() => {
         useEditorStore.getState().updateTheme({ primary: "#222222" });
       });
-      // First 409: looks exactly like (a) — explained by the unconfirmed
-      // send — so the hook re-sends once...
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        json: async () => ({ error: "conflict", currentVersion: 1 }),
-      });
-      // ...but the re-send ALSO gets a 409 (a second, unrelated session
-      // really did write in between). One reconciliation per cycle is the
-      // limit — this must latch, not loop again.
-      fetchMock.mockResolvedValueOnce({
-        ok: false,
-        status: 409,
-        json: async () => ({ error: "conflict", currentVersion: 9 }),
+      // Right as the re-send (triggered by a verified reconciliation) is
+      // about to go out, a SECOND, unrelated session sneaks in a write —
+      // so the re-send itself also gets a 409.
+      let resendAttempted = false;
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        const body = init?.body ? (JSON.parse(init.body as string) as { version: number }) : undefined;
+        if (!resendAttempted && body?.version === 1) {
+          resendAttempted = true;
+          server.applyForeignWrite({ ...useEditorStore.getState().document, theme: { primary: "#SECOND-SESSION" } });
+        }
+        return server.handle(url, init);
       });
 
       await act(async () => {
         vi.advanceTimersByTime(2000);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
       });
 
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      // Exactly one verification GET and one re-send attempt — the second
+      // 409 must NOT trigger a second verification round.
+      expect(fetchMock).toHaveBeenCalledTimes(4);
       expect(result.current.error).toBe("conflict");
+      expect(server.version).toBe(2);
+      expect((server.document as { theme: { primary: string } }).theme.primary).toBe("#SECOND-SESSION");
 
       act(() => {
         useEditorStore.getState().updateTheme({ primary: "#444444" });
@@ -804,7 +1028,7 @@ describe("useAutosave", () => {
       await act(async () => {
         vi.advanceTimersByTime(5000);
       });
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(fetchMock).toHaveBeenCalledTimes(4);
     });
   });
 
