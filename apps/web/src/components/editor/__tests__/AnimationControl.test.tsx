@@ -78,6 +78,30 @@ describe("AnimationControl", () => {
     expect(screen.queryByLabelText("Thời lượng (ms)")).not.toBeInTheDocument();
   });
 
+  it("preserves durationMs (still schema-valid) while hidden behind 'none', and shows it again on switching back", () => {
+    const document = createDefaultDocument();
+    const section = document.sections.find((s) => s.type === "cover") as Section;
+    section.animation = { preset: "fade", durationMs: 1500 };
+    resetStore(document);
+    const { rerender } = render(<AnimationControl section={section} />);
+
+    fireEvent.change(screen.getByLabelText("Kiểu hiệu ứng"), { target: { value: "none" } });
+
+    let updated = useEditorStore.getState().document.sections.find((s) => s.id === section.id) as Section;
+    expect(updated.animation).toEqual({ preset: "none", durationMs: 1500 });
+    expect(() => InvitationDocumentSchema.parse(useEditorStore.getState().document)).not.toThrow();
+
+    rerender(<AnimationControl section={updated} />);
+    expect(screen.queryByLabelText("Thời lượng (ms)")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Kiểu hiệu ứng"), { target: { value: "zoom" } });
+    updated = useEditorStore.getState().document.sections.find((s) => s.id === section.id) as Section;
+    expect(updated.animation).toEqual({ preset: "zoom", durationMs: 1500 });
+
+    rerender(<AnimationControl section={updated} />);
+    expect(screen.getByLabelText("Thời lượng (ms)")).toHaveValue(1500);
+  });
+
   it("shows the control for every section type via EditorPanel", () => {
     const document = createDefaultDocument();
     const album = document.sections.find((s) => s.type === "album");
