@@ -36,6 +36,15 @@ export interface PublishDialogProps {
   invitationId: string;
   /** The invitation's current slug (draft or already-published) — used both as the default-slug fallback and for the badge-toggle PATCH target. */
   slug: string;
+  /**
+   * Task 6 fix round 1: no longer read inside this component. `showBadge`
+   * now lives in the shared editor store, seeded once by `EditorLayout`'s
+   * own mount effect — reseeding it here from this static prop on every
+   * dialog reopen was the bug (it silently reverted an already-saved toggle,
+   * visibly, since `PreviewPane` reads the same store slice). Kept on the
+   * prop/interface only so `EditorLayout`'s call site doesn't need touching
+   * for this narrowly-scoped fix; safe to delete in a future cleanup pass.
+   */
   initialShowBadge: boolean;
 }
 
@@ -62,6 +71,7 @@ export interface PublishDialogProps {
  * already customized the slug field doesn't have it silently overwritten by
  * a name edit made elsewhere while the dialog happens to be open.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- `initialShowBadge` kept for interface stability, see the docstring on `PublishDialogProps` above; no longer read here (Task 6 fix round 1).
 export function PublishDialog({ open, onClose, invitationId, slug, initialShowBadge }: PublishDialogProps) {
   const document = useEditorStore((state) => state.document);
   const showBadge = useEditorStore((state) => state.showBadge);
@@ -85,26 +95,27 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
   useEffect(() => {
     if (!open) return;
     setSlugInput(computeDefaultSlug(document, slug));
-    // Task 6: `showBadge` moved from a private `useState(initialShowBadge)`
-    // into the shared editor store (so `PreviewPane` can read the couple's
-    // real choice instead of hardcoding `true`) — this reset-on-open call is
-    // preserved EXACTLY as it was before that migration, just retargeted at
-    // the store's setter. It's unchanged in one respect worth flagging: it
-    // still re-seeds from the static `initialShowBadge` prop (the value the
-    // server had at the initial page load), not from whatever is currently
-    // in the store — so a toggle made earlier this same session, closed and
-    // reopened without a full reload, resets back to that stale value, the
-    // same way the pre-migration local state did. The one behavioral change
-    // is blast radius: since `PreviewPane` now reads this same store value,
-    // that reset is also visible in the live preview, not just this
-    // checkbox — previously invisible because `PreviewPane` ignored it.
-    setShowBadge(initialShowBadge);
+    // Task 6 fix round 1: `showBadge` now lives in the shared editor store,
+    // seeded exactly ONCE by `EditorLayout`'s own mount effect (see
+    // `editor-store.ts` / `EditorLayout.tsx`) — that's the single source of
+    // truth from the moment the editor loads. This open-transition effect
+    // must NOT re-seed it from `initialShowBadge` (the older, per-mount
+    // `useState(initialShowBadge)` design did, and reseeding here used to be
+    // "preserved" as part of that migration) — `initialShowBadge` is a
+    // static prop frozen at the page's initial server load, so stomping the
+    // store with it on every reopen would silently revert an already-saved
+    // toggle back to that stale value the moment the dialog reopens, and —
+    // since `PreviewPane` reads this same store slice — that revert would be
+    // visible in the LIVE PREVIEW too, directly contradicting what's
+    // actually persisted server-side. The checkbox (`checked={showBadge}`)
+    // already reads the store live, so it stays correct on every render
+    // without any reseed here.
     setError(null);
     setPublishedSlug(null);
     setCopied(false);
     // Seed once per open transition — see the docstring above for why this
-    // deliberately doesn't re-run on every `document`/`initialShowBadge`
-    // change while already open.
+    // deliberately doesn't re-run on every `document` change while already
+    // open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 

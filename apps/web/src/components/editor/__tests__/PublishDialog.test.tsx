@@ -219,6 +219,41 @@ describe("PublishDialog", () => {
     expect(checkbox.checked).toBe(false);
   });
 
+  // Task 6 fix round 1 (Important finding from independent review): the
+  // open-transition effect used to unconditionally reseed the store from
+  // the static `initialShowBadge` prop on every reopen. Reachable sequence:
+  // toggle off -> saveSettings succeeds (server now holds false) -> close
+  // dialog -> reopen -> the reseed stomped the store back to the stale
+  // page-load `true`, visibly reverting the LIVE PREVIEW even though the
+  // server still held `false`. This proves that reopening no longer stomps
+  // an already-saved toggle.
+  it("does not stomp an already-saved toggle when the dialog is closed and reopened in the same session", async () => {
+    const saveSettings = vi.fn().mockResolvedValue(null as AutosaveErrorKind);
+    const { rerender } = renderWithSaveSettings(saveSettings);
+
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(saveSettings).toHaveBeenCalledWith({ showBadge: false }));
+    expect(useEditorStore.getState().showBadge).toBe(false);
+
+    // Close...
+    rerender(
+      <AutosaveStatusContext.Provider value={{ error: null, flush: async () => null, saveSettings }}>
+        <PublishDialog {...baseProps} open={false} onClose={vi.fn()} />
+      </AutosaveStatusContext.Provider>,
+    );
+    // ...and reopen.
+    rerender(
+      <AutosaveStatusContext.Provider value={{ error: null, flush: async () => null, saveSettings }}>
+        <PublishDialog {...baseProps} open onClose={vi.fn()} />
+      </AutosaveStatusContext.Provider>,
+    );
+
+    // Still `false` in the store (what PreviewPane reads too) and in the
+    // dialog's own checkbox — NOT reset back to `initialShowBadge` (`true`).
+    expect(useEditorStore.getState().showBadge).toBe(false);
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  });
+
   // C2: publishing used to POST straight away, and the server re-reads
   // `invitation.document` from the DB — up to AUTOSAVE_DEBOUNCE_MS (2s)
   // behind the live editor. `flush()` (from AutosaveStatusContext) must be
