@@ -104,7 +104,7 @@ export const FEATURES: Feature[] = [
     id: "guest-name-links",
     label: "Tên khách mời tự động",
     description: "Gửi link riêng cho từng khách, tự hiển thị đúng tên khi họ mở thiệp.",
-    shipped: false,
+    shipped: true,
   },
   {
     id: "custom-music-upload",
@@ -116,7 +116,7 @@ export const FEATURES: Feature[] = [
     id: "youtube-embed",
     label: "Nhúng video YouTube",
     description: "Thêm video kỷ niệm hoặc video cưới ngay trong thiệp.",
-    shipped: false,
+    shipped: true,
   },
   {
     id: "text-hyperlinks",

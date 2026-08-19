@@ -29,14 +29,20 @@ beforeEach(() => {
     dirty: false,
     saving: false,
     lastSavedAt: null,
+    showBadge: true,
   });
   InvitePageMock.mockReset();
-  InvitePageMock.mockImplementation(() => (
+  // Renders the footer badge text conditionally on `props.settings.showBadge`
+  // — mirroring the real `InvitePage`'s own `settings.showBadge ? <footer>…`
+  // — so the tests below can prove `PreviewPane` actually threads the
+  // store's `showBadge` through as a prop, not just that it renders at all.
+  InvitePageMock.mockImplementation((props: { settings?: { showBadge?: boolean } }) => (
     <div>
       <div data-section-id="section-a">A</div>
       <div data-section-id="section-b">
         <span data-testid="nested">nested text</span>
       </div>
+      {props.settings?.showBadge ? <p>Tạo miễn phí tại HPWD</p> : null}
     </div>
   ));
 });
@@ -112,5 +118,20 @@ describe("PreviewPane", () => {
 
     expect(screen.queryByText("Không thể hiển thị xem trước")).not.toBeInTheDocument();
     consoleError.mockRestore();
+  });
+
+  // Task 6: the preview used to hardcode `settings={{ showBadge: true }}`
+  // regardless of what the couple actually chose in PublishDialog — these
+  // prove it now reads the live store value both ways.
+  it("hides the footer badge in the preview when the couple turned it off", () => {
+    useEditorStore.setState({ showBadge: false });
+    render(<PreviewPane />);
+    expect(screen.queryByText("Tạo miễn phí tại HPWD")).toBeNull();
+  });
+
+  it("shows the footer badge in the preview when it is on", () => {
+    useEditorStore.setState({ showBadge: true });
+    render(<PreviewPane />);
+    expect(screen.getByText("Tạo miễn phí tại HPWD")).toBeInTheDocument();
   });
 });

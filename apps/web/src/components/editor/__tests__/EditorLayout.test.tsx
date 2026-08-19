@@ -40,6 +40,7 @@ function resetStore() {
     dirty: false,
     saving: false,
     lastSavedAt: null,
+    showBadge: true,
   });
 }
 
@@ -64,6 +65,28 @@ describe("EditorLayout", () => {
     render(<EditorLayout {...baseProps} initialDocument={doc} initialVersion={3} />);
     expect(useEditorStore.getState().document.theme.primary).toBe("#TESTVAL");
     expect(useEditorStore.getState().version).toBe(3);
+  });
+
+  // Task 6: `showBadge` used to live only as PublishDialog's own private
+  // state, seeded from this same prop — now it's seeded into the shared
+  // store on mount too, the same way `initialDocument`/`initialVersion` are
+  // above, so `PreviewPane` (not just the dialog) can read it.
+  it("seeds the store's showBadge from the initial prop on mount", () => {
+    render(<EditorLayout {...baseProps} initialShowBadge={false} />);
+    expect(useEditorStore.getState().showBadge).toBe(false);
+  });
+
+  it("threads initialShowBadge through to both the live preview badge and the publish dialog checkbox", () => {
+    render(<EditorLayout {...baseProps} initialShowBadge={false} />);
+
+    // Preview: no badge link when the couple has it turned off.
+    expect(screen.queryByText("Tạo miễn phí tại HPWD")).not.toBeInTheDocument();
+
+    // Dialog: checkbox reflects the same seeded value once opened.
+    act(() => {
+      screen.getByRole("button", { name: "Xuất bản" }).click();
+    });
+    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
   });
 
   it("shows the document-level property tabs when no section is selected (desktop)", () => {

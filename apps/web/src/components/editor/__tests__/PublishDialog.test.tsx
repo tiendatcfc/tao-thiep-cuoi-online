@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { createDefaultDocument } from "@hpwd/schema";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
 import { AutosaveStatusContext } from "../AutosaveStatusContext";
@@ -24,6 +24,7 @@ function resetStore(document = createDefaultDocument()) {
     dirty: false,
     saving: false,
     lastSavedAt: null,
+    showBadge: true,
   });
 }
 
@@ -171,28 +172,51 @@ describe("PublishDialog", () => {
     );
   }
 
-  it("flips the badge toggle through the shared saveSettings writer instead of its own fetch, and never calls the publish route", async () => {
+  it("flips the badge toggle through the shared saveSettings writer instead of its own fetch, updates the store, and never calls the publish route", async () => {
     const saveSettings = vi.fn().mockResolvedValue(null as AutosaveErrorKind);
     renderWithSaveSettings(saveSettings);
 
     fireEvent.click(screen.getByRole("checkbox"));
 
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith({ showBadge: false }));
+    // Task 6: the toggle now lives in the shared store (read by PreviewPane
+    // too), not a private useState — this is the observable proof of that.
+    expect(useEditorStore.getState().showBadge).toBe(false);
     // No direct `fetch` to `/api/invitations/[id]` from this dialog at all
     // — `saveSettings` (stubbed above) is the only writer.
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reverts the optimistic toggle when saveSettings reports any non-null outcome (network failure, invalid document, or a genuine cross-tab conflict)", async () => {
+  it("reverts the optimistic toggle in the store when saveSettings reports any non-null outcome (network failure, invalid document, or a genuine cross-tab conflict)", async () => {
     const saveSettings = vi.fn().mockResolvedValue("conflict" as AutosaveErrorKind);
     renderWithSaveSettings(saveSettings);
     const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
+    expect(useEditorStore.getState().showBadge).toBe(true);
 
     fireEvent.click(checkbox);
     expect(checkbox.checked).toBe(false); // optimistic flip, before saveSettings resolves
+    expect(useEditorStore.getState().showBadge).toBe(false);
 
     await waitFor(() => expect(checkbox.checked).toBe(true)); // reverted once saveSettings resolves non-null
+    expect(useEditorStore.getState().showBadge).toBe(true);
+  });
+
+  // Task 6: proves the checkbox is now bound to the shared store rather than
+  // a private copy seeded once from `initialShowBadge` — a mutation from
+  // anywhere else (e.g. a future settings surface, or simply the same store
+  // PreviewPane reads) must show up here live.
+  it("reflects an external store change to showBadge in the checkbox (single source of truth, not a private copy)", () => {
+    resetStore(documentWithCoverNames("Minh", "Lan"));
+    render(<PublishDialog {...baseProps} open onClose={vi.fn()} />);
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+
+    act(() => {
+      useEditorStore.getState().setShowBadge(false);
+    });
+
+    expect(checkbox.checked).toBe(false);
   });
 
   // C2: publishing used to POST straight away, and the server re-reads

@@ -25,6 +25,16 @@ export type EditorState = {
   dirty: boolean;
   saving: boolean;
   lastSavedAt: number | null;
+  /**
+   * Whether the published invitation shows the "Tạo miễn phí tại HPWD"
+   * footer link — a couple's own preference, persisted OUTSIDE the document
+   * (a separate `settings` column, via `saveSettings`/`useAutosave`'s shared
+   * writer — see `PublishDialog`), not part of `InvitationDocument` at all.
+   * Lives here (rather than as private state in `PublishDialog`) so
+   * `PreviewPane` can read the couple's actual choice instead of hardcoding
+   * `true` regardless of it.
+   */
+  showBadge: boolean;
   setDocument(doc: InvitationDocument, version: number): void;
   setVersion(v: number): void;
   selectSection(id: string | null): void;
@@ -39,6 +49,7 @@ export type EditorState = {
   removeSection(id: string): void;
   markSaved(at: number): void;
   setSaving(v: boolean): void;
+  setShowBadge(v: boolean): void;
 };
 
 /**
@@ -57,6 +68,7 @@ export const useEditorStore = create<EditorState>()((set) => ({
   dirty: false,
   saving: false,
   lastSavedAt: null,
+  showBadge: true,
 
   setDocument(doc, version) {
     // C6: `lastSavedAt` is a module-level singleton — without resetting it
@@ -193,5 +205,14 @@ export const useEditorStore = create<EditorState>()((set) => ({
 
   setSaving(v) {
     set({ saving: v });
+  },
+
+  setShowBadge(v) {
+    // Deliberately does NOT touch `dirty` — this setting persists through
+    // its own `saveSettings` writer (see `PublishDialog` /
+    // `useAutosaveStatusContext`), not the document autosave. Marking the
+    // document dirty here would fire a pointless no-content document PATCH
+    // every time this flips.
+    set({ showBadge: v });
   },
 }));

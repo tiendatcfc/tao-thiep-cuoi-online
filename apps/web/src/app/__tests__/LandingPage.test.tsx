@@ -54,9 +54,7 @@ describe("LandingPage", () => {
     const comingSoonIds = FEATURES.filter((f) => !f.shipped).map((f) => f.id);
     expect(comingSoonIds.sort()).toEqual(
       [
-        "guest-name-links",
         "custom-music-upload",
-        "youtube-embed",
         "text-hyperlinks",
         "ai-background-removal",
         "custom-font-upload",

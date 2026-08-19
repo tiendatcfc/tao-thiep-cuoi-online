@@ -16,6 +16,7 @@ function resetStore() {
     dirty: false,
     saving: false,
     lastSavedAt: null,
+    showBadge: true,
   });
 }
 
@@ -286,6 +287,34 @@ describe("updateSectionAnimation", () => {
     expect(next.sections[1].animation).toEqual(b.animation);
     expect(useEditorStore.getState().dirty).toBe(true);
     expect(() => InvitationDocumentSchema.parse(next)).not.toThrow();
+  });
+});
+
+describe("showBadge", () => {
+  it("defaults to true", () => {
+    expect(useEditorStore.getState().showBadge).toBe(true);
+  });
+
+  it("setShowBadge sets the value without marking the document dirty", () => {
+    expect(useEditorStore.getState().dirty).toBe(false);
+
+    useEditorStore.getState().setShowBadge(false);
+
+    expect(useEditorStore.getState().showBadge).toBe(false);
+    // Settings persist through their own `saveSettings` writer, not the
+    // document autosave — flipping this must never cause a pointless
+    // no-content document PATCH.
+    expect(useEditorStore.getState().dirty).toBe(false);
+  });
+
+  it("does not clobber a dirty document set by an unrelated edit", () => {
+    useEditorStore.getState().updateTheme({ primary: "#000000" });
+    expect(useEditorStore.getState().dirty).toBe(true);
+
+    useEditorStore.getState().setShowBadge(false);
+
+    expect(useEditorStore.getState().showBadge).toBe(false);
+    expect(useEditorStore.getState().dirty).toBe(true);
   });
 });
 

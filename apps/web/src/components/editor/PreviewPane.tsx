@@ -62,6 +62,7 @@ class PreviewErrorBoundary extends Component<
 export function PreviewPane() {
   const document = useEditorStore((state) => state.document);
   const selectSection = useEditorStore((state) => state.selectSection);
+  const showBadge = useEditorStore((state) => state.showBadge);
 
   function handleClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target;
@@ -82,7 +83,7 @@ export function PreviewPane() {
           <InvitePage
             document={document}
             guestName="Nguyễn Văn An"
-            settings={{ showBadge: true }}
+            settings={{ showBadge }}
             isPreview
             slug={null}
           />

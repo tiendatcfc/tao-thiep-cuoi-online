@@ -64,9 +64,10 @@ export interface PublishDialogProps {
  */
 export function PublishDialog({ open, onClose, invitationId, slug, initialShowBadge }: PublishDialogProps) {
   const document = useEditorStore((state) => state.document);
+  const showBadge = useEditorStore((state) => state.showBadge);
+  const setShowBadge = useEditorStore((state) => state.setShowBadge);
   const { flush, saveSettings } = useAutosaveStatusContext();
   const [slugInput, setSlugInput] = useState("");
-  const [showBadge, setShowBadge] = useState(initialShowBadge);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishedSlug, setPublishedSlug] = useState<string | null>(null);
@@ -84,6 +85,19 @@ export function PublishDialog({ open, onClose, invitationId, slug, initialShowBa
   useEffect(() => {
     if (!open) return;
     setSlugInput(computeDefaultSlug(document, slug));
+    // Task 6: `showBadge` moved from a private `useState(initialShowBadge)`
+    // into the shared editor store (so `PreviewPane` can read the couple's
+    // real choice instead of hardcoding `true`) — this reset-on-open call is
+    // preserved EXACTLY as it was before that migration, just retargeted at
+    // the store's setter. It's unchanged in one respect worth flagging: it
+    // still re-seeds from the static `initialShowBadge` prop (the value the
+    // server had at the initial page load), not from whatever is currently
+    // in the store — so a toggle made earlier this same session, closed and
+    // reopened without a full reload, resets back to that stale value, the
+    // same way the pre-migration local state did. The one behavioral change
+    // is blast radius: since `PreviewPane` now reads this same store value,
+    // that reset is also visible in the live preview, not just this
+    // checkbox — previously invisible because `PreviewPane` ignored it.
     setShowBadge(initialShowBadge);
     setError(null);
     setPublishedSlug(null);

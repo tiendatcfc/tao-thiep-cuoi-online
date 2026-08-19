@@ -168,12 +168,15 @@ export function EditorLayout({
   initialShowBadge,
 }: EditorLayoutProps) {
   const setDocument = useEditorStore((state) => state.setDocument);
+  const setShowBadge = useEditorStore((state) => state.setShowBadge);
   useEffect(() => {
     setDocument(initialDocument, initialVersion);
-    // Seed once on mount with the document (and row version) the server
-    // loaded — deliberately not re-running if `initialDocument` changes
-    // identity on a later parent re-render, which would clobber
-    // in-progress edits.
+    setShowBadge(initialShowBadge);
+    // Seed once on mount with the document (and row version), plus the
+    // badge-visibility setting, the server loaded — deliberately not
+    // re-running if any of these change identity on a later parent
+    // re-render, which would clobber in-progress edits (and, for
+    // `showBadge`, stomp a toggle already saved earlier this session).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
