@@ -1,5 +1,6 @@
 import type { Section } from "@hpwd/schema";
 import { VN_TIME_ZONE } from "@/lib/date";
+import { isSafeHref } from "@/lib/sanitize";
 import { SectionWrapper } from "./SectionWrapper";
 
 /** See `CoverSection.formatVietnameseDate` for why `timeZone` is required, not optional, in this Vietnam-only app. */
@@ -33,7 +34,7 @@ export function EventsSection({ section }: { section: Extract<Section, { type: "
               </p>
             ) : null}
             {item.address ? <p className="text-sm text-gray-600">{item.address}</p> : null}
-            {item.mapUrl ? (
+            {item.mapUrl && isSafeHref(item.mapUrl) ? (
               <a
                 href={item.mapUrl}
                 target="_blank"

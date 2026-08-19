@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeHtml, sanitizePlainText } from "../sanitize";
+import { isSafeHref, sanitizeHtml, sanitizePlainText } from "../sanitize";
 
 // A "live" anchor/script/etc tag is one that would actually parse as an
 // element when the sanitizer's output is mounted via
@@ -149,6 +149,17 @@ describe("sanitizeHtml — idempotency", () => {
     const twice = sanitizeHtml(once);
     expect(twice).toBe(once);
   });
+});
+
+describe("isSafeHref", () => {
+  it.each([["https://maps.google.com/x"], ["http://example.com"], ["/local/path"], ["mailto:a@b.vn"], ["HTTPS://UPPER.CASE/ok"]])(
+    "accepts %s",
+    (href) => expect(isSafeHref(href)).toBe(true),
+  );
+  it.each([["javascript:alert(1)"], ["data:text/html,x"], ["vbscript:x"], ["maps.app.goo.gl/xyz"], [" javascript:alert(1)"], [""]])(
+    "rejects %s",
+    (href) => expect(isSafeHref(href)).toBe(false),
+  );
 });
 
 describe("sanitizePlainText — stored guest text (wishes)", () => {

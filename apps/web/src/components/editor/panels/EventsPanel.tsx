@@ -1,6 +1,7 @@
 "use client";
 
 import type { EventsProps, Section } from "@hpwd/schema";
+import { isSafeHref } from "@/lib/sanitize";
 import { useEditorStore } from "@/stores/editor-store";
 import { DateField } from "../fields/DateField";
 import { ListField } from "../fields/ListField";
@@ -33,7 +34,17 @@ export function EventsPanel({ section }: { section: Extract<Section, { type: "ev
             hint="Hiển thị trên thiệp cùng với ngày, ví dụ 09:00"
           />
           <TextAreaField label="Địa điểm" value={item.address} onChange={(v) => update({ ...item, address: v })} />
-          <TextField label="Liên kết bản đồ" value={item.mapUrl} onChange={(v) => update({ ...item, mapUrl: v })} />
+          <TextField
+            label="Liên kết bản đồ"
+            value={item.mapUrl}
+            onChange={(v) => update({ ...item, mapUrl: v })}
+            hint="Bắt đầu bằng https:// — ví dụ liên kết chia sẻ từ Google Maps"
+          />
+          {item.mapUrl && !isSafeHref(item.mapUrl) ? (
+            <p className="text-xs text-red-500" role="alert">
+              Liên kết phải bắt đầu bằng https:// hoặc http:// — liên kết hiện tại sẽ không hiển thị trên thiệp.
+            </p>
+          ) : null}
         </div>
       )}
     />

@@ -46,4 +46,16 @@ describe("EventsPanel", () => {
     expect(updated.props.items).toHaveLength(1);
     expect(updated.props.items[0].name).toBe("Lễ Thành Hôn");
   });
+
+  it("warns when mapUrl is an unsafe scheme, but not for a plain https link", () => {
+    const unsafeSection = eventsSection();
+    unsafeSection.props.items[0].mapUrl = "javascript:alert(1)";
+    const { rerender } = render(<EventsPanel section={unsafeSection} />);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+
+    const safeSection = eventsSection();
+    safeSection.props.items[0].mapUrl = "https://maps.google.com/x";
+    rerender(<EventsPanel section={safeSection} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
 });

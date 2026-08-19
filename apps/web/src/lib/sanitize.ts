@@ -86,6 +86,16 @@ const SAFE_HREF_RE = /^(https?:\/\/|mailto:|\/)/i;
 const KNOWN_ENTITY_RE = /^(amp;|lt;|gt;|quot;|#\d+;|#x[0-9a-fA-F]+;)/;
 
 /**
+ * Scheme allowlist for user-supplied plain hrefs rendered as real anchors
+ * outside the rich-text sanitizer (today: EventsSection's mapUrl). Same
+ * allowlist the sanitizer applies to rich-text anchors — one list, two
+ * enforcement points that can't drift.
+ */
+export function isSafeHref(href: string): boolean {
+  return SAFE_HREF_RE.test(href);
+}
+
+/**
  * Sanitizes free-text guest input (wish messages, guest names) that is
  * stored and rendered as plain text — never `dangerouslySetInnerHTML` — so
  * there is no markup to escape here, unlike `sanitizeHtml` above. Two
