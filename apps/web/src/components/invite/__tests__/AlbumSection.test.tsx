@@ -18,9 +18,12 @@ vi.mock("yet-another-react-lightbox", () => ({
   },
 }));
 
-function albumSection(images: AlbumProps["images"]): Extract<Section, { type: "album" }> {
+function albumSection(
+  images: AlbumProps["images"],
+  layout: AlbumProps["layout"] = "grid",
+): Extract<Section, { type: "album" }> {
   const base = createSection("album") as Extract<Section, { type: "album" }>;
-  return { ...base, props: { layout: "grid", images } };
+  return { ...base, props: { layout, images } };
 }
 
 const images: AlbumProps["images"] = [
@@ -77,5 +80,28 @@ describe("AlbumSection", () => {
     const secondSlides = lightboxSpy.mock.calls.at(-1)?.[0].slides;
 
     expect(firstSlides).toBe(secondSlides);
+  });
+
+  it.each(["grid", "masonry", "carousel"] as const)(
+    "renders the container for layout=%s with its distinguishing classes",
+    (layout) => {
+      const { container } = render(<AlbumSection section={albumSection(images, layout)} />);
+      const el = container.querySelector(`[data-album-layout="${layout}"]`);
+      expect(el).not.toBeNull();
+      if (layout === "grid") expect(el?.className).toContain("grid-cols-2");
+      if (layout === "masonry") expect(el?.className).toContain("columns-2");
+      if (layout === "carousel") expect(el?.className).toContain("snap-x");
+    },
+  );
+
+  it("opens the lightbox at the clicked index under the carousel layout too", () => {
+    render(<AlbumSection section={albumSection(images, "carousel")} />);
+    fireEvent.click(screen.getAllByRole("img")[2]);
+    expect(lightboxSpy).toHaveBeenLastCalledWith(expect.objectContaining({ open: true, index: 2 }));
+  });
+
+  it("never renders a layout container other than the selected one", () => {
+    const { container } = render(<AlbumSection section={albumSection(images, "masonry")} />);
+    expect(container.querySelectorAll("[data-album-layout]")).toHaveLength(1);
   });
 });
