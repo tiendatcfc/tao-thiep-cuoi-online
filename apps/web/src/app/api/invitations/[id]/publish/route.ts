@@ -23,6 +23,15 @@ const publishBodySchema = z.object({
 });
 
 /**
+ * Thrown from inside the publish transaction when `InvitationSlug`'s
+ * in-transaction ownership re-check (see the transaction body below) finds
+ * the slug already belongs to a DIFFERENT invitation. Caught right next to
+ * the transaction and translated into the same 409 as every other
+ * slug-taken path — never propagates further, never leaks whose slug it is.
+ */
+class SlugTakenError extends Error {}
+
+/**
  * Publishes the current draft: validates the requested slug (format +
  * uniqueness against every OTHER invitation's current slug AND its slug
  * history — re-publishing under the invitation's own current or past slug
@@ -74,10 +83,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Squatting guard: `slug` may not currently belong to any invitation (the
   // check above) yet still be reserved — it could be a slug a DIFFERENT
   // invitation published under previously and has since moved away from.
-  // Every slug ever actually published (including the current one, upserted
-  // below) lives in `InvitationSlug`, so this is the check that stops a
-  // stranger from grabbing a couple's abandoned link. Reclaiming your OWN
-  // history (`invitationId === id`) is always allowed.
+  // Every slug ever actually published (including the current one,
+  // recorded below) lives in `InvitationSlug`, so this is the check that
+  // stops a stranger from grabbing a couple's abandoned link. Reclaiming
+  // your OWN history (`invitationId === id`) is always allowed. This is a
+  // fast-path check only — it runs BEFORE the transaction below, which
+  // re-validates ownership against the true, currently-committed state
+  // right before writing (see the comment there for why the pre-check
+  // alone isn't sufficient).
   const slugHistoryOwner = await prisma.invitationSlug.findUnique({ where: { slug } });
   if (slugHistoryOwner && slugHistoryOwner.invitationId !== id) {
     return NextResponse.json({ error: SLUG_TAKEN_MESSAGE }, { status: 409 });
@@ -91,8 +104,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const previousSlug = invitation.slug;
   const publishedAt = new Date();
   try {
-    await prisma.$transaction([
-      prisma.invitation.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.invitation.update({
         where: { id },
         data: {
           slug,
@@ -100,27 +113,51 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           status: "published",
           publishedAt,
         },
-      }),
-      // Records `slug` as one this invitation has published under — a
-      // no-op `update: {}` when it's already there (e.g. republishing under
-      // the same or a reclaimed slug), otherwise the row that makes this
-      // slug protected against squatting and redirectable from now on. Runs
-      // in the SAME transaction as the update above: a slug change that
-      // updated `Invitation.slug` without recording history here would
-      // silently reopen the squatting hole this task closes.
-      prisma.invitationSlug.upsert({
+      });
+
+      // Re-check ownership of the slug-history row INSIDE the transaction
+      // rather than trusting `slugHistoryOwner` above: that check ran
+      // BEFORE this transaction started, so a completely different
+      // invitation can claim this exact slug and then move away from it
+      // again, entirely in the window between the two — leaving a stale
+      // `InvitationSlug` row this route never saw. A blind
+      // `upsert({ update: {} })` keyed only on `slug` would silently no-op
+      // on that row without ever comparing `invitationId` (Postgres's
+      // `ON CONFLICT (slug) DO UPDATE` only keys on `slug`), so
+      // `Invitation.slug` would end up pointing here while
+      // `InvitationSlug.invitationId` still points at the other
+      // invitation — the exact "a distributed link resolves to a
+      // stranger's wedding" bug this task exists to prevent. Reading the
+      // row back here, inside the same transaction as the `Invitation`
+      // update above, closes that gap: either branch below runs against
+      // the true, currently-committed owner.
+      const existing = await tx.invitationSlug.findUnique({
         where: { slug },
-        create: { slug, invitationId: id },
-        update: {},
-      }),
-    ]);
+        select: { invitationId: true },
+      });
+      if (!existing) {
+        // A concurrent first-time claim of this exact slug can still race
+        // here — `InvitationSlug.slug`'s own unique constraint throws
+        // P2002, caught below and translated into the same 409.
+        await tx.invitationSlug.create({ data: { slug, invitationId: id } });
+      } else if (existing.invitationId !== id) {
+        throw new SlugTakenError();
+      }
+      // else: already ours (first publish under this slug, or reclaiming a
+      // slug from our own history) — nothing to write.
+    });
   } catch (error) {
-    // Both uniqueness checks above (`slugOwner`, `slugHistoryOwner`) have a
-    // TOCTOU gap: two requests racing to claim the same brand-new slug can
-    // both pass them before either writes. The DB-level unique constraints
-    // on `Invitation.slug` and `InvitationSlug.slug` are the real guard —
-    // this just translates the resulting P2002 (from either table) into the
-    // same 409 a non-racing conflict gets, instead of an unhandled 500.
+    if (error instanceof SlugTakenError) {
+      return NextResponse.json({ error: SLUG_TAKEN_MESSAGE }, { status: 409 });
+    }
+    // The two pre-checks above (`slugOwner`, `slugHistoryOwner`) — and the
+    // in-transaction re-check above — still leave a TOCTOU gap for a
+    // brand-new slug nobody has ever claimed: two requests can both find
+    // nothing and both attempt to create. The DB-level unique constraints
+    // on `Invitation.slug` and `InvitationSlug.slug` are the real guard for
+    // THAT race — this translates the resulting P2002 (from either table)
+    // into the same 409 a non-racing conflict gets, instead of an
+    // unhandled 500.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: SLUG_TAKEN_MESSAGE }, { status: 409 });
     }

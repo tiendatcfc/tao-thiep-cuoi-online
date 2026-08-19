@@ -363,3 +363,57 @@ describe("POST /api/invitations/[id]/publish — slug history", () => {
     expect(revalidatePathMock).toHaveBeenCalledWith(`/i/${slugNew}`);
   });
 });
+
+describe("POST /api/invitations/[id]/publish — slug-history TOCTOU (ownership re-checked inside the transaction)", () => {
+  it("does not let a stale pre-check hand a slug-history row to an invitation that doesn't own it", async () => {
+    // Simulates the exact interleaving a real race would produce: invitation
+    // Z claimed `slugS` and later moved away from it, so `InvitationSlug`
+    // still legitimately attributes `slugS` to Z even though `slugS` is
+    // nobody's CURRENT slug any more. That row is seeded directly (real,
+    // committed data) — no mocking involved for it.
+    const slugS = `race-s-${randomUUID()}`;
+    const { id: zId } = await createTestInvitation({ slug: `race-z-current-${randomUUID()}` });
+    await prisma.invitationSlug.create({ data: { slug: slugS, invitationId: zId } });
+
+    const { id: xId } = await createTestInvitation();
+    authMock.mockResolvedValue({ user: { id: userId } });
+
+    // Force X's OWN pre-check — the route's first call to
+    // `invitationSlug.findUnique` — to see a stale "nothing claimed yet"
+    // result, exactly what it would have seen had it run BEFORE Z's claim
+    // and abandonment instead of after. `mockResolvedValueOnce` overrides
+    // only that one call; anything else (including a re-check made through
+    // the transaction's own `tx` client, which is a distinct object from
+    // `prisma`) still hits the real, already-committed row seeded above.
+    const findUniqueSpy = vi.spyOn(prisma.invitationSlug, "findUnique").mockResolvedValueOnce(null);
+
+    try {
+      const res = await POST(jsonRequest({ slug: slugS }), { params: Promise.resolve({ id: xId }) });
+
+      // Pinned to the exact failure this bug produces: a blind
+      // `upsert({ update: {} })` keyed only on `slug` returns 200 here and
+      // silently leaves `InvitationSlug{slugS}` pointing at Z while
+      // `Invitation(X).slug` becomes `slugS` — so X's own distributed link
+      // would 308 to Z's current slug. `toBe(409)` fails loudly against
+      // that version instead of passing by accident.
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(typeof body.error).toBe("string");
+      expect(body.error).toMatch(/[ạảãàáâầấẩẫậăằắẳẵặèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/i);
+
+      // The slug-history row must still belong to Z, completely untouched.
+      const historyRow = await prisma.invitationSlug.findUnique({ where: { slug: slugS } });
+      expect(historyRow?.invitationId).toBe(zId);
+
+      // And the rejected transaction must have rolled back in full — X's
+      // OWN `Invitation.slug` must not have changed either, proving the
+      // `Invitation.update` and the ownership re-check really share one
+      // atomic transaction rather than the update having already committed
+      // before the check ran.
+      const stillX = await prisma.invitation.findUnique({ where: { id: xId } });
+      expect(stillX?.slug).not.toBe(slugS);
+    } finally {
+      findUniqueSpy.mockRestore();
+    }
+  });
+});
