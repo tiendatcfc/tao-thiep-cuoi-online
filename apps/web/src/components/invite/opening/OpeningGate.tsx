@@ -43,7 +43,8 @@ export interface OpeningGateProps {
  * assistive tech, unfocusable, unclickable) rather than unmounted, both so
  * SSR still emits the full page and so nothing nested inside loses state
  * across the open. The overlay itself sits on top (`position: fixed`) and
- * visually covers them until opened.
+ * visually covers them until opened. Those two attributes are only ever
+ * applied post-hydration (Task 4) — see the `hydrated` state below for why.
  *
  * `effect: 'none'` skips the overlay outright: `opened` starts `true`, so
  * children are visible from the very first render. `onOpened` still fires,
@@ -61,6 +62,22 @@ export function OpeningGate({ opening, guestName, onOpened, onTap, children }: O
   const { isPreview } = useInviteContext();
   const [opened, setOpened] = useState(opening.effect === "none");
   const firedRef = useRef(false);
+
+  // Task 4 fix: `aria-hidden`/`inert` are deliberately NOT server-rendered.
+  // `inert` is a real HTML attribute — no `<noscript>` stylesheet can strip
+  // it — so SSRing it would permanently trap a guest without JavaScript
+  // behind the (JS-only) opening overlay: its button never gets a click
+  // handler, so `opened` can never flip and the content stays inert forever.
+  // Deferring both attributes to one paint after hydration keeps the exact
+  // same guarantees for JS-enabled guests: the opaque, `position: fixed`
+  // overlay already covers the content visually during that brief window.
+  // Without JS, the content simply renders un-gated, and `app/i/layout.tsx`'s
+  // noscript CSS hides the (now non-functional) overlay instead.
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   useEffect(() => {
     if (isPreview || !opened || firedRef.current) return;
@@ -97,18 +114,24 @@ export function OpeningGate({ opening, guestName, onOpened, onTap, children }: O
 
   return (
     <>
-      <div aria-hidden={!opened} inert={opened ? undefined : true}>
+      <div
+        data-opening-content
+        aria-hidden={hydrated && !opened ? true : undefined}
+        inert={hydrated && !opened ? true : undefined}
+      >
         {children}
       </div>
-      {!opened && opening.effect === "envelope" ? (
-        <EnvelopeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
-      ) : null}
-      {!opened && opening.effect === "curtain" ? (
-        <CurtainOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
-      ) : null}
-      {!opened && opening.effect === "fade" ? (
-        <FadeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
-      ) : null}
+      <div data-opening-overlay>
+        {!opened && opening.effect === "envelope" ? (
+          <EnvelopeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
+        ) : null}
+        {!opened && opening.effect === "curtain" ? (
+          <CurtainOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
+        ) : null}
+        {!opened && opening.effect === "fade" ? (
+          <FadeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
+        ) : null}
+      </div>
     </>
   );
 }

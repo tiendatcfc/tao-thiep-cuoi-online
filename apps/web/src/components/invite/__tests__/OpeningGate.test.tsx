@@ -59,8 +59,13 @@ describe("OpeningGate", () => {
 
     await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1), { timeout: 3000 });
 
-    const wrapper = container.querySelector('[aria-hidden="false"]');
+    // Task 4: once opened (and hydrated, which @testing-library's `render`
+    // already ran effects for), the gate attributes are removed entirely
+    // rather than set to their "off" value — `aria-hidden={undefined}` never
+    // serializes an `aria-hidden="false"` attribute at all.
+    const wrapper = container.querySelector("[data-opening-content]");
     expect(wrapper).not.toBeNull();
+    expect(wrapper).not.toHaveAttribute("aria-hidden");
     expect(wrapper).not.toHaveAttribute("inert");
     expect(screen.queryByRole("button", { name: "Mở thiệp" })).not.toBeInTheDocument();
   });
@@ -131,12 +136,17 @@ describe("OpeningGate", () => {
     });
 
     it("restores the previous overflow value once the guest opens the invitation", async () => {
-      const { container } = renderGate(opening(), vi.fn());
+      renderGate(opening(), vi.fn());
       expect(document.body.style.overflow).toBe("hidden");
 
       fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
 
-      await waitFor(() => expect(container.querySelector('[aria-hidden="false"]')).not.toBeNull(), {
+      // Task 4: the opened content wrapper no longer carries a serialized
+      // `aria-hidden="false"` (the attribute is removed entirely instead —
+      // see the previous test), so the overlay's own removal from the DOM is
+      // the reliable signal that `opened` has flipped and the animation/exit
+      // has settled.
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Mở thiệp" })).not.toBeInTheDocument(), {
         timeout: 3000,
       });
       expect(document.body.style.overflow).toBe("");
