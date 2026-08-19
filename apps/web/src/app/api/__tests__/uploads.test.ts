@@ -30,6 +30,11 @@ function multipartRequest(file: File | null, fieldName = "file"): Request {
   return new Request("http://localhost/api/uploads", { method: "POST", body: form });
 }
 
+// Mirrors route.ts's MAX_UPLOAD_SIZE_BYTES (10MB) + CONTENT_LENGTH_MARGIN_BYTES
+// (1MB) + 1 — the smallest declared length the content-length pre-check
+// should reject.
+const OVERSIZE_CONTENT_LENGTH = 11 * 1024 * 1024 + 1;
+
 beforeEach(() => {
   authMock.mockReset().mockResolvedValue({ user: { id: "user-1" } });
   processAndStoreImageMock.mockReset();
@@ -92,6 +97,70 @@ describe("POST /api/uploads", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "Kích thước ảnh tối đa là 10MB." });
     expect(processAndStoreImageMock).not.toHaveBeenCalled();
+  });
+
+  it("400s a too-large content-length header alone, before the multipart body is ever parsed", async () => {
+    // `request.formData()` makes undici buffer the ENTIRE body into memory
+    // before `file.size` can be read — so without a pre-check on the
+    // declared length, an authenticated client could push an arbitrarily
+    // large body into RAM before ever getting rejected. Stubbing formData()
+    // to throw proves the route never calls it once this header alone is
+    // enough to reject: if the mutation under test removed the pre-check,
+    // this stub firing would blow up the request instead of quietly
+    // returning the same 400 the real file.size check would have produced.
+    const req = new Request("http://localhost/api/uploads", {
+      method: "POST",
+      headers: { "content-length": String(OVERSIZE_CONTENT_LENGTH) },
+    });
+    const formDataSpy = vi.spyOn(req, "formData").mockImplementation(() => {
+      throw new Error("formData() must never be called once the content-length pre-check rejects");
+    });
+
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Kích thước ảnh tối đa là 10MB." });
+    expect(formDataSpy).not.toHaveBeenCalled();
+    expect(processAndStoreImageMock).not.toHaveBeenCalled();
+  });
+
+  it("does not reject a legitimate near-cap upload merely for multipart boundary overhead in content-length", async () => {
+    processAndStoreImageMock.mockResolvedValue({
+      url: "http://localhost:9000/hpwd/u/user-1/asset-2-1600.webp",
+      width: 3000,
+      height: 2000,
+      blurDataUrl: "data:image/webp;base64,AAA",
+      assetId: "asset-2",
+    });
+    // Real bytes just under the 10MB cap — the actual multipart-encoded
+    // content-length (file bytes + boundary/header overhead) is a little
+    // larger than this, but must still land well under the 1MB margin.
+    const nearCap = makeFile("near-cap.jpg", "image/jpeg", new Uint8Array(10 * 1024 * 1024 - 1024));
+
+    const res = await POST(multipartRequest(nearCap));
+
+    expect(res.status).toBe(200);
+    expect(processAndStoreImageMock).toHaveBeenCalled();
+  });
+
+  it("falls through to the exact file.size check (not the pre-check) when content-length is missing", async () => {
+    const big = makeFile("big.jpg", "image/jpeg", new Uint8Array(11 * 1024 * 1024));
+    const req = multipartRequest(big);
+    // Simulate a missing/unparseable content-length header without
+    // disturbing any other header lookup the real formData() parse needs.
+    const originalGet = req.headers.get.bind(req.headers);
+    vi.spyOn(req.headers, "get").mockImplementation((name: string) =>
+      name.toLowerCase() === "content-length" ? null : originalGet(name),
+    );
+    const formDataSpy = vi.spyOn(req, "formData");
+
+    const res = await POST(req);
+
+    // Still rejected — but only because file.size caught it after a real
+    // parse, proving the missing header didn't short-circuit anything.
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "Kích thước ảnh tối đa là 10MB." });
+    expect(formDataSpy).toHaveBeenCalled();
   });
 
   it("400s garbage bytes that aren't a decodable image (real sharp, no mock)", async () => {

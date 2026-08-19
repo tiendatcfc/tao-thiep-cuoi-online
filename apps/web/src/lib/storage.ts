@@ -5,15 +5,6 @@ import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
  * both speak the same API, so only the env values change between them.
  */
 
-// No current caller (the server always writes `.webp`, never the source
-// extension) — kept for Phase 2's audio task, which will need the same
-// content-type → extension mapping the deleted `createSignedUploadUrl` used.
-export const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/webp": "webp",
-};
-
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {

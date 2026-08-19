@@ -33,10 +33,12 @@ export interface ImageFieldProps {
   value: string;
   onChange: (url: string) => void;
   /**
-   * Fired with the natural pixel dimensions alongside the uploaded URL —
-   * only computed when this is provided (`AlbumPanel` needs it for
-   * `AlbumImageSchema.width`/`height`; the common single-image case, e.g.
-   * `CoverPanel`'s cover photo, doesn't).
+   * Fired with the server-measured dimensions and blur placeholder
+   * alongside the uploaded URL — `/api/uploads` always measures these, so
+   * this prop only controls whether the callback fires, not whether the
+   * work happens. `AlbumPanel` needs it for `AlbumImageSchema`'s
+   * `width`/`height`/`blurDataUrl`; the common single-image case, e.g.
+   * `CoverPanel`'s cover photo, doesn't and simply omits it.
    */
   onUploaded?: (meta: ImageUploadedMeta) => void;
 }

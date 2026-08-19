@@ -3,6 +3,16 @@ import { auth } from "@/auth";
 import { ImageDecodeError, processAndStoreImage } from "@/lib/upload";
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
+// `request.formData()` makes undici parse and buffer the ENTIRE multipart
+// body into memory before `file.size` (below) can be read — so the real
+// `file.size` check alone doesn't bound memory at all; an authenticated
+// client could push an arbitrarily large body into RAM before ever getting
+// rejected. This margin is added on top of the real cap so the
+// content-length pre-check (below, before formData() is ever called) never
+// rejects a legitimate ~10MB upload merely for the multipart
+// boundary/header bytes wrapped around it — `file.size` stays the exact,
+// authoritative check once the body is actually parsed.
+const CONTENT_LENGTH_MARGIN_BYTES = 1 * 1024 * 1024; // 1MB
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /**
@@ -18,6 +28,14 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Bạn cần đăng nhập để tải ảnh lên." }, { status: 401 });
+  }
+
+  // Cheap pre-check on the DECLARED length, before the body is ever parsed.
+  // A missing or unparseable header falls through to the exact `file.size`
+  // check below instead of being rejected here.
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_UPLOAD_SIZE_BYTES + CONTENT_LENGTH_MARGIN_BYTES) {
+    return NextResponse.json({ error: "Kích thước ảnh tối đa là 10MB." }, { status: 400 });
   }
 
   let file: File;
