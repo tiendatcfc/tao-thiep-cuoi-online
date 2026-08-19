@@ -4,6 +4,7 @@ import { Component, useState, type ReactNode } from "react";
 import type { ComponentType } from "react";
 import type { Section } from "@hpwd/schema";
 import { useEditorStore } from "@/stores/editor-store";
+import { AnimationControl } from "./AnimationControl";
 import { MusicPanel } from "./panels/MusicPanel";
 import { OpeningPanel } from "./panels/OpeningPanel";
 import { panelRegistry } from "./panels";
@@ -115,6 +116,7 @@ export function EditorPanel() {
       <div className="flex-1 overflow-y-auto p-4">
         <PanelErrorBoundary resetKey={document}>
           <Panel section={section} />
+          <AnimationControl section={section} />
         </PanelErrorBoundary>
       </div>
     </div>

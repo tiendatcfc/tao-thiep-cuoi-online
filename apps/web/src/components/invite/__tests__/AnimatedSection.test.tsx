@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SectionRenderer } from "../SectionRenderer";
 import { AnimatedSection } from "../AnimatedSection";
 import { createDefaultDocument, createSection } from "@hpwd/schema";
+import { useEditorStore } from "@/stores/editor-store";
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -158,6 +159,39 @@ describe("AnimatedSection", () => {
       // leaving a phantom, height-occupying node behind.
       expect(videoWrapper.childNodes.length).toBe(0);
       expect(videoWrapper).toHaveClass("empty:hidden");
+    });
+  });
+
+  // Task 5 (renderer-direction / both-directions rule): the editor's new
+  // `updateSectionAnimation` store action is only worth exposing if a
+  // written preset actually reaches the rendered invitation — this proves
+  // the full pipeline (store write -> document -> SectionRenderer ->
+  // AnimatedSection DOM), rather than just unit-testing AnimatedSection in
+  // isolation (already covered by the `preset: slide-up` describe block
+  // above) or the store action in isolation (editor-store.test.ts).
+  describe("store-fed preset (Task 5 renderer direction)", () => {
+    it("a preset written via updateSectionAnimation renders data-animate=\"slide-up\" through SectionRenderer", () => {
+      const document = createDefaultDocument();
+      useEditorStore.setState({
+        document,
+        selectedSectionId: null,
+        dirty: false,
+        saving: false,
+        lastSavedAt: null,
+      });
+
+      const cover = document.sections.find((s) => s.type === "cover");
+      if (!cover) throw new Error("fixture missing cover section");
+      expect(cover.animation.preset).toBe("fade"); // createSection's default, pre-write
+
+      useEditorStore.getState().updateSectionAnimation(cover.id, { preset: "slide-up", durationMs: 1200 });
+      const written = useEditorStore.getState().document;
+
+      const { container } = render(<SectionRenderer document={written} />);
+
+      const wrapper = container.querySelector('[data-animate="slide-up"]');
+      expect(wrapper).toBeInTheDocument();
+      expect(wrapper).toHaveAttribute("data-duration", "1200");
     });
   });
 });
