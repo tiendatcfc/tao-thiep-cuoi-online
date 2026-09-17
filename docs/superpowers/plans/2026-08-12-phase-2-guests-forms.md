@@ -495,7 +495,7 @@ export interface GuestImportResult { rows: GuestDraft[]; skipped: number; warnin
 
 **Quyết định thiết kế:** file **không bao giờ được gửi lên server** — parse hoàn toàn ở trình duyệt rồi POST danh sách JSON đã xem trước. Bỏ hẳn một lớp bề mặt tấn công (server không parse file người lạ) và không cần route upload mới.
 
-- [ ] **Step 1: Viết test cho `parseGuestFile` với CSV**
+- [x] **Step 1: Viết test cho `parseGuestFile` với CSV**
 
 ```ts
 it("đọc CSV có tiêu đề tiếng Việt: Tên, Nhóm, Ghi chú", async () => {
@@ -517,17 +517,17 @@ it("loại trùng theo tên đã chuẩn hoá, giữ bản đầu, ghi cảnh b�
 it("từ chối file quá 500 dòng với cảnh báo tiếng Việt", async () => {});
 ```
 
-- [ ] **Step 2: Chạy → FAIL. Step 3: Implement.**
+- [x] **Step 2: Chạy → FAIL. Step 3: Implement.**
 
 Parser CSV tự viết (không thêm phụ thuộc cho CSV): xử lý ngoặc kép, dấu phẩy trong ô, `""` escape, CRLF, BOM. Nhận diện cột theo tiêu đề đã bỏ dấu (`removeDiacritics` từ `@/lib/slug`): `ten|name|họ tên|ho ten` → name, `nhom|group` → group, `ghi chu|note` → note. Với `.xlsx`, `import("exceljs")` động (chỉ tải khi người dùng chọn file Excel) và đọc sheet đầu, rồi đi qua đúng đường xử lý như CSV.
 
-- [ ] **Step 4: Chạy → PASS.**
+- [x] **Step 4: Chạy → PASS.**
 
-- [ ] **Step 5: Implement `GuestImportDialog.tsx`**: chọn file → parse → bảng xem trước (tối đa 20 dòng đầu + tổng số) → hiện cảnh báo/số dòng bỏ qua → nút "Nhập N khách" gọi POST → đóng dialog và làm mới danh sách. Có Escape để đóng và focus trap, tái dùng khuôn mẫu của `PublishDialog`.
+- [x] **Step 5: Implement `GuestImportDialog.tsx`**: chọn file → parse → bảng xem trước (tối đa 20 dòng đầu + tổng số) → hiện cảnh báo/số dòng bỏ qua → nút "Nhập N khách" gọi POST → đóng dialog và làm mới danh sách. Có Escape để đóng và focus trap, tái dùng khuôn mẫu của `PublishDialog`.
 
-- [ ] **Step 6: Kiểm chứng thật:** tạo một file `.csv` và một `.xlsx` mẫu trong thư mục scratch, nhập thử qua UI hoặc qua test tích hợp gọi `parseGuestFile` với `File` dựng từ buffer thật của exceljs. Ghi kết quả vào báo cáo.
+- [x] **Step 6: Kiểm chứng thật:** tạo một file `.csv` và một `.xlsx` mẫu trong thư mục scratch, nhập thử qua UI hoặc qua test tích hợp gọi `parseGuestFile` với `File` dựng từ buffer thật của exceljs. Ghi kết quả vào báo cáo.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git commit -am "feat(guests): client-side csv/xlsx import with preview"
