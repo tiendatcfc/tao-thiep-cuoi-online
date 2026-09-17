@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { buildGuestLink } from "@/lib/guest-links";
+import { GuestImportDialog } from "./GuestImportDialog";
 
 export interface Guest {
   id: string;
@@ -79,6 +80,7 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
   // case (available, so the button renders) on both, then correct here
   // once the real capability is known.
   const [clipboardUnavailable, setClipboardUnavailable] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || typeof navigator.clipboard?.writeText !== "function") {
@@ -255,6 +257,18 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
         >
           {adding ? "Đang thêm..." : "Thêm khách"}
         </button>
+        {/*
+         * `type="button"` matters: this lives inside the quick-add <form>, so
+         * the default `type="submit"` would fire `handleAdd` as well as open
+         * the dialog.
+         */}
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+        >
+          Nhập từ file
+        </button>
       </form>
       {addError ? (
         <p role="alert" className="text-sm text-red-600">
@@ -427,6 +441,12 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
           {deleteError}
         </p>
       ) : null}
+      <GuestImportDialog
+        invitationId={invitationId}
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(created) => setGuests((prev) => [...created, ...prev])}
+      />
     </div>
   );
 }
