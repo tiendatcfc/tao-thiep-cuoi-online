@@ -10,8 +10,9 @@
  * whole document" check.
  */
 import { createDefaultDocument, InvitationDocumentSchema, type Section, type SectionType } from "@hpwd/schema";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { sanitizeHtml } from "@/lib/sanitize";
 import { useEditorStore } from "@/stores/editor-store";
 import { AlbumPanel } from "../AlbumPanel";
 import { CoverPanel } from "../CoverPanel";
@@ -20,6 +21,7 @@ import { FormPanel } from "../FormPanel";
 import { GiftPanel } from "../GiftPanel";
 import { OpeningPanel } from "../OpeningPanel";
 import { StoryPanel } from "../StoryPanel";
+import { TextPanel } from "../TextPanel";
 import { ThemePanel } from "../ThemePanel";
 import { VideoPanel } from "../VideoPanel";
 import { WishesPanel } from "../WishesPanel";
@@ -387,6 +389,73 @@ describe("FormPanel's Task 4 affordances keep the document schema-valid", () => 
     expect(within(rows[rows.length - 1]).getByRole("alert")).toHaveTextContent(/không gửi được/i);
     view.unmount();
 
+    expectValid();
+  });
+});
+
+/**
+ * Task 8 replaced `TextPanel`'s raw-markup textarea with a TipTap editor.
+ * That makes it the only panel that REWRITES the couple's content on every
+ * keystroke — it serialises a ProseMirror document and sanitizes the result
+ * — so it is exactly the shape of edit that broke autosave for the whole
+ * invitation in Phase 1 (blocker B1).
+ */
+describe("TextPanel's rich text keeps the document schema-valid", () => {
+  function textSection() {
+    return addAndGetSection("text");
+  }
+
+  function storedText() {
+    return sectionOfType("text");
+  }
+
+  function expectValid() {
+    expect(() => InvitationDocumentSchema.parse(useEditorStore.getState().document)).not.toThrow();
+  }
+
+  it("formatting through the toolbar leaves the document parseable", async () => {
+    const view = render(<TextPanel section={textSection()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Tiêu đề" }));
+    await waitFor(() => expect(storedText().props.html).toContain("<h2>"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Danh sách" }));
+    await waitFor(() => expect(storedText().props.html).toContain("<ul>"));
+
+    view.unmount();
+    expectValid();
+  });
+
+  it("stores markup the sanitizer would not change, so rendering is a no-op second pass", async () => {
+    const section = textSection();
+    useEditorStore.getState().updateSectionProps(section.id, {
+      html: '<p>Mời bạn xem <a href="https://hpwd.vn/x" target="_blank" rel="noopener noreferrer">tại đây</a></p>',
+    });
+    const view = render(<TextPanel section={sectionOfType("text")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Trích dẫn" }));
+
+    await waitFor(() => expect(storedText().props.html).toContain("<blockquote>"));
+    expect(sanitizeHtml(storedText().props.html)).toBe(storedText().props.html);
+    view.unmount();
+    expectValid();
+  });
+
+  it("refuses an edit that would push props.html past the schema's 10.000-character cap", async () => {
+    // The panel must never be able to write a value the schema rejects:
+    // `InvitationDocumentSchema.parse` failing stops autosave for every
+    // section of the invitation, not just this one.
+    const section = textSection();
+    const nearCap = `<p>${"a".repeat(9_990)}</p>`;
+    useEditorStore.getState().updateSectionProps(section.id, { html: nearCap });
+    const view = render(<TextPanel section={sectionOfType("text")} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Danh sách" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/giới hạn/i);
+
+    expect(storedText().props.html).toBe(nearCap);
+    expect(storedText().props.html.length).toBeLessThanOrEqual(10_000);
+    view.unmount();
     expectValid();
   });
 });

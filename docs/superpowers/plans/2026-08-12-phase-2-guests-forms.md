@@ -707,7 +707,7 @@ git commit -am "feat(video): youtube section with click-to-load facade"
 - Consumes: `sanitizeHtml(html: string): string`.
 - Produces: allowlist mở rộng thêm các thẻ TipTap sinh ra: `<h2> <h3> <ul> <ol> <li> <blockquote> <s>` (đều không thuộc tính), giữ nguyên cơ chế anchor hiện có.
 
-- [ ] **Step 1: Viết test bypass TRƯỚC khi mở rộng** — file riêng `sanitize.richtext.test.ts`, gồm:
+- [x] **Step 1: Viết test bypass TRƯỚC khi mở rộng** — file riêng `sanitize.richtext.test.ts`, gồm:
 
 ```ts
 // Các ca phải VẪN an toàn sau khi mở rộng allowlist:
@@ -722,19 +722,19 @@ it("giữ <ul><li>một</li><li>hai</li></ul>", () => {});
 it("giữ <h2>Tiêu đề</h2> và <blockquote>trích</blockquote>", () => {});
 ```
 
-- [ ] **Step 2: Chạy → các ca "phải hoạt động" FAIL (thẻ mới đang bị escape).**
+- [x] **Step 2: Chạy → các ca "phải hoạt động" FAIL (thẻ mới đang bị escape).**
 
-- [ ] **Step 3: Mở rộng allowlist** bằng cách thêm tên thẻ vào `BARE_TAGS` — **không đổi cấu trúc tokenizer**. Chạy lại: tất cả xanh, kể cả toàn bộ `sanitize.test.ts` cũ (20 ca) không được sửa.
+- [x] **Step 3: Mở rộng allowlist** bằng cách thêm tên thẻ vào `BARE_TAGS` — **không đổi cấu trúc tokenizer**. Chạy lại: tất cả xanh, kể cả toàn bộ `sanitize.test.ts` cũ (20 ca) không được sửa.
 
-- [ ] **Step 4: Implement `RichTextEditor.tsx`** — TipTap `useEditor` với StarterKit (tắt các extension sinh thẻ ngoài allowlist: code block, horizontal rule, image), thêm Link (`openOnClick: false`, `HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" }`). Thanh công cụ tiếng Việt: Đậm / Nghiêng / Gạch chân / Gạch ngang / Tiêu đề / Danh sách / Trích dẫn / Liên kết. `onUpdate` → `sanitizeHtml(editor.getHTML())` → đẩy vào store qua `useDebouncedField` (250ms như các field khác). **Quan trọng:** sanitize trước khi lưu, để nội dung trong document luôn ở dạng đã an toàn và `TextSection` sanitize lần nữa vẫn idempotent.
+- [x] **Step 4: Implement `RichTextEditor.tsx`** — TipTap `useEditor` với StarterKit (tắt các extension sinh thẻ ngoài allowlist: code block, horizontal rule, image), thêm Link (`openOnClick: false`, `HTMLAttributes: { rel: "noopener noreferrer", target: "_blank" }`). Thanh công cụ tiếng Việt: Đậm / Nghiêng / Gạch chân / Gạch ngang / Tiêu đề / Danh sách / Trích dẫn / Liên kết. `onUpdate` → `sanitizeHtml(editor.getHTML())` → đẩy vào store qua `useDebouncedField` (250ms như các field khác). **Quan trọng:** sanitize trước khi lưu, để nội dung trong document luôn ở dạng đã an toàn và `TextSection` sanitize lần nữa vẫn idempotent.
 
-- [ ] **Step 5: Test `RichTextEditor`**: gõ văn bản → store nhận HTML đã sanitize; bấm nút Đậm → có `<strong>`; dán HTML độc (`<img src=x onerror=alert(1)>`) → store không chứa `<img`; giữ giới hạn 10.000 ký tự (`TextProps.html.max`) và chặn nhập thêm khi vượt.
+- [x] **Step 5: Test `RichTextEditor`**: gõ văn bản → store nhận HTML đã sanitize; bấm nút Đậm → có `<strong>`; dán HTML độc (`<img src=x onerror=alert(1)>`) → store không chứa `<img`; giữ giới hạn 10.000 ký tự (`TextProps.html.max`) và chặn nhập thêm khi vượt.
 
-- [ ] **Step 6: Thay `TextPanel`'s textarea bằng `RichTextEditor`.** Thêm ca vào `panels.schema-integration.test.tsx`.
+- [x] **Step 6: Thay `TextPanel`'s textarea bằng `RichTextEditor`.** Thêm ca vào `panels.schema-integration.test.tsx`.
 
-- [ ] **Step 7: Chạy tất cả (bao gồm 20 ca sanitize cũ) + lint + tsc + build.**
+- [x] **Step 7: Chạy tất cả (bao gồm 20 ca sanitize cũ) + lint + tsc + build.**
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git commit -am "feat(text): tiptap rich text editor with extended sanitizer allowlist"

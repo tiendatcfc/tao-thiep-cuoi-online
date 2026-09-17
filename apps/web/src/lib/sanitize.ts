@@ -44,7 +44,29 @@
 // they appear literally in the raw input. A tag carrying any attribute
 // (e.g. `<span style="...">`) simply isn't one of these exact strings and
 // falls through to the generic per-character escaping below.
-const BARE_TAGS = ["p", "strong", "em", "u", "span"];
+//
+// Extending rich-text support means adding a NAME to this list and nothing
+// else — the tokenizer below stays untouched. Matching is exact-string
+// (`startsWith` on the full `<tag>` including the `>`), so a short name is
+// never a prefix of a longer tag: `<s>` cannot shadow `<span>` or
+// `<strong>`, because the `>` differs from `p`/`t` at the third character.
+// The block tags below are the ones TipTap's StarterKit emits (Task 8).
+// `h1` is deliberately absent: the invitation page owns the page heading,
+// and a section body must not be able to compete with it.
+const BARE_TAGS = [
+  "p",
+  "strong",
+  "em",
+  "u",
+  "s",
+  "span",
+  "h2",
+  "h3",
+  "ul",
+  "ol",
+  "li",
+  "blockquote",
+];
 const LITERAL_TAGS: string[] = [];
 for (const tag of BARE_TAGS) {
   LITERAL_TAGS.push(`<${tag}>`, `</${tag}>`);

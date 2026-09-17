@@ -2,30 +2,25 @@
 
 import type { Section } from "@hpwd/schema";
 import { useEditorStore } from "@/stores/editor-store";
-import { TextAreaField } from "../fields/TextAreaField";
+import { RichTextEditor } from "../RichTextEditor";
 
-/**
- * No rich-text editor here (Phase 2 / TipTap, per the task's YAGNI note) —
- * the couple edits `TextProps.html` as raw markup directly. `TextSection`
- * runs it through `sanitizeHtml` before rendering, so only a small
- * allowlist of tags actually has any effect either way.
- */
 export function TextPanel({ section }: { section: Extract<Section, { type: "text" }> }) {
   const updateSectionProps = useEditorStore((state) => state.updateSectionProps);
 
   return (
     <div className="flex flex-col gap-4">
-      <TextAreaField
+      <RichTextEditor
+        // `EditorPanel` renders `<Panel section={section} />` with no key,
+        // so React reuses this component instance when the couple switches
+        // between two *text* sections. TipTap reads `content` once, at
+        // creation — without this key the second section would open
+        // showing the first one's text, and the first keystroke would
+        // overwrite it. Keyed by id, each section gets its own editor.
+        key={section.id}
         label="Nội dung"
         value={section.props.html}
-        rows={8}
-        // C9: mirrors TextPropsSchema.html's new `.max(10_000)` — without
-        // this, typing past the limit would make the whole document fail
-        // client-side validation and silently stop autosaving, the exact
-        // same class of bug as B1's "+ Thêm" buttons.
-        maxLength={10_000}
-        onChange={(v) => updateSectionProps(section.id, { html: v })}
-        hint="Hỗ trợ các thẻ: <p>, <strong>, <em>, <u>, <span>, <br>, <a href=&quot;…&quot;>. Các thẻ khác sẽ bị loại bỏ khi hiển thị."
+        onChange={(html) => updateSectionProps(section.id, { html })}
+        hint="Chọn chữ rồi bấm nút định dạng. Dán từ Word/Google Docs cũng được — phần định dạng không hỗ trợ sẽ tự bỏ."
       />
     </div>
   );
