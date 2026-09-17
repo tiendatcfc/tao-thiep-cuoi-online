@@ -24,16 +24,37 @@ beforeEach(() => {
 });
 
 describe("FormPanel", () => {
-  it("shows the read-only RSVP note only when isRsvp is true", () => {
+  // Task 4 turned the former read-only RSVP banner into an editable toggle,
+  // so the assertion is now about the control reflecting state, not a note.
+  it("reflects isRsvp in the RSVP toggle and explains what it does either way", () => {
     const rsvp = formSection();
     rsvp.props.isRsvp = true;
     const { rerender } = render(<FormPanel section={rsvp} />);
-    expect(screen.getByText(/Đây là biểu mẫu xác nhận tham dự/)).toBeInTheDocument();
+
+    const onToggle = screen.getByLabelText("Dùng làm biểu mẫu xác nhận tham dự (RSVP)");
+    expect(onToggle).toBeChecked();
+    expect(screen.getByText(/Chỉ một biểu mẫu được đánh dấu/)).toBeInTheDocument();
 
     const notRsvp = formSection();
     notRsvp.props.isRsvp = false;
     rerender(<FormPanel section={notRsvp} />);
-    expect(screen.queryByText(/Đây là biểu mẫu xác nhận tham dự/)).not.toBeInTheDocument();
+
+    expect(screen.getByLabelText("Dùng làm biểu mẫu xác nhận tham dự (RSVP)")).not.toBeChecked();
+    expect(screen.getByText(/Bật nếu đây là biểu mẫu khách mời xác nhận tham dự/)).toBeInTheDocument();
+  });
+
+  it("clicking the RSVP toggle writes isRsvp through to the store", () => {
+    const section = formSection();
+    section.props.isRsvp = false;
+    useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
+    render(<FormPanel section={section} />);
+
+    fireEvent.click(screen.getByLabelText("Dùng làm biểu mẫu xác nhận tham dự (RSVP)"));
+
+    const updated = useEditorStore
+      .getState()
+      .document.sections.find((s) => s.id === section.id) as Extract<Section, { type: "form" }>;
+    expect(updated.props.isRsvp).toBe(true);
   });
 
   it("adding a select-type field shows an options ListField and a warning when it has zero options", () => {
@@ -55,7 +76,21 @@ describe("FormPanel", () => {
     rerender(<FormPanel section={updatedSection} />);
 
     const updatedRow = screen.getAllByRole("listitem")[0];
-    expect(within(updatedRow).getByText(/Cần thêm ít nhất 1 lựa chọn/)).toBeInTheDocument();
+    // The fixture field is `required: true`, so this is the stronger of the
+    // two warnings: a required question with no options can never be answered,
+    // which blocks the whole form rather than just looking unfinished.
+    expect(within(updatedRow).getByRole("alert")).toHaveTextContent(/không gửi được biểu mẫu/);
+  });
+
+  it("softens the zero-options warning when the question is optional", () => {
+    const section = formSection();
+    section.props.fields = [{ id: "f1", type: "select", label: "Món ăn", required: false, options: [] }];
+    useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
+
+    render(<FormPanel section={section} />);
+
+    const row = screen.getAllByRole("listitem")[0];
+    expect(within(row).getByRole("alert")).toHaveTextContent(/Cần thêm ít nhất 1 lựa chọn/);
   });
 
   it("adding an option to a select field's options list clears the warning and updates the store", () => {

@@ -129,6 +129,10 @@ describe("SectionList add control", () => {
     // Already present but duplicates allowed -> still offered.
     expect(within(addGroup).getByRole("button", { name: "Sự kiện" })).toBeInTheDocument();
     // Already present, single-instance -> not offered.
+    // Task 4: a second questionnaire beside the RSVP (meal choice, shuttle
+    // sign-up) is a real need, so `form` joined text/events as duplicable.
+    expect(within(addGroup).getByRole("button", { name: "Biểu mẫu" })).toBeInTheDocument();
+
     expect(within(addGroup).queryByRole("button", { name: "Trang bìa" })).not.toBeInTheDocument();
     expect(within(addGroup).queryByRole("button", { name: "Hộp mừng cưới" })).not.toBeInTheDocument();
   });

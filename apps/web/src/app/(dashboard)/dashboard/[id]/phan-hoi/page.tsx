@@ -1,8 +1,13 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@hpwd/db";
 import { InvitationDocumentSchema, type Section } from "@hpwd/schema";
 import { auth } from "@/auth";
 import { formatVietnameseDate } from "@/lib/date";
+import { formatSubmissionValue } from "@/lib/submissions";
+
+/** Matches the plan's "50 phản hồi mỗi trang". */
+const PAGE_SIZE = 50;
 
 type FormSectionDoc = Extract<Section, { type: "form" }>;
 
@@ -12,13 +17,14 @@ function parsePublishedDocument(raw: unknown) {
   return result.success ? result.data : null;
 }
 
-/** Renders one submitted field value for the table — `undefined`/empty as "-", booleans and multi-select checkbox arrays spelled out in Vietnamese/joined for readability. */
-function formatCellValue(value: unknown): string {
-  if (value === undefined || value === null) return "-";
-  if (typeof value === "boolean") return value ? "Có" : "Không";
-  if (Array.isArray(value)) return value.length > 0 ? value.join(", ") : "-";
-  if (typeof value === "string") return value.trim() === "" ? "-" : value;
-  return String(value);
+/**
+ * Reads `?trang=`, clamped into range. An out-of-range or junk value lands on
+ * page 1 rather than showing an empty table with no way back.
+ */
+function resolvePage(raw: string | string[] | undefined, totalPages: number): number {
+  const value = Number.parseInt(Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? ""), 10);
+  if (!Number.isFinite(value) || value < 1) return 1;
+  return Math.min(value, Math.max(totalPages, 1));
 }
 
 /**
@@ -28,13 +34,21 @@ function formatCellValue(value: unknown): string {
  * doesn't exist or belongs to someone else, matching the wishes moderation
  * page's convention.
  *
- * Deliberately unpaginated: a wedding invitation's guest list is small
- * enough (rarely more than a few hundred) that a single unpaginated query
- * is simpler and fine for Phase 0/1 — worth revisiting if that assumption
- * stops holding.
+ * Paginated at `PAGE_SIZE` newest-first across ALL form sections at once
+ * (one shared `?trang=`), rather than per section: almost every invitation
+ * has exactly one form, and a separate page cursor per section would put two
+ * independent paginators on screen for the rare case that it doesn't. Anyone
+ * who wants the complete set uses the CSV export, which is never paginated.
  */
-export default async function ResponsesPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ResponsesPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const query = await searchParams;
 
   const session = await auth();
   if (!session?.user?.id) {
@@ -51,9 +65,15 @@ export default async function ResponsesPage({ params }: { params: Promise<{ id: 
     ? document.sections.filter((section): section is FormSectionDoc => section.type === "form")
     : [];
 
+  const totalSubmissions = await prisma.formSubmission.count({ where: { invitationId: id } });
+  const totalPages = Math.max(1, Math.ceil(totalSubmissions / PAGE_SIZE));
+  const page = resolvePage(query.trang, totalPages);
+
   const submissions = await prisma.formSubmission.findMany({
     where: { invitationId: id },
     orderBy: { createdAt: "desc" },
+    skip: (page - 1) * PAGE_SIZE,
+    take: PAGE_SIZE,
   });
 
   const guestTokens = Array.from(
@@ -80,21 +100,35 @@ export default async function ResponsesPage({ params }: { params: Promise<{ id: 
   const rsvpField = rsvpSection?.props.fields.find(
     (field) => field.type === "radio" && field.options.includes("Có"),
   );
+  // Counted with its own query over EVERY submission, not over `submissions`
+  // — that array is one page's worth now, and filtering it would quietly turn
+  // the headline attendance number into "attendees on page 1".
   const attendingCount =
     rsvpSection && rsvpField
-      ? (submissionsBySectionId.get(rsvpSection.id) ?? []).filter(
-          (submission) => (submission.data as Record<string, unknown>)[rsvpField.id] === "Có",
-        ).length
+      ? await prisma.formSubmission.count({
+          where: {
+            invitationId: id,
+            sectionId: rsvpSection.id,
+            data: { path: [rsvpField.id], equals: "Có" },
+          },
+        })
       : null;
+
+  const firstOnPage = totalSubmissions === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastOnPage = (page - 1) * PAGE_SIZE + submissions.length;
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
       <h1 className="text-xl font-semibold text-gray-900">Phản hồi</h1>
       <p className="mt-1 text-sm text-gray-600">
-        Tổng số phản hồi: {submissions.length}
+        Tổng số phản hồi: {totalSubmissions}
         {attendingCount !== null ? ` — Số khách xác nhận tham dự: ${attendingCount}` : ""}
       </p>
-      <p className="mt-1 text-xs text-gray-400">Hiển thị toàn bộ phản hồi (chưa phân trang).</p>
+      <p className="mt-1 text-xs text-gray-400">
+        {totalSubmissions === 0
+          ? "Chưa có phản hồi nào."
+          : `Đang hiện ${firstOnPage}–${lastOnPage} trong ${totalSubmissions} phản hồi (trang ${page}/${totalPages}). Tải CSV để lấy toàn bộ.`}
+      </p>
 
       {formSections.length === 0 ? (
         <p className="mt-8 text-center text-sm text-gray-400">Thiệp chưa có mục biểu mẫu nào.</p>
@@ -103,7 +137,20 @@ export default async function ResponsesPage({ params }: { params: Promise<{ id: 
           const sectionSubmissions = submissionsBySectionId.get(section.id) ?? [];
           return (
             <section key={section.id} className="mt-8">
-              <h2 className="text-base font-semibold text-gray-900">{section.props.title}</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-gray-900">{section.props.title}</h2>
+                {/* Plain link, not a fetch + blob: the route already sends
+                    Content-Disposition, so the browser downloads it with no
+                    client JS and the page stays a server component. It always
+                    exports ALL submissions of this section, never just the
+                    page on screen. */}
+                <a
+                  href={`/api/invitations/${id}/submissions/export?sectionId=${encodeURIComponent(section.id)}`}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                >
+                  Tải CSV
+                </a>
+              </div>
 
               {sectionSubmissions.length === 0 ? (
                 <p className="mt-3 text-sm text-gray-400">Chưa có phản hồi nào.</p>
@@ -145,7 +192,7 @@ export default async function ResponsesPage({ params }: { params: Promise<{ id: 
                             <td className="whitespace-nowrap px-3 py-2 text-gray-700">{guestName}</td>
                             {section.props.fields.map((field) => (
                               <td key={field.id} className="px-3 py-2 text-gray-700">
-                                {formatCellValue(data[field.id])}
+                                {formatSubmissionValue(data[field.id], "-")}
                               </td>
                             ))}
                           </tr>
@@ -159,6 +206,41 @@ export default async function ResponsesPage({ params }: { params: Promise<{ id: 
           );
         })
       )}
+
+      {totalPages > 1 ? (
+        <nav aria-label="Phân trang phản hồi" className="mt-8 flex items-center justify-center gap-2">
+          {/* Real links, so the browser back button and "open in new tab"
+              both behave; `scroll={false}` is not needed because each page is
+              a fresh server render. */}
+          {page > 1 ? (
+            <Link
+              href={`/dashboard/${id}/phan-hoi?trang=${page - 1}`}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-50"
+            >
+              ← Trang trước
+            </Link>
+          ) : (
+            <span className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-300">
+              ← Trang trước
+            </span>
+          )}
+          <span className="text-sm text-gray-600">
+            Trang {page}/{totalPages}
+          </span>
+          {page < totalPages ? (
+            <Link
+              href={`/dashboard/${id}/phan-hoi?trang=${page + 1}`}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 transition hover:bg-gray-50"
+            >
+              Trang sau →
+            </Link>
+          ) : (
+            <span className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-300">
+              Trang sau →
+            </span>
+          )}
+        </nav>
+      ) : null}
     </div>
   );
 }

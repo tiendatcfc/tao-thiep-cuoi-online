@@ -39,6 +39,7 @@ export type EditorState = {
   setVersion(v: number): void;
   selectSection(id: string | null): void;
   updateSectionProps(id: string, patch: Record<string, unknown>): void;
+  setRsvpSection(id: string, value: boolean): void;
   updateSectionAnimation(id: string, patch: Partial<Section["animation"]>): void;
   updateTheme(patch: Partial<Theme>): void;
   updateOpening(patch: Partial<Opening>): void;
@@ -110,6 +111,36 @@ export const useEditorStore = create<EditorState>()((set) => ({
             ? ({ ...section, props: { ...section.props, ...patch } } as Section)
             : section,
         ),
+      },
+      dirty: true,
+    }));
+  },
+
+  /**
+   * Flags one `form` section as THE RSVP form, clearing the flag on every
+   * other form section in the same pass.
+   *
+   * Exclusivity is enforced here rather than left to a warning label because
+   * several readers assume there is at most one: the responses page picks the
+   * attendance-summary form with `.find(s => s.props.isRsvp)`, and the guest
+   * view pre-fills the invited guest's name into the RSVP form. With two
+   * flagged, both silently pick whichever happens to come first in the
+   * section order, so a couple could move sections around and watch their
+   * attendance count change for no visible reason.
+   *
+   * Turning it OFF simply clears this one and leaves the invitation with no
+   * RSVP form, which is legitimate — not every couple wants to collect
+   * attendance.
+   */
+  setRsvpSection(id, value) {
+    set((state) => ({
+      document: {
+        ...state.document,
+        sections: state.document.sections.map((section) => {
+          if (section.type !== "form") return section;
+          const isRsvp = section.id === id ? value : value ? false : section.props.isRsvp;
+          return { ...section, props: { ...section.props, isRsvp } } as Section;
+        }),
       },
       dirty: true,
     }));

@@ -55,8 +55,10 @@ function FormFieldEditor({ field, onChange }: { field: FormField; onChange: (nex
             )}
           />
           {field.options.length === 0 ? (
-            <p className="text-xs text-amber-600">
-              Cần thêm ít nhất 1 lựa chọn để khách mời có thể chọn được.
+            <p role="alert" className="text-xs text-amber-600">
+              {field.required
+                ? "Câu hỏi bắt buộc nhưng chưa có lựa chọn nào — khách mời sẽ không gửi được biểu mẫu."
+                : "Cần thêm ít nhất 1 lựa chọn để khách mời có thể chọn được."}
             </p>
           ) : null}
         </>
@@ -66,13 +68,16 @@ function FormFieldEditor({ field, onChange }: { field: FormField; onChange: (nex
 }
 
 /**
- * Edits a `form` section's questions. `isRsvp` is not user-editable here —
- * it's system-managed (which form is the couple's canonical RSVP), shown
- * only as a read-only note so it's clear which form guests actually submit
- * through.
+ * Edits a `form` section: its questions, their order, and whether this is the
+ * couple's RSVP form.
+ *
+ * `isRsvp` writes through `setRsvpSection` rather than `updateSectionProps`
+ * so turning it on here clears it everywhere else — see that action for why
+ * two RSVP forms is a silent correctness problem rather than a style choice.
  */
 export function FormPanel({ section }: { section: Extract<Section, { type: "form" }> }) {
   const updateSectionProps = useEditorStore((state) => state.updateSectionProps);
+  const setRsvpSection = useEditorStore((state) => state.setRsvpSection);
   const { title, fields, submitLabel, isRsvp } = section.props;
 
   function patch(next: Partial<FormProps>) {
@@ -81,14 +86,23 @@ export function FormPanel({ section }: { section: Extract<Section, { type: "form
 
   return (
     <div className="flex flex-col gap-4">
-      {isRsvp ? (
-        <p className="rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">
-          Đây là biểu mẫu xác nhận tham dự (RSVP) chính mà khách mời sẽ điền.
+      <div className="flex flex-col gap-1">
+        <ToggleField
+          label="Dùng làm biểu mẫu xác nhận tham dự (RSVP)"
+          value={isRsvp}
+          onChange={(v) => setRsvpSection(section.id, v)}
+        />
+        <p className="text-xs text-gray-500">
+          {isRsvp
+            ? "Khách mời mở bằng liên kết riêng sẽ được điền sẵn tên, và số khách xác nhận được đếm từ biểu mẫu này. Chỉ một biểu mẫu được đánh dấu — bật ở biểu mẫu khác sẽ tự tắt ở đây."
+            : "Bật nếu đây là biểu mẫu khách mời xác nhận tham dự. Các biểu mẫu khác vẫn thu thập phản hồi bình thường."}
         </p>
-      ) : null}
+      </div>
       <TextField label="Tiêu đề" value={title} onChange={(v) => patch({ title: v })} />
+      {/* ListField supplies the Lên/Xuống buttons; the hint is here because
+          question order is what guests see top-to-bottom on the invitation. */}
       <ListField<FormField>
-        label="Câu hỏi trong biểu mẫu"
+        label="Câu hỏi trong biểu mẫu (dùng nút Lên/Xuống để đổi thứ tự)"
         items={fields}
         onChange={(next) => patch({ fields: next })}
         // `FormFieldSchema.label` is `.min(1)` — seeding `""` used to make

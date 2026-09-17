@@ -238,3 +238,106 @@ describe("every '+ Thêm' button leaves the document schema-valid", () => {
     expect(() => InvitationDocumentSchema.parse(document)).not.toThrow();
   });
 });
+
+/**
+ * Task 4 added two mutating affordances to `FormPanel`: reordering questions
+ * (ListField's Lên/Xuống) and the RSVP toggle, which writes through the
+ * store's `setRsvpSection` and therefore touches OTHER sections too. Both are
+ * exactly the shape of edit that broke autosave for the whole document in
+ * Phase 1 (blocker B1), so both are pinned here.
+ */
+describe("FormPanel's Task 4 affordances keep the document schema-valid", () => {
+  function formSections() {
+    return useEditorStore
+      .getState()
+      .document.sections.filter((s): s is Extract<Section, { type: "form" }> => s.type === "form");
+  }
+
+  function expectValid() {
+    expect(() => InvitationDocumentSchema.parse(useEditorStore.getState().document)).not.toThrow();
+  }
+
+  it("reordering questions with Lên/Xuống swaps them and leaves the document valid", () => {
+    // Give the form a second question so there is something to reorder.
+    let view = render(<FormPanel section={sectionOfType("form")} />);
+    const addButtons = screen.getAllByRole("button", { name: "Thêm" });
+    fireEvent.click(addButtons[addButtons.length - 1]);
+    view.unmount();
+
+    const before = sectionOfType("form").props.fields.map((f) => f.id);
+    expect(before.length).toBeGreaterThan(1);
+
+    view = render(<FormPanel section={sectionOfType("form")} />);
+    const rows = screen.getAllByRole("listitem");
+    fireEvent.click(within(rows[rows.length - 1]).getByRole("button", { name: "Lên" }));
+    view.unmount();
+
+    const after = sectionOfType("form").props.fields.map((f) => f.id);
+    expect(after[after.length - 1]).toBe(before[before.length - 2]);
+    expect(after[after.length - 2]).toBe(before[before.length - 1]);
+    expect(new Set(after)).toEqual(new Set(before));
+    expectValid();
+  });
+
+  it("turning the RSVP toggle on clears it on every other form section", () => {
+    useEditorStore.getState().addSection("form");
+    const [first, second] = formSections();
+    expect(formSections()).toHaveLength(2);
+
+    // Flag the first, then the second: the second must steal the flag.
+    useEditorStore.getState().setRsvpSection(first.id, true);
+    useEditorStore.getState().setRsvpSection(second.id, true);
+
+    const flagged = formSections().filter((s) => s.props.isRsvp);
+    expect(flagged.map((s) => s.id)).toEqual([second.id]);
+    expectValid();
+  });
+
+  it("toggling RSVP through the panel UI leaves the document valid", () => {
+    const section = sectionOfType("form");
+    const view = render(<FormPanel section={section} />);
+
+    fireEvent.click(screen.getByLabelText("Dùng làm biểu mẫu xác nhận tham dự (RSVP)"));
+    view.unmount();
+
+    expectValid();
+  });
+
+  it("turning RSVP off leaves no form flagged, which is a legitimate state", () => {
+    const section = sectionOfType("form");
+
+    useEditorStore.getState().setRsvpSection(section.id, true);
+    useEditorStore.getState().setRsvpSection(section.id, false);
+
+    expect(formSections().some((s) => s.props.isRsvp)).toBe(false);
+    expectValid();
+  });
+
+  it("warns when a required select question has no options at all", () => {
+    // A required select with zero options is unanswerable: the guest can
+    // never satisfy it, so the form can never be submitted.
+    let view = render(<FormPanel section={sectionOfType("form")} />);
+    const addButtons = screen.getAllByRole("button", { name: "Thêm" });
+    fireEvent.click(addButtons[addButtons.length - 1]);
+    view.unmount();
+
+    view = render(<FormPanel section={sectionOfType("form")} />);
+    let rows = screen.getAllByRole("listitem");
+    fireEvent.change(within(rows[rows.length - 1]).getByLabelText("Loại câu hỏi"), {
+      target: { value: "select" },
+    });
+    view.unmount();
+
+    view = render(<FormPanel section={sectionOfType("form")} />);
+    rows = screen.getAllByRole("listitem");
+    fireEvent.click(within(rows[rows.length - 1]).getByLabelText("Bắt buộc"));
+    view.unmount();
+
+    view = render(<FormPanel section={sectionOfType("form")} />);
+    rows = screen.getAllByRole("listitem");
+    expect(within(rows[rows.length - 1]).getByRole("alert")).toHaveTextContent(/không gửi được/i);
+    view.unmount();
+
+    expectValid();
+  });
+});

@@ -20,8 +20,17 @@ import type { MouseEvent } from "react";
 import { useEditorStore } from "@/stores/editor-store";
 import { SECTION_TYPE_LABELS } from "./section-labels";
 
-/** Section types that may appear more than once in a document. */
-const DUPLICABLE_TYPES: ReadonlySet<SectionType> = new Set(["text", "events"]);
+/**
+ * Section types that may appear more than once in a document.
+ *
+ * `form` is here as of Task 4: a couple often needs a second questionnaire
+ * beside the RSVP (meal choice, shuttle sign-up), and the responses page and
+ * CSV export are both already per-section. Exactly one form may be flagged as
+ * the RSVP — `setRsvpSection` enforces that — and a newly added form defaults
+ * to `isRsvp: false`, so adding one never steals the flag from the existing
+ * RSVP form.
+ */
+const DUPLICABLE_TYPES: ReadonlySet<SectionType> = new Set(["text", "events", "form"]);
 
 /**
  * The exact descriptor array fed into `useSensors` below — pulled out to a
