@@ -21,6 +21,7 @@ import { GiftPanel } from "../GiftPanel";
 import { OpeningPanel } from "../OpeningPanel";
 import { StoryPanel } from "../StoryPanel";
 import { ThemePanel } from "../ThemePanel";
+import { VideoPanel } from "../VideoPanel";
 import { WishesPanel } from "../WishesPanel";
 
 function resetStore() {
@@ -236,6 +237,54 @@ describe("every '+ Thêm' button leaves the document schema-valid", () => {
 
     const document = useEditorStore.getState().document;
     expect(() => InvitationDocumentSchema.parse(document)).not.toThrow();
+  });
+});
+
+/**
+ * `VideoPanel` is the one panel that REWRITES what the couple typed: a pasted
+ * watch URL is normalised down to the bare 11-character id before it reaches
+ * the store. That rewrite runs on every keystroke's debounce flush, so it is
+ * exactly the shape of edit that has to be pinned against Global Constraint 2
+ * — `youtubeId` is a bare `z.string()` on purpose, and nothing here may start
+ * storing a value the schema would later reject.
+ */
+describe("VideoPanel's URL normalisation keeps the document schema-valid", () => {
+  const ID = "dQw4w9WgXcQ";
+
+  function typeVideoUrl(value: string) {
+    const section = addAndGetSection("video");
+    const view = render(<VideoPanel section={section} />);
+    const input = screen.getByLabelText("Video YouTube");
+    fireEvent.change(input, { target: { value } });
+    // TextField debounces and flushes on blur; without this the store never
+    // sees the edit at all and the test would pass vacuously.
+    fireEvent.blur(input);
+    view.unmount();
+    return sectionOfType("video");
+  }
+
+  it("stores the bare id when a full watch URL is pasted", () => {
+    const section = typeVideoUrl(`https://www.youtube.com/watch?v=${ID}&t=42s`);
+
+    expect(section.props.youtubeId).toBe(ID);
+    expect(() => InvitationDocumentSchema.parse(useEditorStore.getState().document)).not.toThrow();
+  });
+
+  it("stores a youtu.be short link as the bare id, dropping its tracking query", () => {
+    const section = typeVideoUrl(`https://youtu.be/${ID}?si=abcdefghijk`);
+
+    expect(section.props.youtubeId).toBe(ID);
+    expect(section.props.youtubeId).not.toContain("si=");
+  });
+
+  it("keeps an unrecognised value verbatim and still leaves the document valid", () => {
+    // Deliberate: dropping it would delete what the couple typed mid-edit,
+    // and tightening the schema to reject it would break autosave for the
+    // WHOLE invitation. VideoSection refuses to render it instead.
+    const section = typeVideoUrl("khong phai link youtube");
+
+    expect(section.props.youtubeId).toBe("khong phai link youtube");
+    expect(() => InvitationDocumentSchema.parse(useEditorStore.getState().document)).not.toThrow();
   });
 });
 

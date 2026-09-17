@@ -674,19 +674,19 @@ git commit -am "feat(music): user audio upload with background transcoding"
 **Interfaces:**
 - Produces: `parseYouTubeId(input: string): string | null` — chấp nhận ID trần, `youtube.com/watch?v=`, `youtu.be/`, `youtube.com/embed/`, có/không query thừa; trả `null` cho mọi thứ khác.
 
-- [ ] **Step 1: Viết test `parseYouTubeId`** cho 6 dạng hợp lệ và các ca xấu: chuỗi rỗng, URL không phải YouTube, `javascript:` , ID sai độ dài, URL có `<script>`.
+- [x] **Step 1: Viết test `parseYouTubeId`** cho 6 dạng hợp lệ và các ca xấu: chuỗi rỗng, URL không phải YouTube, `javascript:` , ID sai độ dài, URL có `<script>`.
 
-- [ ] **Step 2: FAIL → Step 3: Implement** — ID hợp lệ khớp `/^[A-Za-z0-9_-]{11}$/`; parse bằng `new URL()` trong `try/catch`, không dùng regex trên URL thô.
+- [x] **Step 2: FAIL → Step 3: Implement** — ID hợp lệ khớp `/^[A-Za-z0-9_-]{11}$/`; parse bằng `new URL()` trong `try/catch`, không dùng regex trên URL thô.
 
-- [ ] **Step 4: Viết test `VideoSection`**: render `null` khi `youtubeId` rỗng hoặc không hợp lệ; khi hợp lệ thì render facade với `data-section="video"`, không nhúng iframe cho tới khi bấm play (khẳng định không có `<iframe>` trong DOM lúc đầu), có `caption` khi có.
+- [x] **Step 4: Viết test `VideoSection`**: render `null` khi `youtubeId` rỗng hoặc không hợp lệ; khi hợp lệ thì render facade với `data-section="video"`, không nhúng iframe cho tới khi bấm play (khẳng định không có `<iframe>` trong DOM lúc đầu), có `caption` khi có.
 
-- [ ] **Step 5: FAIL → Step 6: Implement** dùng `lite-youtube-embed` (thêm dependency, import CSS trong component). Chỉ nhận `youtubeId` đã qua `parseYouTubeId` — **không bao giờ nội suy thẳng props vào URL nhúng**.
+- [x] **Step 5: FAIL → Step 6: Implement** dùng `lite-youtube-embed` (thêm dependency, import CSS trong component). Chỉ nhận `youtubeId` đã qua `parseYouTubeId` — **không bao giờ nội suy thẳng props vào URL nhúng**.
 
-- [ ] **Step 7: `VideoPanel` chấp nhận URL dán vào**, chuẩn hoá về ID khi blur, hiện lỗi tiếng Việt nếu không nhận ra. Thêm ca vào `panels.schema-integration.test.tsx`.
+- [x] **Step 7: `VideoPanel` chấp nhận URL dán vào**, chuẩn hoá về ID khi blur, hiện lỗi tiếng Việt nếu không nhận ra. Thêm ca vào `panels.schema-integration.test.tsx`.
 
-- [ ] **Step 8: Chạy tất cả + kiểm chứng `curl` trang `/i/demo` sau khi seed một video vào document.**
+- [x] **Step 8: Chạy tất cả + kiểm chứng `curl` trang `/i/demo` sau khi seed một video vào document.**
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git commit -am "feat(video): youtube section with click-to-load facade"

@@ -49,6 +49,26 @@ describe("VideoSection", () => {
     expect(link).toHaveAttribute("href", `https://www.youtube.com/watch?v=${ID}`);
   });
 
+  it("loads NO iframe until the guest taps play — the whole point of the facade", () => {
+    // Privacy and weight: an eagerly-embedded YouTube iframe pulls ~1MB and
+    // lets Google set cookies on every guest who merely opens the invitation,
+    // including the ones who never watch. The <lite-youtube> element only
+    // swaps itself for a real iframe on click, so an iframe present at first
+    // render would mean the facade had silently stopped being a facade.
+    const { container } = render(<VideoSection section={videoSection({ youtubeId: ID, caption: "" })} />);
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.innerHTML).not.toContain("youtube.com/embed");
+  });
+
+  it("carries the data-section hooks every section is required to expose", () => {
+    const { container } = render(<VideoSection section={videoSection({ youtubeId: ID, caption: "" })} />);
+
+    const wrapper = container.querySelector("[data-section]");
+    expect(wrapper?.getAttribute("data-section")).toBe("video");
+    expect(wrapper?.getAttribute("data-section-id")).toBeTruthy();
+  });
+
   it("renders the caption when present, and no figcaption when empty", () => {
     render(<VideoSection section={videoSection({ youtubeId: ID, caption: "Video cưới của chúng tôi" })} />);
     expect(screen.getByText("Video cưới của chúng tôi")).toBeInTheDocument();
