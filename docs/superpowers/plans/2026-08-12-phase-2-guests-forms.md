@@ -598,19 +598,19 @@ git commit -am "feat(forms): field reordering, non-rsvp forms, and csv export of
   - `transcodeToAac(inputPath: string, outputPath: string): Promise<{ durationSeconds: number }>`
   - `enqueueAudioJob(data: AudioJobData): Promise<string>` (trả jobId) trong `apps/web/src/lib/queues.ts`
 
-- [ ] **Step 1: Tạo `apps/worker`** với `package.json` (`"name": "@hpwd/worker"`, deps `bullmq`, `ioredis`, `@aws-sdk/client-s3`, `@hpwd/db`; devDeps `tsx`, `typescript`, `vitest`), `tsconfig.json` kế thừa `tsconfig.base.json`, script `"dev": "tsx watch src/index.ts"`, `"start": "tsx src/index.ts"`, `"test": "vitest run --passWithNoTests"`. Thêm root script `"dev:worker": "pnpm --filter @hpwd/worker dev"`.
+- [x] **Step 1: Tạo `apps/worker`** với `package.json` (`"name": "@hpwd/worker"`, deps `bullmq`, `ioredis`, `@aws-sdk/client-s3`, `@hpwd/db`; devDeps `tsx`, `typescript`, `vitest`), `tsconfig.json` kế thừa `tsconfig.base.json`, script `"dev": "tsx watch src/index.ts"`, `"start": "tsx src/index.ts"`, `"test": "vitest run --passWithNoTests"`. Thêm root script `"dev:worker": "pnpm --filter @hpwd/worker dev"`.
 
-- [ ] **Step 2: Viết test cho `ffmpeg.ts`** — dùng ffmpeg thật (đã có sẵn trên máy này, Task 12 Phase 1 xác nhận 8.0.1): sinh một file WAV 2 giây bằng `ffmpeg -f lavfi -i "sine=frequency=440:duration=2"`, chạy `transcodeToAac`, khẳng định file ra tồn tại, là AAC/M4A (kiểm magic bytes `ftyp`), và `durationSeconds` xấp xỉ 2 (±0.3). Nếu `ffmpeg` không có trên PATH thì `it.skip` kèm thông báo rõ ràng — **không được để test tự xanh khi ffmpeg vắng mặt**.
+- [x] **Step 2: Viết test cho `ffmpeg.ts`** — dùng ffmpeg thật (đã có sẵn trên máy này, Task 12 Phase 1 xác nhận 8.0.1): sinh một file WAV 2 giây bằng `ffmpeg -f lavfi -i "sine=frequency=440:duration=2"`, chạy `transcodeToAac`, khẳng định file ra tồn tại, là AAC/M4A (kiểm magic bytes `ftyp`), và `durationSeconds` xấp xỉ 2 (±0.3). Nếu `ffmpeg` không có trên PATH thì `it.skip` kèm thông báo rõ ràng — **không được để test tự xanh khi ffmpeg vắng mặt**.
 
-- [ ] **Step 3: FAIL → Step 4: Implement `ffmpeg.ts`** dùng `execFile` (không thêm phụ thuộc wrapper): `-i input -c:a aac -b:a 128k -ac 2 -ar 44100 -y output`, đọc thời lượng bằng `ffprobe -v error -show_entries format=duration -of csv=p=0`. Timeout 120s, kill tiến trình khi quá hạn, ném lỗi có thông báo rõ.
+- [x] **Step 3: FAIL → Step 4: Implement `ffmpeg.ts`** dùng `execFile` (không thêm phụ thuộc wrapper): `-i input -c:a aac -b:a 128k -ac 2 -ar 44100 -y output`, đọc thời lượng bằng `ffprobe -v error -show_entries format=duration -of csv=p=0`. Timeout 120s, kill tiến trình khi quá hạn, ném lỗi có thông báo rõ.
 
-- [ ] **Step 5: Implement `queues.ts` (worker)** — export tên queue, kiểu job, và một hàm `createAudioQueue(connection)`; `index.ts` khởi động `Worker(AUDIO_QUEUE_NAME, handler, { connection })` với concurrency 2, log job bắt đầu/kết thúc/lỗi, và bắt `SIGTERM` để đóng sạch.
+- [x] **Step 5: Implement `queues.ts` (worker)** — export tên queue, kiểu job, và một hàm `createAudioQueue(connection)`; `index.ts` khởi động `Worker(AUDIO_QUEUE_NAME, handler, { connection })` với concurrency 2, log job bắt đầu/kết thúc/lỗi, và bắt `SIGTERM` để đóng sạch.
 
-- [ ] **Step 6: Implement `apps/web/src/lib/queues.ts`** — kết nối ioredis dùng lại `REDIS_URL`, singleton chống hot-reload giống `@hpwd/db`, `enqueueAudioJob`. **Fail-open không áp dụng ở đây**: nếu Redis chết thì upload phải báo lỗi rõ ràng cho người dùng (khác rate-limit).
+- [x] **Step 6: Implement `apps/web/src/lib/queues.ts`** — kết nối ioredis dùng lại `REDIS_URL`, singleton chống hot-reload giống `@hpwd/db`, `enqueueAudioJob`. **Fail-open không áp dụng ở đây**: nếu Redis chết thì upload phải báo lỗi rõ ràng cho người dùng (khác rate-limit).
 
-- [ ] **Step 7: Chạy test + `turbo test` (worker nằm trong workspace nên turbo phải thấy nó).**
+- [x] **Step 7: Chạy test + `turbo test` (worker nằm trong workspace nên turbo phải thấy nó).**
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git commit -am "feat(worker): bullmq worker package with ffmpeg audio transcoding"
