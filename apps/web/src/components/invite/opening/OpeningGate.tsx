@@ -1,11 +1,33 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import type { Opening } from "@hpwd/schema";
 import { useInviteContext } from "../InviteContext";
 import { CurtainOpening } from "./CurtainOpening";
 import { EnvelopeOpening } from "./EnvelopeOpening";
 import { FadeOpening } from "./FadeOpening";
+import { PetalsOpening } from "./PetalsOpening";
+import { RevealOpening } from "./RevealOpening";
+import type { OpeningVariantProps } from "./types";
+
+/**
+ * One component per effect the schema allows, `none` excepted (it has no
+ * overlay at all).
+ *
+ * Written as a total mapping rather than a chain of `effect === "..."`
+ * checks: the `Exclude<Opening["effect"], "none">` key type makes adding a
+ * value to `OpeningSchema`'s enum without a component here a COMPILE error.
+ * With the previous if-chain, a missing effect rendered nothing — an
+ * invisible overlay over an `inert` invitation, i.e. a blank page the guest
+ * can neither read nor dismiss.
+ */
+const OPENING_VARIANTS: Record<Exclude<Opening["effect"], "none">, ComponentType<OpeningVariantProps>> = {
+  envelope: EnvelopeOpening,
+  curtain: CurtainOpening,
+  fade: FadeOpening,
+  reveal: RevealOpening,
+  petals: PetalsOpening,
+};
 
 export interface OpeningGateProps {
   opening: Opening;
@@ -34,11 +56,11 @@ export interface OpeningGateProps {
 }
 
 /**
- * Gates the invitation body behind the configured opening effect
- * (`envelope` / `curtain` / `fade` / `none`) and owns the moment the guest's
+ * Gates the invitation body behind the configured opening effect (any key
+ * of `OPENING_VARIANTS` above, or `none`) and owns the moment the guest's
  * first real tap happens.
  *
- * `children` stay mounted the whole time — for `envelope`/`curtain`/`fade`
+ * `children` stay mounted the whole time — for every effect but `none`
  * they're simply wrapped in `aria-hidden="true"` + `inert` (hidden from
  * assistive tech, unfocusable, unclickable) rather than unmounted, both so
  * SSR still emits the full page and so nothing nested inside loses state
@@ -112,6 +134,8 @@ export function OpeningGate({ opening, guestName, onOpened, onTap, children }: O
     setOpened(true);
   }
 
+  const Variant = opening.effect === "none" ? null : OPENING_VARIANTS[opening.effect];
+
   return (
     <>
       <div
@@ -122,14 +146,8 @@ export function OpeningGate({ opening, guestName, onOpened, onTap, children }: O
         {children}
       </div>
       <div data-opening-overlay>
-        {!opened && opening.effect === "envelope" ? (
-          <EnvelopeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
-        ) : null}
-        {!opened && opening.effect === "curtain" ? (
-          <CurtainOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
-        ) : null}
-        {!opened && opening.effect === "fade" ? (
-          <FadeOpening opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
+        {!opened && Variant ? (
+          <Variant opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
         ) : null}
       </div>
     </>

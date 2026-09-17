@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createDefaultDocument } from "@hpwd/schema";
+import { OpeningSchema, createDefaultDocument } from "@hpwd/schema";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useEditorStore } from "@/stores/editor-store";
@@ -18,12 +18,33 @@ beforeEach(() => {
 });
 
 describe("OpeningPanel", () => {
-  it("renders 4 illustrated effect choices, marking the current one selected", () => {
+  it("offers one illustrated choice per effect the schema allows, marking the current one selected", () => {
+    // Counted against the schema rather than hard-coded: an effect added to
+    // `OpeningSchema` but never given a button here would be unreachable —
+    // no couple could ever select it, and nothing else would notice.
     render(<OpeningPanel />);
     const group = screen.getByRole("radiogroup", { name: "Hiệu ứng mở màn" });
-    expect(group.querySelectorAll('[role="radio"]')).toHaveLength(4);
+
+    expect(group.querySelectorAll('[role="radio"]')).toHaveLength(OpeningSchema.shape.effect.options.length);
     expect(screen.getByRole("radio", { name: /Phong bì/ })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: /Rèm kéo/ })).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("gives Task 9's two new effects their own selectable, distinctly-named buttons", () => {
+    render(<OpeningPanel />);
+
+    fireEvent.click(screen.getByRole("radio", { name: /Hé lộ/ }));
+    expect(useEditorStore.getState().document.opening.effect).toBe("reveal");
+
+    fireEvent.click(screen.getByRole("radio", { name: /Mưa cánh hoa/ }));
+    expect(useEditorStore.getState().document.opening.effect).toBe("petals");
+
+    // "Mưa cánh hoa" (the gate) must stay distinguishable from the
+    // particles select's "Cánh hoa" (the decoration that falls after the
+    // invitation opens) — they are independent settings.
+    expect(screen.getByRole("radio", { name: /Mưa cánh hoa/ })).not.toBe(
+      screen.getByLabelText("Hiệu ứng hạt"),
+    );
   });
 
   it("clicking a different effect updates the store via updateOpening", () => {

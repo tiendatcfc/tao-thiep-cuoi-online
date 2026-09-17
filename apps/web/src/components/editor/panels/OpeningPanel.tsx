@@ -6,10 +6,19 @@ import { SelectField } from "../fields/SelectField";
 import { TextField } from "../fields/TextField";
 import { ToggleField } from "../fields/ToggleField";
 
+/**
+ * `petals` is labelled "Mưa cánh hoa", not "Cánh hoa", to keep it apart
+ * from the "Cánh hoa" option of the *particles* select below — they are
+ * independent settings (one is the gate, the other is the decoration that
+ * keeps falling after the invitation opens) and two controls reading
+ * "Cánh hoa" on the same screen would be unguessable.
+ */
 const EFFECT_OPTIONS: { value: Opening["effect"]; label: string; icon: string }[] = [
   { value: "envelope", label: "Phong bì", icon: "✉️" },
   { value: "curtain", label: "Rèm kéo", icon: "🎭" },
   { value: "fade", label: "Mờ dần", icon: "✨" },
+  { value: "reveal", label: "Hé lộ", icon: "🪟" },
+  { value: "petals", label: "Mưa cánh hoa", icon: "🌸" },
   { value: "none", label: "Không có", icon: "🚫" },
 ];
 

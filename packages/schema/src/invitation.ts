@@ -314,7 +314,7 @@ export type Music = z.infer<typeof MusicSchema>
 
 export const OpeningSchema = z
   .object({
-    effect: z.enum(['envelope', 'curtain', 'fade', 'none']),
+    effect: z.enum(['envelope', 'curtain', 'fade', 'reveal', 'petals', 'none']),
     particles: z.enum(['petals', 'confetti']).nullable(),
     monogram: z.string().default(''),
     showGuestName: z.boolean().default(true),

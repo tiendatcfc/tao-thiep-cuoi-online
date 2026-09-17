@@ -755,15 +755,15 @@ git commit -am "feat(text): tiptap rich text editor with extended sanitizer allo
 
 **Bất biến bắt buộc (đã học ở Phase 1):** đường duy nhất để hiện nội dung không được là callback animation. Cả hai variant **phải** dùng `useOpeningTap`, vốn đã có lưới an toàn `setTimeout(animationMs + 400)`. Và `onOpen` phải chạy **đồng bộ ngay trong handler chạm** để nhạc phát được trên iOS WebView.
 
-- [ ] **Step 1: Viết test** cho mỗi variant: nút "Mở thiệp" là `<button>` thật, focus được; chạm gọi `onOpen` đúng một lần; khi callback animation không bao giờ chạy thì lưới an toàn vẫn mở sau `animationMs + 400` (dùng fake timers); reduced-motion mở ngay.
+- [x] **Step 1: Viết test** cho mỗi variant: nút "Mở thiệp" là `<button>` thật, focus được; chạm gọi `onOpen` đúng một lần; khi callback animation không bao giờ chạy thì lưới an toàn vẫn mở sau `animationMs + 400` (dùng fake timers); reduced-motion mở ngay.
 
-- [ ] **Step 2: FAIL → Step 3: Implement.** `RevealOpening`: lớp phủ chia đôi trượt lên/xuống hé lộ nội dung (700ms). `PetalsOpening`: nền phủ mờ với cánh hoa rơi dày, chạm thì cánh hoa tụ lại và tan (750ms). Cả hai hiện `monogram` và "Kính mời: {guestName}" theo `opening.showGuestName`, y hệt ba variant cũ.
+- [x] **Step 2: FAIL → Step 3: Implement.** `RevealOpening`: lớp phủ chia đôi trượt lên/xuống hé lộ nội dung (700ms). `PetalsOpening`: nền phủ mờ với cánh hoa rơi dày, chạm thì cánh hoa tụ lại và tan (750ms). Cả hai hiện `monogram` và "Kính mời: {guestName}" theo `opening.showGuestName`, y hệt ba variant cũ.
 
-- [ ] **Step 4: Mở rộng `OpeningEffect` enum trong schema** và thêm vào bảng chọn của `OpeningPanel` (nhãn tiếng Việt "Hé lộ", "Cánh hoa"). Kiểm tra `OpeningGate` có nhánh cho mọi giá trị (dùng `never` guard để lỗi biên dịch nếu thiếu).
+- [x] **Step 4: Mở rộng `OpeningEffect` enum trong schema** và thêm vào bảng chọn của `OpeningPanel` (nhãn tiếng Việt "Hé lộ", "Cánh hoa"). Kiểm tra `OpeningGate` có nhánh cho mọi giá trị (dùng `never` guard để lỗi biên dịch nếu thiếu).
 
-- [ ] **Step 5: Chạy tất cả + kiểm chứng `curl` `/i/demo` với từng effect, `grep -c "Mở thiệp"` ≥ 1.**
+- [x] **Step 5: Chạy tất cả + kiểm chứng `curl` `/i/demo` với từng effect, `grep -c "Mở thiệp"` ≥ 1.**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git commit -am "feat(opening): reveal and petals opening effects"
