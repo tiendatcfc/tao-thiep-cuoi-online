@@ -73,7 +73,7 @@ function headerKey(cell: string): string {
 export function parseCsv(text: string): string[][] {
   // Excel prefixes UTF-8 exports with a BOM; left in place it would glue
   // itself to the first header cell and stop "Tên" from being recognised.
-  const input = text.replace(/^﻿/, "");
+  const input = text.replace(/^\ufeff/, "");
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";

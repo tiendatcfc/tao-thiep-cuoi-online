@@ -72,7 +72,7 @@ describe("parseGuestFile — CSV", () => {
   });
 
   it("bỏ BOM ở đầu file xuất từ Excel", async () => {
-    const csv = "﻿Tên,Nhóm\nNguyễn Văn An,Nhà trai\n";
+    const csv = "\ufeffTên,Nhóm\nNguyễn Văn An,Nhà trai\n";
 
     const result = await parseGuestFile(csvFile(csv));
 
