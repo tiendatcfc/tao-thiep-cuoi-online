@@ -38,12 +38,12 @@ Phase 2 mới **2/10 task**: API khách mời + trang quản lý khách mời v�
 
 ### Nhóm B — Phase 2 còn 7/10 task
 
-Plan chi tiết đã viết sẵn: `docs/superpowers/plans/2026-08-12-phase-2-guests-forms.md`. Task 1–2 xong. Còn:
+Plan chi tiết đã viết sẵn: `docs/superpowers/plans/2026-08-12-phase-2-guests-forms.md`. Task 1–7 xong. Còn:
 
-- **Task 3** — nhập khách từ CSV/Excel. Quyết định thiết kế đã chốt: **parse hoàn toàn phía client**, không gửi file lên server (bớt một lớp bề mặt tấn công); xem trước rồi mới POST danh sách JSON. `.xlsx` dùng `exceljs` import động.
-- **Task 4** — form builder hoàn thiện (sắp xếp field, form ngoài RSVP) + **xuất CSV** (nhớ chống CSV injection: dữ liệu do khách lạ nhập, chủ thiệp mở bằng Excel).
-- **Task 5** — dựng `apps/worker` (BullMQ + ffmpeg). Hiện `apps/` chỉ có `web`; không có bullmq/ffmpeg trong bất kỳ package.json nào.
-- **Task 6** — upload nhạc riêng đầu-cuối. Hiện chỉ dán được URL. `AssetKind.audio` có trong Prisma nhưng chưa bao giờ được ghi; `StorageAssetKind = "image"` (`storage.ts:20`); uploads route chỉ nhận `z.literal("image")`. **CẢNH BÁO**: `apps/web/src/app/(legal)/bao-mat/__tests__/page.test.tsx` có test khẳng định trang bảo mật KHÔNG nhắc tới việc lưu file nhạc — đúng ở hiện tại. Task 6 làm tính năng đó thành thật thì **phải cập nhật cả trang lẫn test trong cùng commit**, không được xoá test.
+- ~~**Task 3**~~ — XONG (2026-09-17). Nhập khách từ CSV/Excel, parse phía client.
+- ~~**Task 4**~~ — XONG (2026-09-17). Form builder + xuất CSV có chống CSV injection.
+- ~~**Task 5**~~ — XONG (2026-09-17). `apps/worker` với BullMQ + ffmpeg.
+- ~~**Task 6**~~ — XONG (2026-09-17). Upload nhạc đầu-cuối; trang bảo mật và test của nó đã cập nhật.
 - ~~**Task 7** — section YouTube~~ — XONG (nhóm A mục 1, 2026-08-19).
 - **Task 8** — TipTap rich text. **Nhạy cảm bảo mật**: `lib/sanitize.ts` là tokenizer một lượt, đã qua hai vòng vá bypass ở Phase 1, là đoạn code được đánh giá tốt nhất nhánh. Chỉ được **mở rộng allowlist** (thêm tên thẻ vào `BARE_TAGS`), **không viết lại**, và phải viết test bypass TRƯỚC khi mở.
 - **Task 9** — thêm 2 hiệu ứng mở màn. Bắt buộc dùng `useOpeningTap` (đã có lưới an toàn) và gọi `onOpen` **đồng bộ ngay trong handler chạm** (iOS WebView mới cho phát nhạc).
