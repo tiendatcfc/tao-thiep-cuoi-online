@@ -11,6 +11,19 @@ const PARTICLE_COUNT = 30;
 const PETAL_COLORS = ["#f8c9d8", "#f7b6c9", "#fbdce6", "#f4a6bf", "#f9d5e5"];
 const CONFETTI_COLORS = ["#f87171", "#fbbf24", "#34d399", "#60a5fa", "#c084fc"];
 
+/**
+ * The canvas is deliberately ABOVE the invitation content (see the component
+ * doc), so an opaque fill paints a solid blob over whatever text it happens to
+ * cross — parents' names and venue addresses are the ones that actually got
+ * covered. Drawing translucently keeps the drift readable as decoration while
+ * the words underneath stay legible. Confetti is smaller and higher-contrast
+ * than a petal, so it can afford slightly less transparency.
+ */
+const PARTICLE_ALPHA: Record<"petals" | "confetti", number> = {
+  petals: 0.5,
+  confetti: 0.6,
+};
+
 interface Particle {
   x: number;
   y: number;
@@ -42,6 +55,7 @@ function createParticle(kind: "petals" | "confetti", width: number, height: numb
 
 function drawParticle(ctx: CanvasRenderingContext2D, kind: "petals" | "confetti", p: Particle) {
   ctx.save();
+  ctx.globalAlpha = PARTICLE_ALPHA[kind];
   ctx.translate(p.x, p.y);
   ctx.rotate(p.rotation);
   ctx.fillStyle = p.color;
@@ -59,7 +73,8 @@ function drawParticle(ctx: CanvasRenderingContext2D, kind: "petals" | "confetti"
  * Full-viewport `<canvas>` overlay drawing ~30 falling particles (soft pink
  * petals or multicolour confetti rectangles) via `requestAnimationFrame`.
  * Fixed, `pointer-events-none`, and `z-40` — below the music player's
- * sticky `z-50` button but above the invitation content — and `aria-hidden`
+ * sticky `z-50` button but above the invitation content, which is why every
+ * particle is filled at `PARTICLE_ALPHA` rather than opaque — and `aria-hidden`
  * since it's purely decorative. Only meant to be rendered by `InvitePage`
  * once the opening gate has actually opened, so nothing falls in front of
  * the still-closed envelope/curtain/fade overlay.
