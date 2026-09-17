@@ -1,4 +1,4 @@
-# HPWD — Bản giao việc (cập nhật 2026-08-19)
+# HPWD — Bản giao việc (cập nhật 2026-09-17)
 
 Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file này trước khi làm gì.
 
@@ -28,26 +28,29 @@ Phase 0 (nền móng), Phase 1 (MVP, 19 task + review toàn nhánh + đợt sử
 7. PreviewPane đọc `showBadge` từ store slice mới (seed một lần ở EditorLayout; **PublishDialog không được reseed store khi mở lại dialog** — đã có test chốt).
 8. `mapUrl` chỉ render qua `isSafeHref` (export mới từ `sanitize.ts`, dùng đúng `SAFE_HREF_RE` cũ — tokenizer không đổi 1 byte); panel cảnh báo link không hợp lệ.
 
-Việc này đồng thời hoàn thành Phase 2 Task 7 (YouTube) và nửa Task 10 (blur thật — còn thiếu tài liệu vận hành worker).
+Việc này đồng thời hoàn thành Phase 2 Task 7 (YouTube) và phần blur thật của Task 10.
 
-Phase 2 mới **2/10 task**: API khách mời + trang quản lý khách mời với link cá nhân hoá.
+**Phase 2 XONG toàn bộ 10/10 task (2026-09-17).** Khách mời + nhập CSV/Excel, form builder + xuất CSV, `apps/worker` (BullMQ + ffmpeg), upload nhạc riêng đầu-cuối, section YouTube, rich text TipTap, hai hiệu ứng mở màn mới, và `docs/operations.md`.
 
 ## CÒN THIẾU — theo thứ tự ưu tiên đề xuất
 
 (Nhóm A cũ — 8 mục "đã hứa mà chưa giao" — ĐÃ XONG toàn bộ 2026-08-19, xem mục "Đã xong". Các mục hoãn nhỏ + ruling nằm trong ledger của plan đó.)
 
-### Nhóm B — Phase 2 còn 7/10 task
+### ~~Nhóm B — Phase 2~~ — XONG 10/10 (2026-09-17)
 
-Plan chi tiết đã viết sẵn: `docs/superpowers/plans/2026-08-12-phase-2-guests-forms.md`. Task 1–7 xong. Còn:
+Plan: `docs/superpowers/plans/2026-08-12-phase-2-guests-forms.md`. Ledger: `.superpowers/sdd/2026-08-12-phase-2-guests-forms/progress.md`.
 
-- ~~**Task 3**~~ — XONG (2026-09-17). Nhập khách từ CSV/Excel, parse phía client.
-- ~~**Task 4**~~ — XONG (2026-09-17). Form builder + xuất CSV có chống CSV injection.
-- ~~**Task 5**~~ — XONG (2026-09-17). `apps/worker` với BullMQ + ffmpeg.
-- ~~**Task 6**~~ — XONG (2026-09-17). Upload nhạc đầu-cuối; trang bảo mật và test của nó đã cập nhật.
-- ~~**Task 7** — section YouTube~~ — XONG (nhóm A mục 1, 2026-08-19).
-- **Task 8** — TipTap rich text. **Nhạy cảm bảo mật**: `lib/sanitize.ts` là tokenizer một lượt, đã qua hai vòng vá bypass ở Phase 1, là đoạn code được đánh giá tốt nhất nhánh. Chỉ được **mở rộng allowlist** (thêm tên thẻ vào `BARE_TAGS`), **không viết lại**, và phải viết test bypass TRƯỚC khi mở.
-- **Task 9** — thêm 2 hiệu ứng mở màn. Bắt buộc dùng `useOpeningTap` (đã có lưới an toàn) và gọi `onOpen` **đồng bộ ngay trong handler chạm** (iOS WebView mới cho phát nhạc).
-- **Task 10** — ~~blur ảnh thật~~ (XONG — nhóm A mục 3); còn lại: tài liệu vận hành worker.
+Ba task cuối, và những bất biến mới mà bất kỳ ai sửa vùng này phải biết:
+
+- ~~**Task 8** — TipTap rich text~~. `BARE_TAGS` nay có thêm `s h2 h3 ul ol li blockquote`; **tokenizer không đổi một byte**, test bypass viết trước ở file riêng `sanitize.richtext.test.ts` nên 38 ca cũ không phải sửa.
+  - **Bất biến mới:** TipTap phải phát `<a href="…">` trần. `BareLink` (`components/editor/rich-text.ts`) gỡ mọi thuộc tính trừ `href`; `target`/`rel` chỉ có **một** chủ sở hữu là `sanitizeHtml`. Bản gốc của TipTap render `target`/`rel` TRƯỚC `href` → sanitizer escape cả thẻ, và thiệt hại đến muộn: link lưu lần đầu vẫn tốt, chết ở lần sửa kế tiếp sau khi tải lại trang.
+  - **Bẫy đã mắc:** `filterTransaction` chỉ có tác dụng trên **plugin spec** của ProseMirror. Truyền qua `editorProps` vẫn hợp lệ kiểu, chạy không cảnh báo, và **không bao giờ được gọi** — giới hạn 10.000 ký tự đã không hề tồn tại cho tới khi một test component thử vượt thật.
+  - `EditorPanel` render panel **không có key** → `TextPanel` tự đặt `key={section.id}` cho editor, nếu không chuyển giữa hai section văn bản sẽ hiện nội dung của section cũ.
+- ~~**Task 9** — hai hiệu ứng mở màn~~: `reveal` (700ms) và `petals` (750ms). Cả hai đi qua `useOpeningTap`.
+  - `OpeningGate` nay là **bảng ánh xạ toàn phần** `Record<Exclude<Opening["effect"], "none">, …>` — thêm giá trị vào enum schema mà quên component là **lỗi biên dịch**, không còn là overlay vô hình đè lên thiệp `inert`.
+  - Vị trí cánh hoa là **bảng cố định**, không `Math.random()` — random lúc render là hydration mismatch, sinh trong effect thì khung hình đầu tiên trống.
+  - Nhãn `petals` là "**Mưa cánh hoa**", cố ý khác "Cánh hoa" của ô chọn *particles* — hai thiết lập độc lập.
+- ~~**Task 10**~~: `docs/operations.md` (chạy worker, biến môi trường, runbook "nhạc kẹt Đang xử lý"). Blur thật đã xong từ nhóm A. Ảnh nay ghi `status: "ready"` thay vì để mặc định `pending` mãi mãi.
 
 ### Nhóm C — Phase 3 (chưa bắt đầu, chưa viết plan)
 
