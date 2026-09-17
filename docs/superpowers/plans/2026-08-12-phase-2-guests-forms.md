@@ -637,25 +637,25 @@ git commit -am "feat(worker): bullmq worker package with ffmpeg audio transcodin
 
 **Cảnh báo bắt buộc đọc:** `apps/web/src/app/(legal)/bao-mat/__tests__/page.test.tsx` hiện có test khẳng định trang bảo mật **không** nhắc tới lưu trữ nhạc — đó là chủ ý ở Phase 1 vì tính năng chưa có. Task này làm tính năng đó thành thật, nên **phải** cập nhật cả trang bảo mật lẫn test đó trong cùng commit. Không được xoá test; đổi nó thành khẳng định điều ngược lại (danh sách dữ liệu lưu trữ *có* nhắc file nhạc).
 
-- [ ] **Step 1: Migration** thêm `status String @default("pending")` vào `MediaAsset` (giá trị: `pending|processing|ready|failed`). Chạy `prisma migrate dev --name add_media_asset_status`.
+- [x] **Step 1: Migration** thêm `status String @default("pending")` vào `MediaAsset` (giá trị: `pending|processing|ready|failed`). Chạy `prisma migrate dev --name add_media_asset_status`.
 
-- [ ] **Step 2: Viết test route upload nhạc**: 401 chưa đăng nhập; 400 content-type không thuộc allowlist (thông báo tiếng Việt); 400 quá 15MB; 200 trả `uploadUrl`/`assetId` và tạo `MediaAsset` với `kind: "audio"`, `status: "pending"`.
+- [x] **Step 2: Viết test route upload nhạc**: 401 chưa đăng nhập; 400 content-type không thuộc allowlist (thông báo tiếng Việt); 400 quá 15MB; 200 trả `uploadUrl`/`assetId` và tạo `MediaAsset` với `kind: "audio"`, `status: "pending"`.
 
-- [ ] **Step 3: FAIL → Step 4: Mở rộng `storage.ts`** — `StorageAssetKind = "image" | "audio"`, thêm mapping đuôi cho `audio/mpeg→mp3`, `audio/mp4→m4a`, `audio/x-m4a→m4a`. Giữ nguyên ràng buộc ký cả `content-type` lẫn `content-length`. Implement route.
+- [x] **Step 3: FAIL → Step 4: Mở rộng `storage.ts`** — `StorageAssetKind = "image" | "audio"`, thêm mapping đuôi cho `audio/mpeg→mp3`, `audio/mp4→m4a`, `audio/x-m4a→m4a`. Giữ nguyên ràng buộc ký cả `content-type` lẫn `content-length`. Implement route.
 
-- [ ] **Step 5: Implement `audio-worker.ts`**: tải object nguồn từ S3 về thư mục tạm, `transcodeToAac`, upload kết quả về key `u/{userId}/{assetId}.m4a`, cập nhật `MediaAsset` (`status: "ready"`, `url`, `meta.durationSeconds`), xoá file tạm trong `finally`. Lỗi → `status: "failed"` kèm `meta.error` và ném lại để BullMQ ghi nhận (retry 2 lần, backoff cấp số nhân).
+- [x] **Step 5: Implement `audio-worker.ts`**: tải object nguồn từ S3 về thư mục tạm, `transcodeToAac`, upload kết quả về key `u/{userId}/{assetId}.m4a`, cập nhật `MediaAsset` (`status: "ready"`, `url`, `meta.durationSeconds`), xoá file tạm trong `finally`. Lỗi → `status: "failed"` kèm `meta.error` và ném lại để BullMQ ghi nhận (retry 2 lần, backoff cấp số nhân).
 
-- [ ] **Step 6a: Implement `POST /api/media/[assetId]/process`** — xác thực asset thuộc session user (404 nếu không), đặt `status: "processing"`, gọi `enqueueAudioJob({ assetId, userId, sourceKey })`. Nếu enqueue lỗi (Redis chết): đặt lại `status: "failed"` và trả 503 với thông báo tiếng Việt "Hệ thống xử lý nhạc đang bận, vui lòng thử lại sau." — **không fail-open**, khác với rate-limit.
+- [x] **Step 6a: Implement `POST /api/media/[assetId]/process`** — xác thực asset thuộc session user (404 nếu không), đặt `status: "processing"`, gọi `enqueueAudioJob({ assetId, userId, sourceKey })`. Nếu enqueue lỗi (Redis chết): đặt lại `status: "failed"` và trả 503 với thông báo tiếng Việt "Hệ thống xử lý nhạc đang bận, vui lòng thử lại sau." — **không fail-open**, khác với rate-limit.
 
-- [ ] **Step 6b: Implement `GET /api/media/[assetId]`** — chỉ trả asset của chính session user (404 nếu không phải, không phân biệt với không tồn tại). Trả `{ status, url }`, `url` chỉ khác `null` khi `status === "ready"`.
+- [x] **Step 6b: Implement `GET /api/media/[assetId]`** — chỉ trả asset của chính session user (404 nếu không phải, không phân biệt với không tồn tại). Trả `{ status, url }`, `url` chỉ khác `null` khi `status === "ready"`.
 
-- [ ] **Step 7: Mở rộng `MusicPanel`** — thêm lựa chọn nguồn "Tải lên": file picker (`accept="audio/mpeg,audio/mp4,.mp3,.m4a"`), kiểm tra kích thước phía client, POST xin URL → PUT file → POST báo xử lý → poll `GET /api/media/[assetId]` mỗi 2s (tối đa 2 phút) hiện trạng thái tiếng Việt ("Đang xử lý…" / "Xong" / "Xử lý thất bại"); khi `ready` thì `updateMusic({ source: "upload", url, trackId: null })`. Dừng poll khi unmount.
+- [x] **Step 7: Mở rộng `MusicPanel`** — thêm lựa chọn nguồn "Tải lên": file picker (`accept="audio/mpeg,audio/mp4,.mp3,.m4a"`), kiểm tra kích thước phía client, POST xin URL → PUT file → POST báo xử lý → poll `GET /api/media/[assetId]` mỗi 2s (tối đa 2 phút) hiện trạng thái tiếng Việt ("Đang xử lý…" / "Xong" / "Xử lý thất bại"); khi `ready` thì `updateMusic({ source: "upload", url, trackId: null })`. Dừng poll khi unmount.
 
-- [ ] **Step 8: Cập nhật trang bảo mật và test của nó** như cảnh báo ở trên.
+- [x] **Step 8: Cập nhật trang bảo mật và test của nó** như cảnh báo ở trên.
 
-- [ ] **Step 9: Kiểm chứng đầu-cuối thật** (bắt buộc, không được thay bằng mock): chạy `docker compose up -d`, chạy worker, tạo file mp3 thật bằng ffmpeg, đi hết luồng bằng script node: xin URL → PUT → báo xử lý → poll tới `ready` → `curl` URL kết quả và xác nhận là file audio hợp lệ. Dán output vào báo cáo.
+- [x] **Step 9: Kiểm chứng đầu-cuối thật** (bắt buộc, không được thay bằng mock): chạy `docker compose up -d`, chạy worker, tạo file mp3 thật bằng ffmpeg, đi hết luồng bằng script node: xin URL → PUT → báo xử lý → poll tới `ready` → `curl` URL kết quả và xác nhận là file audio hợp lệ. Dán output vào báo cáo.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git commit -am "feat(music): user audio upload with background transcoding"
