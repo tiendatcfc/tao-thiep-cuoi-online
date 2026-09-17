@@ -87,6 +87,14 @@ jobs:
       - name: Apply database migrations
         run: pnpm --filter @hpwd/db exec prisma migrate deploy
 
+      # apps/worker/src/__tests__/ffmpeg.test.ts drives the real ffmpeg binary
+      # and reports SKIPPED when it is absent (deliberately — a test that
+      # passed without it would assert nothing). GitHub's ubuntu runner image
+      # does not ship ffmpeg, so without this step the codec, container and
+      # duration assertions would silently never run in CI.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
       - name: Run linting
         run: pnpm exec turbo lint
 

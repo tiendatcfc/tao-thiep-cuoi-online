@@ -11,7 +11,7 @@ import { getAllowedImageHosts } from "./src/lib/image-hosts";
 // the two enforcement points can never drift apart.
 const nextConfig: NextConfig = {
   // @hpwd/db ships raw TypeScript (no build step), so Next must transpile it.
-  transpilePackages: ["@hpwd/db"],
+  transpilePackages: ["@hpwd/db", "@hpwd/worker"],
   images: {
     remotePatterns: getAllowedImageHosts(),
   },

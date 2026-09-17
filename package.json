@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "turbo dev",
+    "dev:worker": "pnpm --filter @hpwd/worker dev",
     "test": "turbo test",
     "dev:init": "node --env-file=apps/web/.env.local apps/web/scripts/init-bucket.mjs",
     "seed:dev": "pnpm --filter @hpwd/db exec tsx scripts/seed-dev.ts",

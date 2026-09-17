@@ -16,6 +16,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Two independent users share this instance: the public-form rate limiter
+  # (apps/web/src/lib/rate-limit.ts) and the BullMQ audio-transcode queue
+  # (apps/worker). They cannot collide — rate-limit keys are plain
+  # "ip:slug" strings while every queue key lives under the BULLMQ_PREFIX
+  # namespace ("bull:" by default) — but they do share one eviction policy
+  # and one memory budget, so a production deployment should give the queue
+  # its own instance rather than let a flood of rate-limit keys pressure
+  # jobs that represent real user uploads.
   redis:
     image: redis:7
     container_name: hpwd-redis

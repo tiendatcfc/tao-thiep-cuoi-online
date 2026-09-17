@@ -17,6 +17,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@hpwd/db": "workspace:^",
     "@hpwd/schema": "workspace:^",
+    "@hpwd/worker": "workspace:^",
     "@prisma/client": "^6.19.3",
     "exceljs": "^4.4.0",
     "framer-motion": "^13.1.0",

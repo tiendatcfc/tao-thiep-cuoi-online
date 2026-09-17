@@ -1,0 +1,24 @@
+{
+  "name": "@hpwd/worker",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/queues.ts",
+  "types": "src/queues.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1106.0",
+    "@hpwd/db": "workspace:^",
+    "bullmq": "^6.3.6",
+    "ioredis": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsx": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
+  }
+}
