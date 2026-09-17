@@ -49,7 +49,7 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
   it("never calls play() before the tap, and calls it SYNCHRONOUSLY on the tap itself (not via a later animation callback)", () => {
     const document = createDefaultDocument();
     document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
-    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: true };
+    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, assetId: null, playAfterOpen: true };
 
     render(
       <InvitePage
@@ -70,7 +70,7 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
   it("respects music.playAfterOpen: false — the tap opens the invitation but never auto-starts audio", async () => {
     const document = createDefaultDocument();
     document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
-    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: false };
+    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, assetId: null, playAfterOpen: false };
 
     render(
       <InvitePage
@@ -106,7 +106,7 @@ describe("InvitePage / opening gate -> MusicPlayer integration", () => {
   it("hides/disables the music toggle button until the gate is opened, then makes it usable", async () => {
     const document = createDefaultDocument();
     document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
-    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: false };
+    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, assetId: null, playAfterOpen: false };
 
     const { container } = render(
       <InvitePage

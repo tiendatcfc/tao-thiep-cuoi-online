@@ -163,6 +163,14 @@ model MediaAsset {
   userId    String
   kind      AssetKind
   url       String
+  /// Lifecycle of an asset that needs background processing:
+  /// pending -> processing -> ready | failed. Images are written and
+  /// finished inside the request, so they are created straight at "ready";
+  /// audio uploads are transcoded by apps/worker and move through the
+  /// other states. Kept as a plain String rather than an enum so adding a
+  /// state later (e.g. "cancelled") does not need a database migration on
+  /// a table the editor polls.
+  status    String    @default("pending")
   meta      Json      @default("{}")
   createdAt DateTime  @default(now())
   @@index([userId, kind])

@@ -4,6 +4,20 @@ import { afterAll, describe, expect, it } from "vitest";
 import { disconnectRateLimitRedis, rateLimit } from "../rate-limit";
 
 /**
+ * Polls `predicate` until it holds, instead of sleeping a fixed interval and
+ * hoping. A timeout still fails the test, but only after genuinely waiting —
+ * so a slow machine or a busy Redis no longer reports a false negative.
+ */
+async function waitUntil(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await predicate()) return;
+    if (Date.now() >= deadline) throw new Error(`Condition not met within ${timeoutMs}ms`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+/**
  * Exercises `rateLimit` against the real dev Redis (docker `hpwd-redis`,
  * see docker-compose.dev.yml) rather than mocking ioredis — a fixed-window
  * INCR+EXPIRE limiter is exactly the kind of logic that a mock can get
@@ -63,13 +77,23 @@ describe("rateLimit", () => {
     const observed: string[][] = [];
     monitor.on("monitor", (_time: string, args: string[]) => observed.push(args));
 
+    const sentinelConn = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
     try {
-      // Let MONITOR fully attach before issuing the call it needs to observe.
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Wait for a condition rather than sleeping a fixed 100ms twice. The
+      // fixed sleeps made this test fail roughly one run in five once the
+      // suite gained other tests that also talk to this Redis: MONITOR
+      // attaching, and a command streaming back through it, are both slower
+      // under load, and neither has anything to do with what is being
+      // asserted. ECHO of a unique token proves MONITOR is actually live
+      // before the call it has to observe is made.
+      const sentinel = `monitor-ready-${randomUUID()}`;
+      await waitUntil(async () => {
+        await sentinelConn.echo(sentinel);
+        return observed.some((args) => args.includes(sentinel));
+      });
+
       await rateLimit(key, { limit: 5, windowSec: 5 });
-      // Let the (fire-and-forget from the client's point of view) command
-      // finish streaming through MONITOR.
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await waitUntil(async () => observed.some((args) => args.includes(key)));
 
       const touchingKey = observed.filter((args) => args.includes(key));
       expect(touchingKey.length).toBeGreaterThan(0);
@@ -80,6 +104,7 @@ describe("rateLimit", () => {
     } finally {
       monitor.disconnect();
       monitorConn.disconnect();
+      sentinelConn.disconnect();
     }
   });
 

@@ -15,6 +15,9 @@ function music(overrides: Partial<Music> = {}): Music {
     source: "upload",
     url: "https://cdn.test/song.mp3",
     trackId: null,
+    // Not an uploaded file: this stands in for a pasted URL, which is what
+    // `source: "upload"` with no assetId means.
+    assetId: null,
     playAfterOpen: true,
     ...overrides,
   };

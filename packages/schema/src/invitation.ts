@@ -296,6 +296,17 @@ export const MusicSchema = z
     source: z.enum(['library', 'upload']).nullable(),
     url: z.string().nullable(),
     trackId: z.string().nullable(),
+    /**
+     * `MediaAsset.id` when the track came from the file-upload flow.
+     *
+     * `source: 'upload'` covers BOTH a file the couple uploaded and a URL
+     * they pasted by hand — the editor offers them as two separate choices,
+     * and without this field it cannot tell which one to reopen on, so an
+     * uploaded track would come back showing a raw storage URL in a text
+     * box. Defaulted rather than required so documents saved before the
+     * upload feature existed still parse.
+     */
+    assetId: z.string().nullable().default(null),
     playAfterOpen: z.boolean().default(true),
   })
   .strict()

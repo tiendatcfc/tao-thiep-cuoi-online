@@ -25,7 +25,7 @@ describe("InvitePage / opening gate integration (real animation timing)", () => 
   it("plays music and shows the falling-petals overlay once the real envelope animation finishes", async () => {
     const document = createDefaultDocument();
     document.opening = { effect: "envelope", particles: "petals", monogram: "M&T", showGuestName: true };
-    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, playAfterOpen: true };
+    document.music = { source: "upload", url: "https://cdn.test/song.mp3", trackId: null, assetId: null, playAfterOpen: true };
 
     const { container } = render(
       <InvitePage

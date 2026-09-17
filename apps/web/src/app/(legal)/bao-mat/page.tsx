@@ -33,7 +33,8 @@ export default function BaoMatPage() {
             chuyện, sự kiện, thông tin tài khoản ngân hàng cho hộp mừng, v.v.).
           </li>
           <li>
-            <strong>File bạn tải lên:</strong> ảnh album và ảnh bìa bạn tải lên khi tạo thiệp.
+            <strong>File bạn tải lên:</strong> ảnh album, ảnh bìa, và file nhạc nền bạn tải lên khi tạo
+            thiệp.
           </li>
           <li>
             <strong>Dữ liệu khách mời:</strong> tên khách mời (nếu thiệp của bạn dùng link cá nhân hoá cho
@@ -44,11 +45,6 @@ export default function BaoMatPage() {
             xem cụ thể.
           </li>
         </ul>
-        <p>
-          Tính năng cho phép bạn tải lên file nhạc riêng (thay vì chỉ chọn từ thư viện có sẵn) và tính năng
-          tự tạo link cá nhân hoá cho từng khách hiện <strong>chưa ra mắt</strong> — khi ra mắt, mục này sẽ
-          được cập nhật để phản ánh đúng dữ liệu được thu thập thêm.
-        </p>
       </LegalSection>
 
       <LegalSection title="2. Chúng tôi KHÔNG dùng bên phân tích/theo dõi thứ ba">
@@ -76,8 +72,15 @@ export default function BaoMatPage() {
       <LegalSection title="4. Lưu trữ dữ liệu">
         <p>
           Dữ liệu văn bản (tài khoản, nội dung thiệp, lời chúc, RSVP) được lưu trong cơ sở dữ liệu của
-          chúng tôi. Ảnh bạn tải lên được lưu ở dịch vụ lưu trữ đối tượng (object storage) riêng của chúng
-          tôi, không phải trên máy chủ của bên thứ ba nào khác ngoài nhà cung cấp hạ tầng lưu trữ đó.
+          chúng tôi. Ảnh và file nhạc bạn tải lên được lưu ở dịch vụ lưu trữ đối tượng (object storage)
+          riêng của chúng tôi, không phải trên máy chủ của bên thứ ba nào khác ngoài nhà cung cấp hạ tầng
+          lưu trữ đó.
+        </p>
+        <p>
+          File nhạc bạn tải lên được hệ thống tự động chuyển sang định dạng khác để phát được trên mọi
+          trình duyệt. Cả file gốc bạn tải lên lẫn file đã chuyển đổi đều được lưu lại. Vì nhạc là một phần
+          của thiệp, file đã chuyển đổi <strong>tải về được bởi bất kỳ ai có đường link thiệp</strong> của
+          bạn, giống như ảnh trong thiệp.
         </p>
       </LegalSection>
 

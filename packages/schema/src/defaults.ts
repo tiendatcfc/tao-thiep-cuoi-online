@@ -233,6 +233,7 @@ export function createDefaultDocument(): InvitationDocument {
       source: null,
       url: null,
       trackId: null,
+      assetId: null,
       playAfterOpen: true,
     },
     opening: {

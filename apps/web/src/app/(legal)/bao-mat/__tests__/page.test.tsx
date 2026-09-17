@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { LEGAL_LAST_UPDATED } from "../../constants";
 import BaoMatPage, { metadata } from "../page";
 
 describe("BaoMatPage (/bao-mat)", () => {
@@ -14,7 +15,11 @@ describe("BaoMatPage (/bao-mat)", () => {
     render(<BaoMatPage />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Chính sách bảo mật" })).toBeInTheDocument();
-    expect(screen.getByText(/11\/08\/2026/)).toBeInTheDocument();
+    // Regex, not the bare string: the date is rendered inside
+    // "Cập nhật lần cuối: …", and getByText matches a whole element's
+    // text. Read from the constant so bumping the date does not break
+    // the test while still proving the page actually renders it.
+    expect(screen.getByText(new RegExp(LEGAL_LAST_UPDATED))).toBeInTheDocument();
   });
 
   it("describes what data is stored: account, invitation content, uploads, guest submissions, view counts", () => {
@@ -27,20 +32,32 @@ describe("BaoMatPage (/bao-mat)", () => {
     expect(screen.getAllByText(/Số lượt xem/).length).toBeGreaterThan(0);
   });
 
-  it("does not claim audio/music-file storage in the present-tense storage list — no music upload feature has shipped", () => {
-    // Regression guard: this page previously listed "file nhạc" alongside
-    // album/cover images in the "what we store" list even though there is
-    // no music-upload UI anywhere in the app (MusicPanel only accepts an
-    // already-hosted URL) and no code path ever creates a MediaAsset with
-    // an audio kind. Scoped to the specific storage-list <li> (not the
-    // whole page) because the page legitimately mentions "nhạc" once more,
-    // in a separate future-tense sentence about the not-yet-shipped
-    // feature — that sentence must stay outside this present-tense list.
+  it("lists music files in the present-tense storage list, now that music upload has shipped", () => {
+    // The inverse of what this test asserted before Phase 2 Task 6. It used
+    // to guard against the page claiming to store audio while no upload UI
+    // existed; MusicPanel now has a real file picker and the audio route
+    // creates MediaAsset rows with kind "audio", so the same <li> must say
+    // so. Deliberately kept (not deleted) so the page and the feature can
+    // never silently drift apart again in either direction.
     render(<BaoMatPage />);
 
     const uploadItem = screen.getAllByText(/File bạn tải lên/)[0].closest("li");
     expect(uploadItem).not.toBeNull();
-    expect(uploadItem).not.toHaveTextContent(/nhạc|âm thanh/i);
+    expect(uploadItem).toHaveTextContent(/nhạc/i);
+  });
+
+  it("no longer describes music upload or personalised guest links as unreleased", () => {
+    // Both shipped in Phase 2. A privacy policy that understates what is
+    // collected is worse than one that is merely vague.
+    render(<BaoMatPage />);
+
+    expect(screen.queryByText(/chưa ra mắt/i)).not.toBeInTheDocument();
+  });
+
+  it("warns that an uploaded track is downloadable by anyone holding the invitation link", () => {
+    render(<BaoMatPage />);
+
+    expect(screen.getByText(/bất kỳ ai có đường link thiệp/i)).toBeInTheDocument();
   });
 
   it("states there is no third-party analytics and that guest submissions are visible to the couple", () => {

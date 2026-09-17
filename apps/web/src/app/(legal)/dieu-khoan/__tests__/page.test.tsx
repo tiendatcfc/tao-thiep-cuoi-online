@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { LEGAL_LAST_UPDATED } from "../../constants";
 import DieuKhoanPage, { metadata } from "../page";
 
 describe("DieuKhoanPage (/dieu-khoan)", () => {
@@ -14,7 +15,11 @@ describe("DieuKhoanPage (/dieu-khoan)", () => {
     render(<DieuKhoanPage />);
 
     expect(screen.getByRole("heading", { level: 1, name: "Điều khoản sử dụng" })).toBeInTheDocument();
-    expect(screen.getByText(/11\/08\/2026/)).toBeInTheDocument();
+    // Regex, not the bare string: the date is rendered inside
+    // "Cập nhật lần cuối: …", and getByText matches a whole element's
+    // text. Read from the constant so bumping the date does not break
+    // the test while still proving the page actually renders it.
+    expect(screen.getByText(new RegExp(LEGAL_LAST_UPDATED))).toBeInTheDocument();
     // The placeholder must stay unmistakably a placeholder, not a plausible
     // real address — see apps/web/src/app/(legal)/constants.ts.
     expect(screen.getAllByText(/CẦN ĐIỀN/).length).toBeGreaterThan(0);

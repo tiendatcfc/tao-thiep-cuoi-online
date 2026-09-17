@@ -1,11 +1,9 @@
-import type { Job } from "bullmq";
-
+import { processAudioJob } from "./audio-worker";
 import {
   AUDIO_QUEUE_NAME,
   AUDIO_WORKER_CONCURRENCY,
   audioQueuePrefix,
   createAudioWorker,
-  type AudioJobData,
 } from "./queues";
 
 /**
@@ -38,24 +36,6 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
  */
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 
-/**
- * Placeholder processor.
- *
- * Phase 2 Task 5 delivers the queue infrastructure only; Task 6 replaces this
- * with `processAudioJob` from `./audio-worker` (download from S3 →
- * transcodeToAac → upload → update MediaAsset).
- *
- * It THROWS rather than returning quietly on purpose: a handler that resolved
- * without doing anything would have BullMQ record the job as completed, while
- * the MediaAsset row it was supposed to finish stays at "processing" forever
- * — a stuck upload with nothing anywhere reporting an error.
- */
-async function processAudioJob(job: Job<AudioJobData>): Promise<void> {
-  throw new Error(
-    `Audio transcoding is not implemented yet (Phase 2 Task 6). Job ${job.id} for asset ${job.data.assetId} was rejected rather than silently marked done.`,
-  );
-}
-
 function main(): void {
   const worker = createAudioWorker(
     { url: REDIS_URL },
@@ -84,8 +64,14 @@ function main(): void {
     console.error("[worker] redis/queue error:", error);
   });
 
+  // BullMQ emits "failed" for EVERY failed attempt, not only the last one, so
+  // the message has to say which — otherwise the log reads as three separate
+  // permanent failures when it is really one job being retried twice.
   worker.on("failed", (job, error) => {
-    console.error(`[worker] job ${job?.id ?? "?"} marked failed:`, error.message);
+    const attempt = (job?.attemptsMade ?? 0);
+    const allowed = job?.opts?.attempts ?? 1;
+    const outcome = attempt >= allowed ? "no attempts left" : `will retry (${allowed - attempt} left)`;
+    console.error(`[worker] job ${job?.id ?? "?"} attempt ${attempt}/${allowed} failed, ${outcome}:`, error.message);
   });
 
   console.log(
