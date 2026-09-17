@@ -548,7 +548,7 @@ git commit -am "feat(guests): client-side csv/xlsx import with preview"
   - `toCsv(rows: Record<string, string>[], columns: string[]): string` — có BOM UTF-8 để Excel mở đúng tiếng Việt
   - `GET /api/invitations/[id]/submissions/export?sectionId=...` → `text/csv` với `Content-Disposition: attachment`
 
-- [ ] **Step 1: Viết test cho `toCsv`**
+- [x] **Step 1: Viết test cho `toCsv`**
 
 ```ts
 it("thêm BOM UTF-8 để Excel đọc đúng tiếng Việt", () => {
@@ -564,19 +564,19 @@ it("chặn CSV injection: ô bắt đầu bằng = + - @ được thêm dấu nh
 });
 ```
 
-- [ ] **Step 2: FAIL → Step 3: Implement `csv.ts`** (bao gồm chống CSV injection — dữ liệu do khách lạ nhập vào rồi chủ thiệp mở bằng Excel).
+- [x] **Step 2: FAIL → Step 3: Implement `csv.ts`** (bao gồm chống CSV injection — dữ liệu do khách lạ nhập vào rồi chủ thiệp mở bằng Excel).
 
-- [ ] **Step 4: Viết test route export**: 401/404 như mọi route chủ sở hữu; 200 trả `content-type: text/csv; charset=utf-8`; header cột lấy từ `label` của field trong `publishedDocument`; có cột "Thời gian" và "Tên khách" (join `guestToken` → `Guest.name`); `sectionId` không thuộc thiệp → 404.
+- [x] **Step 4: Viết test route export**: 401/404 như mọi route chủ sở hữu; 200 trả `content-type: text/csv; charset=utf-8`; header cột lấy từ `label` của field trong `publishedDocument`; có cột "Thời gian" và "Tên khách" (join `guestToken` → `Guest.name`); `sectionId` không thuộc thiệp → 404.
 
-- [ ] **Step 5: FAIL → Step 6: Implement route.**
+- [x] **Step 5: FAIL → Step 6: Implement route.**
 
-- [ ] **Step 7: Mở rộng `FormPanel`**: cho phép đổi thứ tự field (nút Lên/Xuống có sẵn trong `ListField`), cho phép bật/tắt `isRsvp` (kèm chú thích tiếng Việt rằng chỉ một biểu mẫu nên là RSVP), và cảnh báo inline khi `select`/`radio` không có lựa chọn nào. **Bất biến bắt buộc:** thêm test vào `panels.schema-integration.test.tsx` chứng minh mọi thao tác mới vẫn để document `parse` được.
+- [x] **Step 7: Mở rộng `FormPanel`**: cho phép đổi thứ tự field (nút Lên/Xuống có sẵn trong `ListField`), cho phép bật/tắt `isRsvp` (kèm chú thích tiếng Việt rằng chỉ một biểu mẫu nên là RSVP), và cảnh báo inline khi `select`/`radio` không có lựa chọn nào. **Bất biến bắt buộc:** thêm test vào `panels.schema-integration.test.tsx` chứng minh mọi thao tác mới vẫn để document `parse` được.
 
-- [ ] **Step 8: Thêm nút "Tải CSV" và phân trang** (50 phản hồi mỗi trang) vào trang `phan-hoi`.
+- [x] **Step 8: Thêm nút "Tải CSV" và phân trang** (50 phản hồi mỗi trang) vào trang `phan-hoi`.
 
-- [ ] **Step 9: Chạy toàn bộ + kiểm chứng thật:** gửi 3 phản hồi qua API, tải CSV bằng curl, mở kiểm tra có BOM và đúng cột.
+- [x] **Step 9: Chạy toàn bộ + kiểm chứng thật:** gửi 3 phản hồi qua API, tải CSV bằng curl, mở kiểm tra có BOM và đúng cột.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git commit -am "feat(forms): field reordering, non-rsvp forms, and csv export of responses"
