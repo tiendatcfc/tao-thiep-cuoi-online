@@ -76,6 +76,13 @@ export async function processAndStoreImage(params: ProcessAndStoreImageParams): 
       userId,
       kind: "image",
       url: canonical.url,
+      // `status` defaults to "pending" for the audio pipeline, where the
+      // row is written before the worker has transcoded anything. An image
+      // has no such second stage: by the time this runs, every variant is
+      // already in storage and `url` already works. Saying "ready" keeps
+      // the column honest and keeps images out of the operations runbook's
+      // stuck-asset query (docs/operations.md, section 6).
+      status: "ready",
       meta: {
         contentType: "image/webp",
         sourceContentType,

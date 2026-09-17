@@ -51,6 +51,20 @@ describe("processAndStoreImage", () => {
     expect(data.meta.variants).toHaveLength(2);
   });
 
+  it("records the image as ready, not pending — nothing processes it afterwards", async () => {
+    // `MediaAsset.status` exists for the AUDIO pipeline, where a row is
+    // written before the worker has transcoded anything. An image is
+    // finished the moment this function returns: every variant is already
+    // in storage and the url already works. Leaving it on the column's
+    // `pending` default made every image ever uploaded match the
+    // operations runbook's "stuck asset" query
+    // (`status IN ('pending','processing')` older than ten minutes), which
+    // is a false alarm an on-call reader has no way to tell from a real one.
+    await processAndStoreImage({ userId: "u1", buffer: await pngBuffer(600, 400), sourceContentType: "image/png" });
+
+    expect(createSpy.mock.calls[0][0].data.status).toBe("ready");
+  });
+
   it("throws (and uploads nothing) for a buffer that is not an image", async () => {
     await expect(
       processAndStoreImage({ userId: "u1", buffer: Buffer.from("not an image"), sourceContentType: "image/png" }),

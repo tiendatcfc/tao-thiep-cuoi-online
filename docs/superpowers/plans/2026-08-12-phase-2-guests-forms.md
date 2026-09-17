@@ -782,15 +782,15 @@ git commit -am "feat(opening): reveal and petals opening effects"
 **Interfaces:**
 - Consumes: `processImage(buffer)` — hiện là code chết, được xuất và test đầy đủ nhưng không nơi nào gọi.
 
-- [ ] **Step 1: Viết test** cho route sinh blur: nhận `assetId` của chính mình, tải object từ storage, chạy `processImage`, trả `{ blurDataUrl, width, height }`; 404 cho asset của người khác; 400 nếu asset không phải ảnh.
+- [x] ~~**Step 1: Viết test** cho route sinh blur~~ — **ĐÃ CÓ TỪ TRƯỚC** (plan `2026-08-19-group-a-promised-not-delivered`, Task 3): không có route `/blur` riêng; `/api/uploads` nhận multipart, chạy `processImage` đồng bộ và trả `{url, width, height, blurDataUrl}` ngay. Test: `lib/__tests__/upload.test.ts`, `lib/__tests__/image.test.ts`, `api/__tests__/uploads.test.ts`. Kiểm lại bằng upload ảnh thật 900×600 → blur WebP 16×11, 88 byte, màu trung bình (204,86,107) khớp ảnh gốc. Gốc plan: nhận `assetId` của chính mình, tải object từ storage, chạy `processImage`, trả `{ blurDataUrl, width, height }`; 404 cho asset của người khác; 400 nếu asset không phải ảnh.
 
-- [ ] **Step 2: FAIL → Step 3: Implement** và cho `ImageField` gọi sau khi PUT xong, thay hằng `TRANSPARENT_PIXEL_DATA_URL` bằng blur thật (giữ hằng làm fallback khi route lỗi — ảnh vẫn phải hiện được).
+- [x] ~~**Step 2: FAIL → Step 3: Implement** và cho `ImageField` gọi sau khi PUT xong~~ — **ĐÃ CÓ TỪ TRƯỚC**, và không còn bước PUT nào để gọi sau: server là bên duy nhất ghi vào storage. `TRANSPARENT_PIXEL_DATA_URL` vẫn còn, đúng như plan muốn, nhưng chỉ làm seed cho hàng album chưa có ảnh. Gốc plan, thay hằng `TRANSPARENT_PIXEL_DATA_URL` bằng blur thật (giữ hằng làm fallback khi route lỗi — ảnh vẫn phải hiện được).
 
-- [ ] **Step 4: Viết `docs/operations.md`**: cách chạy worker ở production (cần ffmpeg trong image), biến môi trường bắt buộc (`REDIS_URL`, `R2_*`, `NEXT_PUBLIC_SITE_URL` phải set lúc **build**, `AUTH_URL`/`AUTH_TRUST_HOST`), và cách kiểm tra hàng đợi khi nhạc kẹt ở "Đang xử lý".
+- [x] **Step 4: Viết `docs/operations.md`**: cách chạy worker ở production (cần ffmpeg trong image), biến môi trường bắt buộc (`REDIS_URL`, `R2_*`, `NEXT_PUBLIC_SITE_URL` phải set lúc **build**, `AUTH_URL`/`AUTH_TRUST_HOST`), và cách kiểm tra hàng đợi khi nhạc kẹt ở "Đang xử lý".
 
-- [ ] **Step 5: Chạy toàn bộ suite, lint, tsc, build, và `next build` với DB rỗng** (bảo vệ blocker B3 của Phase 1 không tái diễn).
+- [x] **Step 5: Chạy toàn bộ suite, lint, tsc, build, và `next build` với DB rỗng** (bảo vệ blocker B3 của Phase 1 không tái diễn).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git commit -am "feat(uploads): real blur placeholders and worker operations doc"
