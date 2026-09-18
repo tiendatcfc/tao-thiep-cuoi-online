@@ -6,7 +6,7 @@ import { BANKS } from "@/lib/banks";
 import { removeDiacritics } from "@/lib/slug";
 import { buildVietQRPayload } from "@/lib/vietqr";
 import type { GiftProps, Section } from "@hpwd/schema";
-import QRCode from "react-qr-code";
+import { QrCode } from "@/components/QrCode";
 import { useEditorStore } from "@/stores/editor-store";
 import { ListField } from "../fields/ListField";
 import { SelectField } from "../fields/SelectField";
@@ -131,7 +131,7 @@ function GiftAccountFields({ account, onChange }: { account: GiftAccount; onChan
       />
       {qrPayload ? (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-gray-200 p-3">
-          <QRCode value={qrPayload} size={140} />
+          <QrCode value={qrPayload} size={140} />
           <p className="text-xs text-gray-400">Xem trước mã QR chuyển khoản</p>
         </div>
       ) : (

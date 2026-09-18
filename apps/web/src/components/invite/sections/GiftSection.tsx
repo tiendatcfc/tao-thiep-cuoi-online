@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GiftProps, Section } from "@hpwd/schema";
-import QRCode from "react-qr-code";
+import { QrCode } from "@/components/QrCode";
 import { buildVietQRPayload } from "@/lib/vietqr";
 import { SectionWrapper } from "./SectionWrapper";
 
@@ -98,7 +98,7 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
       </p>
       <p className="text-base font-semibold text-[var(--primary)]">{account.bankName}</p>
       <div data-testid="vietqr" className="rounded-lg bg-white p-2">
-        <QRCode value={payload} size={168} />
+        <QrCode value={payload} size={168} />
       </div>
       <GroupedAccountNumber value={account.accountNumber} />
       <p className="text-sm text-gray-600">{account.accountName.toUpperCase()}</p>
