@@ -105,6 +105,43 @@ describe.skipIf(!ffmpegAvailable)("processAudioJob (real storage + ffmpeg + data
     expect(Buffer.from(bytes.subarray(4, 8)).toString("latin1")).toBe("ftyp");
   }, 60_000);
 
+  it("deletes the uploaded source once the track is playable", async () => {
+    // The source stayed in the bucket forever, publicly readable, next to
+    // the converted track. Nothing ever read it again after a successful
+    // transcode: it was pure storage cost, and a copy of the couple's
+    // original file — higher quality and carrying whatever ID3 metadata
+    // their phone wrote — served to anyone who guessed the key. The privacy
+    // policy only ever disclosed the CONVERTED track as public.
+    const localMp3 = join(workDir, "cleanup.mp3");
+    await makeMp3(localMp3, 1);
+    const sourceKey = `u/${userId}/${randomUUID()}-source.mp3`;
+    await uploadFile(sourceKey, localMp3, "audio/mpeg");
+    const assetId = await seedAsset(sourceKey);
+
+    await processAudioJob(fakeJob({ assetId, userId, sourceKey }));
+
+    const asset = await prisma.mediaAsset.findUniqueOrThrow({ where: { id: assetId } });
+    expect(asset.status).toBe("ready");
+    // The playable track is there...
+    expect((await fetch(asset.url)).status).toBe(200);
+    // ...and the original upload is gone.
+    expect((await fetch(`${process.env.R2_PUBLIC_URL}/${sourceKey}`)).status).toBe(404);
+  }, 60_000);
+
+  it("keeps the source when the job fails, so a retry still has something to read", async () => {
+    // Deleting on failure would turn one transient storage blip into a
+    // permanently unrecoverable upload.
+    const junk = join(workDir, "keep-on-failure.mp3");
+    await writeFile(junk, "day khong phai file nhac");
+    const sourceKey = `u/${userId}/${randomUUID()}-source.mp3`;
+    await uploadFile(sourceKey, junk, "audio/mpeg");
+    const assetId = await seedAsset(sourceKey);
+
+    await expect(processAudioJob(fakeJob({ assetId, userId, sourceKey }, 0, 3))).rejects.toThrow();
+
+    expect((await fetch(`${process.env.R2_PUBLIC_URL}/${sourceKey}`)).status).toBe(200);
+  }, 60_000);
+
   it("marks the asset failed with a readable reason when the file is not audio", async () => {
     const junk = join(workDir, "junk.mp3");
     await writeFile(junk, "day khong phai file nhac");

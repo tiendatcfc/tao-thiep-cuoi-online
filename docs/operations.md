@@ -142,6 +142,7 @@ Người dùng chọn file
       ffmpeg → AAC 128 kbps, 2 kênh, 44.1 kHz, container .m4a
       ghi object đích:   u/{userId}/{assetId}.m4a
       đổi:               status = "ready", meta.durationSeconds
+      XOÁ object nguồn   (chỉ khi thành công)
   → trình duyệt hỏi GET /api/media/{assetId} mỗi 2 giây, tối đa 120 giây
       status = "ready" → trả về url, phát được
 ```
@@ -163,6 +164,10 @@ UPDATE "MediaAsset" SET status = 'ready' WHERE kind = 'image' AND status = 'pend
 ```
 
 Bỏ qua bước này thì truy vấn tìm asset kẹt ở mục 6 sẽ báo nhầm mọi ảnh cũ.
+
+**File nguồn bị xoá sau khi chuyển mã thành công.** `meta.sourceKey` vẫn còn để
+tra cứu, nhưng object tương ứng đã không còn — đó là bình thường, không phải mất
+dữ liệu. Job **thất bại** thì nguồn được giữ lại, vì lần thử lại cần đọc nó.
 
 `meta.error` **không bao giờ** được trả cho trình duyệt — nó có thể chứa đường dẫn nội bộ
 và thông điệp của ffmpeg. Muốn đọc thì query thẳng database.

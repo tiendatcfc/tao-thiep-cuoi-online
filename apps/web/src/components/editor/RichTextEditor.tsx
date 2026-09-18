@@ -9,6 +9,7 @@ import {
   RICH_TEXT_EXTENSIONS,
   RichTextLengthGuard,
   normalizeLinkHref,
+  stripTrailingEmptyParagraph,
 } from "./rich-text";
 import { useDebouncedField } from "./fields/useDebouncedField";
 
@@ -101,7 +102,9 @@ export function RichTextEditor({ label, value, onChange, hint }: RichTextEditorP
       },
     },
     onUpdate: ({ editor: instance }) => {
-      set(sanitizeHtml(instance.getHTML()));
+      // Sanitize first, then strip: the strip looks for exact tag strings,
+      // and only sanitized output is guaranteed to have them.
+      set(stripTrailingEmptyParagraph(sanitizeHtml(instance.getHTML())));
     },
     onBlur: () => {
       flush();

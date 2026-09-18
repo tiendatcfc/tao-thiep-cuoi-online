@@ -43,17 +43,25 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
       transition={{ duration: t(FADE_DURATION), delay: t(FADE_DELAY) }}
       onAnimationComplete={handleAnimationComplete}
     >
+      {/* ONE control covering both the envelope and the pill below it. The
+          pill used to be a decorative <span> outside this button — the
+          thing that looks most like a button (rounded, filled, shadowed)
+          did nothing at all when tapped, which on a phone is the target
+          most guests reach for first. */}
       <button
         type="button"
         onClick={handleTap}
         disabled={tapped}
         aria-label="Mở thiệp"
-        className="relative h-56 w-72"
-        style={{ perspective: 1200 }}
+        className="flex flex-col items-center gap-6"
       >
-        <div className="absolute inset-x-0 bottom-0 h-44 rounded-b-md bg-[var(--secondary)] shadow-xl" />
-        <motion.div
-          className="absolute inset-x-0 top-0 h-32 origin-top bg-[var(--primary)]"
+        {/* `span`, not `div`: a button's content model is phrasing content,
+            so block elements inside it are invalid markup. `block` gives
+            back the layout behaviour. */}
+        <span className="relative block h-56 w-72" style={{ perspective: 1200 }}>
+        <span className="absolute inset-x-0 bottom-0 block h-44 rounded-b-md bg-[var(--secondary)] shadow-xl" />
+        <motion.span
+          className="absolute inset-x-0 top-0 block h-32 origin-top bg-[var(--primary)]"
           style={{
             transformStyle: "preserve-3d",
             backfaceVisibility: "hidden",
@@ -67,7 +75,7 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
             {opening.monogram}
           </span>
         ) : null}
-        <motion.div
+        <motion.span
           className="absolute inset-x-6 bottom-4 flex flex-col items-center justify-center gap-1 rounded bg-white/95 px-4 py-5 text-center shadow-md"
           initial={{ y: 0 }}
           animate={{ y: tapped ? -56 : 0 }}
@@ -76,11 +84,12 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
           {opening.showGuestName && guestName ? (
             <span className="block text-sm text-gray-700">Kính mời: {guestName}</span>
           ) : null}
-        </motion.div>
+        </motion.span>
+        </span>
+        <span className="rounded-full bg-[var(--primary)] px-8 py-3 text-sm font-medium text-white shadow-lg">
+          Mở thiệp
+        </span>
       </button>
-      <span className="rounded-full bg-[var(--primary)] px-8 py-3 text-sm font-medium text-white shadow-lg">
-        Mở thiệp
-      </span>
     </motion.div>
   );
 }

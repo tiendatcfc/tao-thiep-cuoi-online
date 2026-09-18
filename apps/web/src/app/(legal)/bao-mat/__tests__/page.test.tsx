@@ -78,4 +78,18 @@ describe("BaoMatPage (/bao-mat)", () => {
     expect(metadata.title).toBe("Chính sách bảo mật — HPWD");
     expect(typeof metadata.description).toBe("string");
   });
+
+  it("states that the uploaded original is deleted, which is what the worker now does", () => {
+    // The policy used to promise the opposite — "Cả file gốc bạn tải lên lẫn
+    // file đã chuyển đổi đều được lưu lại" — which stopped being true the
+    // moment the audio worker started deleting the source after a
+    // successful transcode. A privacy policy that describes retention the
+    // product does not practise is the one kind of stale copy that matters.
+    render(<BaoMatPage />);
+
+    const section = screen.getByRole("heading", { name: /4\./ }).closest("section");
+    expect(section).not.toBeNull();
+    expect(section).toHaveTextContent(/file gốc bạn tải lên được xoá khỏi hệ thống/i);
+    expect(section).not.toHaveTextContent(/Cả file gốc.*đều được lưu lại/i);
+  });
 });

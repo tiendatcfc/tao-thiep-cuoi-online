@@ -6,7 +6,7 @@ import { prisma } from "@hpwd/db";
 
 import { transcodeToAac } from "./ffmpeg";
 import type { AudioJobData } from "./queues";
-import { downloadToFile, uploadFile } from "./storage";
+import { deleteObject, downloadToFile, uploadFile } from "./storage";
 
 /** Key the transcoded track is written to. Defined here because the worker is the only thing that writes it; apps/web reads the resulting URL from the database. */
 export function audioOutputKey(userId: string, assetId: string): string {
@@ -55,6 +55,25 @@ export async function processAudioJob(job: Job<AudioJobData>): Promise<void> {
         url,
         meta: { ...meta, durationSeconds, contentType: OUTPUT_CONTENT_TYPE, error: null },
       },
+    });
+
+    // The original upload has no reader left once the converted track is
+    // published, and the bucket is public — leaving it there served a copy
+    // of the couple's own file, at full quality and carrying whatever
+    // metadata their phone wrote, to anyone who guessed the key. Only the
+    // CONVERTED track is disclosed as public in the privacy policy.
+    //
+    // Deleted only AFTER the database row points at the new track: the
+    // reverse order would lose the source to a crash in between and leave
+    // an asset that can never be produced. And only on success — a failed
+    // job must keep it, or one transient storage blip turns into a
+    // permanently unrecoverable upload.
+    //
+    // A failure to delete is logged, never thrown: the track is already
+    // playable, and rethrowing here would fail a job that did its work and
+    // send it round the retry loop to transcode the same file again.
+    await deleteObject(sourceKey).catch((cleanupError) => {
+      console.error(`[worker] could not delete source object "${sourceKey}":`, cleanupError);
     });
   } catch (error) {
     // Only the LAST attempt is allowed to write "failed". BullMQ retries

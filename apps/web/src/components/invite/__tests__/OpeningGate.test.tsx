@@ -51,6 +51,25 @@ describe("OpeningGate", () => {
     expect(screen.getByRole("button", { name: "Mở thiệp" })).toBeInTheDocument();
   });
 
+  it("opens when the guest taps the visible 'Mở thiệp' pill, not just the envelope graphic", async () => {
+    // The pill is the thing that LOOKS like a button — rounded, filled with
+    // the primary colour, drop shadow. It used to be a decorative <span>
+    // sitting outside the real control (the envelope graphic above it), so
+    // a guest who tapped the obvious target got nothing at all.
+    const onOpened = vi.fn();
+    renderGate(opening(), onOpened);
+
+    fireEvent.click(screen.getByText("Mở thiệp"));
+
+    await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1), { timeout: 3000 });
+  });
+
+  it("offers exactly one control, so a screen reader is not told about two 'Mở thiệp' buttons", () => {
+    renderGate(opening(), vi.fn());
+
+    expect(screen.getAllByRole("button", { name: "Mở thiệp" })).toHaveLength(1);
+  });
+
   it("reveals children and removes the overlay once the guest taps 'Mở thiệp', and calls onOpened", async () => {
     const onOpened = vi.fn();
     const { container } = renderGate(opening(), onOpened);

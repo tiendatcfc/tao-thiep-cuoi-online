@@ -71,10 +71,12 @@ describe("RichTextEditor — what reaches the store", () => {
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Danh sách" }));
 
-    // The trailing `<p></p>` is StarterKit's trailing-node extension: a
-    // document ending in a list or a quote needs an escape hatch, or the
-    // couple could never type after it again.
-    await expect(lastPushed(onChange)).resolves.toBe("<ul><li><p>xin chào</p></li></ul><p></p>");
+    // No trailing `<p></p>`: StarterKit appends one after a list so the
+    // couple can type below it, but it is stripped on the way to the store
+    // — stored, it renders as a blank line at the bottom of the guest's
+    // invitation for a paragraph nobody wrote. The editor puts it straight
+    // back the next time the document is opened.
+    await expect(lastPushed(onChange)).resolves.toBe("<ul><li><p>xin chào</p></li></ul>");
   });
 
   it("reflects the caret's formatting back through aria-pressed", async () => {
@@ -111,7 +113,7 @@ describe("RichTextEditor — what reaches the store", () => {
     fireEvent.click(screen.getByRole("button", { name: "Trích dẫn" }));
 
     const pushed = await lastPushed(onChange);
-    expect(pushed).toBe(`<blockquote>${saved}</blockquote><p></p>`);
+    expect(pushed).toBe(`<blockquote>${saved}</blockquote>`);
   });
 });
 

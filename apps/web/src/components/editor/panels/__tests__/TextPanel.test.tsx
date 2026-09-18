@@ -36,7 +36,7 @@ describe("TextPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Danh sách" }));
 
     await waitFor(() => {
-      expect(storedHtml(section.id)).toBe("<ul><li><p>Xin chào</p></li></ul><p></p>");
+      expect(storedHtml(section.id)).toBe("<ul><li><p>Xin chào</p></li></ul>");
     });
   });
 

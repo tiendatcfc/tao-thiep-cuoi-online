@@ -78,9 +78,9 @@ export default function BaoMatPage() {
         </p>
         <p>
           File nhạc bạn tải lên được hệ thống tự động chuyển sang định dạng khác để phát được trên mọi
-          trình duyệt. Cả file gốc bạn tải lên lẫn file đã chuyển đổi đều được lưu lại. Vì nhạc là một phần
-          của thiệp, file đã chuyển đổi <strong>tải về được bởi bất kỳ ai có đường link thiệp</strong> của
-          bạn, giống như ảnh trong thiệp.
+          trình duyệt. Sau khi chuyển đổi xong, <strong>file gốc bạn tải lên được xoá khỏi hệ thống</strong>;
+          chúng tôi chỉ giữ lại file đã chuyển đổi. Vì nhạc là một phần của thiệp, file đã chuyển đổi{" "}
+          <strong>tải về được bởi bất kỳ ai có đường link thiệp</strong> của bạn, giống như ảnh trong thiệp.
         </p>
       </LegalSection>
 

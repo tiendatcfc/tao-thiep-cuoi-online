@@ -9,6 +9,7 @@ import {
   acceptsDocChange,
   normalizeLinkHref,
   sanitizedHtmlLength,
+  stripTrailingEmptyParagraph,
 } from "../rich-text";
 
 /**
@@ -307,5 +308,61 @@ describe("RichTextLengthGuard — the policy actually reaches ProseMirror", () =
     expect(onLimit).toHaveBeenCalledWith(false);
     expect(onLimit).not.toHaveBeenCalledWith(true);
     e.destroy();
+  });
+});
+
+describe("stripTrailingEmptyParagraph", () => {
+  /**
+   * StarterKit's trailing-node extension appends an empty paragraph when a
+   * document ends in a block that cannot be typed after — a list, a quote,
+   * a heading. That paragraph is a necessary ESCAPE HATCH in the editor,
+   * but storing it puts a blank line at the bottom of the guest's
+   * invitation for a paragraph nobody wrote.
+   */
+  it("removes the paragraph TipTap appends after a list", () => {
+    expect(stripTrailingEmptyParagraph("<ul><li><p>a</p></li></ul><p></p>")).toBe("<ul><li><p>a</p></li></ul>");
+  });
+
+  it.each([
+    ["<blockquote><p>a</p></blockquote><p></p>", "<blockquote><p>a</p></blockquote>"],
+    ["<h2>a</h2><p></p>", "<h2>a</h2>"],
+    ["<h3>a</h3><p></p>", "<h3>a</h3>"],
+    ["<ol><li><p>a</p></li></ol><p></p>", "<ol><li><p>a</p></li></ol>"],
+  ])("removes it after %s too", (input, expected) => {
+    expect(stripTrailingEmptyParagraph(input)).toBe(expected);
+  });
+
+  it("KEEPS an empty paragraph the couple typed themselves", () => {
+    // TipTap never appends a trailing node after a paragraph, so an empty
+    // <p> following one is a blank line somebody pressed Enter for.
+    // Deleting it would be the editor silently rewriting their spacing.
+    expect(stripTrailingEmptyParagraph("<p>a</p><p></p>")).toBe("<p>a</p><p></p>");
+  });
+
+  it("keeps an empty document empty rather than producing an empty string", () => {
+    // `TextPropsSchema.html` is a plain string, so "" parses — but a
+    // document with no <p> at all gives the editor nothing to put a caret
+    // in when it is reopened.
+    expect(stripTrailingEmptyParagraph("<p></p>")).toBe("<p></p>");
+    expect(stripTrailingEmptyParagraph("")).toBe("");
+  });
+
+  it("leaves a run of empty paragraphs alone — TipTap cannot have appended any of them", () => {
+    // The trailing node is only ever added when the last node is NOT a
+    // paragraph. Once one empty <p> is there, every further one came from
+    // somebody pressing Enter, so removing any would be rewriting their
+    // spacing.
+    expect(stripTrailingEmptyParagraph("<h2>a</h2><p></p><p></p>")).toBe("<h2>a</h2><p></p><p></p>");
+  });
+
+  it("leaves html that does not end in an empty paragraph untouched", () => {
+    for (const html of ["<p>a</p>", "<ul><li><p>a</p></li></ul>", "<p>a</p><p>b</p>", "<h2>a</h2>"]) {
+      expect(stripTrailingEmptyParagraph(html)).toBe(html);
+    }
+  });
+
+  it("is idempotent", () => {
+    const once = stripTrailingEmptyParagraph("<ul><li><p>a</p></li></ul><p></p>");
+    expect(stripTrailingEmptyParagraph(once)).toBe(once);
   });
 });

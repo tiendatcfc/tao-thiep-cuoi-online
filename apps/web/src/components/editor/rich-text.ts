@@ -95,6 +95,36 @@ export function acceptsDocChange(nextDoc: ProseMirrorNode, currentDoc: ProseMirr
   return next < sanitizedHtmlLength(currentDoc);
 }
 
+/**
+ * Blocks after which StarterKit's trailing-node extension appends an empty
+ * paragraph. Deliberately NOT `<p>`: TipTap never appends one after a
+ * paragraph, so an empty `<p>` following another paragraph is a blank line
+ * somebody pressed Enter for, and removing it would be the editor quietly
+ * rewriting their spacing.
+ */
+const TRAILING_NODE_TRIGGERS = ["</ul>", "</ol>", "</blockquote>", "</h2>", "</h3>"];
+
+/**
+ * Drops the empty paragraph TipTap appends to a document that ends in a
+ * block you cannot type after.
+ *
+ * That paragraph is a necessary escape hatch INSIDE the editor — without it
+ * a couple whose invitation ends in a list could never add anything below
+ * it. It has no business in the stored document, though: it renders as a
+ * blank line at the bottom of the guest's invitation, for a paragraph
+ * nobody wrote. Stripping it on the way to the store costs nothing, because
+ * the editor puts it straight back the next time the document is opened.
+ *
+ * Exactly one is removed, so a blank line the couple typed above the
+ * appended node survives.
+ */
+export function stripTrailingEmptyParagraph(html: string): string {
+  if (!html.endsWith("<p></p>")) return html;
+  const withoutTrailing = html.slice(0, -"<p></p>".length);
+  if (!TRAILING_NODE_TRIGGERS.some((tag) => withoutTrailing.endsWith(tag))) return html;
+  return withoutTrailing;
+}
+
 export interface RichTextLengthGuardOptions {
   /** Called on every document change with whether the cap just blocked it. */
   onLimit: (blocked: boolean) => void;

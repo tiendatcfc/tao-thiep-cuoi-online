@@ -80,9 +80,11 @@ CSP (hiện `next.config.ts` không có `headers()` nào, dù có 1 điểm `dan
 
 Nằm rải trong 3 ledger, dòng có chữ `minor (deferred)`. Lấy nhanh: `grep -h 'minor (deferred)' .superpowers/sdd/*/progress.md`. Đã được triage: không mục nào chặn merge.
 
-## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch)
+## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 8/9
 
-1. **Google OAuth** — `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` trong `apps/web/.env.local` đang **rỗng**. Toàn bộ luồng sau đăng nhập (editor, dashboard, duyệt lời chúc, xem phản hồi, quản lý khách) chưa từng được bấm thử như người dùng thật. Redirect URI: `http://localhost:3000/api/auth/callback/google`.
+1. ~~**Google OAuth**~~ — **XONG 2026-09-18.** `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` đã có trong `apps/web/.env` (và `.env.local`), chủ dự án đã đăng nhập thật: có `User` "Tiến Đạt Nguyễn" (@gmail.com) + `Account` provider `google` + ảnh đại diện, và đã tạo được thiệp. Luồng sau đăng nhập không còn là vùng chưa ai bấm.
+   - **Còn cho production:** đặt `AUTH_TRUST_HOST=true` (hoặc `AUTH_URL`) — thiếu là đăng nhập Google **hỏng hoàn toàn** khi tự host sau reverse proxy; đặt `NEXT_PUBLIC_SITE_URL` lúc **build**; thêm redirect URI của tên miền thật vào Google Cloud Console.
+   - **Bẫy cấu hình:** `apps/web/.env` và `apps/web/.env.local` đang **trùng nhau từng byte**. Next cho `.env.local` thắng, nên sửa `.env` sẽ không có tác dụng. Nên giữ một file.
 2. **File font** — `apps/web/public/fonts/` hiện **chỉ có README.md**. Cần 16 file `.woff2` (8 họ × 400/700, subset tiếng Việt, OFL) **và** 1 file `og-heading.ttf` hoặc `.woff`. Đọc `apps/web/public/fonts/README.md`. Lưu ý: satori (dùng cho ảnh share) **không đọc được WOFF2** — thả mỗi WOFF2 vào thì CSS sửa được nhưng ảnh share vẫn hiện ô trắng thay cho Đ, ặ, ễ, ị.
 3. **Nhạc có bản quyền** — thư viện hiện là 3 tiếng bíp sine do ffmpeg sinh ra. `docs/music-credits.md` ghi rõ chúng không được lên production, kèm việc cần làm.
 4. **Quét thử QR** bằng app ngân hàng Việt Nam thật: `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png`. 2 phút, chặn tính năng liên quan tới tiền.

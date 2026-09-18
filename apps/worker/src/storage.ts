@@ -2,7 +2,7 @@ import { createWriteStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
  * S3-compatible object storage for the worker — MinIO locally, Cloudflare R2
@@ -69,4 +69,14 @@ export async function uploadFile(key: string, sourcePath: string, contentType: s
     }),
   );
   return `${requireEnv("R2_PUBLIC_URL")}/${key}`;
+}
+
+/**
+ * Removes one object.
+ *
+ * S3 delete is idempotent — removing a key that is already gone succeeds —
+ * so a retry after a partial failure is safe.
+ */
+export async function deleteObject(key: string): Promise<void> {
+  await getS3Client().send(new DeleteObjectCommand({ Bucket: requireEnv("R2_BUCKET"), Key: key }));
 }
