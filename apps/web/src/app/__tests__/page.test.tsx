@@ -1,6 +1,25 @@
 import { prisma } from "@hpwd/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isValidElement, type ReactElement } from "react";
 import HomePage, { dynamic } from "../page";
+import { LandingPage } from "../LandingPage";
+
+/**
+ * HomePage returns a fragment — the JSON-LD script, then LandingPage — so
+ * the templates are one level down. Finding the element by component
+ * rather than by position means adding another sibling (another structured
+ * data block, a banner) does not silently make these assertions read the
+ * wrong child and pass on `undefined`.
+ */
+function landingPageProps(element: ReactElement): { templates: unknown } {
+  const children = (element.props as { children?: unknown }).children;
+  const list = Array.isArray(children) ? children : [children];
+  const landing = list.find(
+    (child): child is ReactElement => isValidElement(child) && child.type === LandingPage,
+  );
+  if (!landing) throw new Error("HomePage did not render LandingPage");
+  return landing.props as { templates: unknown };
+}
 
 /**
  * B3: `/` used to be statically prerendered, running
@@ -31,7 +50,7 @@ describe("app/page.tsx (B3)", () => {
 
     const element = await HomePage();
 
-    expect(element.props.templates).toEqual(fixture);
+    expect(landingPageProps(element).templates).toEqual(fixture);
   });
 
   it("degrades to an empty template list (LandingPage's own empty state) instead of throwing when the query fails", async () => {
@@ -42,7 +61,7 @@ describe("app/page.tsx (B3)", () => {
 
     const element = await HomePage();
 
-    expect(element.props.templates).toEqual([]);
+    expect(landingPageProps(element).templates).toEqual([]);
     errorSpy.mockRestore();
   });
 });

@@ -78,6 +78,34 @@ describe("generateMetadata (app/i/[slug]/page.tsx)", () => {
     });
   });
 
+  // The invitation carries guests' names (via `?g=`), the venue and home
+  // addresses, phone numbers and, with a gift section, bank details.
+  // `openGraph` is asserted in the SAME test on purpose: link previews are
+  // the entire distribution channel for a wedding invitation, and the
+  // scrapers behind them ignore the robots directive, so the two must be
+  // shown to coexist rather than trusted to.
+  it("tells search engines not to index a published invitation, without touching its link preview", async () => {
+    userId = await createUser();
+    const slug = `noindex-${randomUUID()}`;
+    const document = createDefaultDocument();
+    const invitation = await prisma.invitation.create({
+      data: {
+        slug,
+        userId,
+        document,
+        publishedDocument: document,
+        status: "published",
+        publishedAt: new Date(),
+      },
+    });
+    createdInvitationIds.push(invitation.id);
+
+    const result = await generateMetadata({ params: Promise.resolve({ slug }) });
+
+    expect(result.robots).toEqual({ index: false, follow: false });
+    expect(result.openGraph).toMatchObject({ url: `/i/${slug}`, type: "website" });
+  });
+
   it("falls back to the default tagline when the cover has none", async () => {
     userId = await createUser();
     const slug = `no-tagline-${randomUUID()}`;

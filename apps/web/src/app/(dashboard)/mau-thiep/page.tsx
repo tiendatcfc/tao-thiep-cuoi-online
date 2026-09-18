@@ -1,6 +1,34 @@
+import type { Metadata } from "next";
 import { auth } from "@/auth";
 import { listActiveTemplates } from "@/lib/templates";
 import { TemplateGallery, type GalleryTier } from "./TemplateGallery";
+
+const TITLE = "Mẫu thiệp cưới online — HPWD";
+const DESCRIPTION =
+  "Chọn mẫu thiệp cưới online miễn phí: Basic và Premium, tuỳ chỉnh được mọi nội dung, không watermark.";
+
+/**
+ * This page had no metadata at all, so it inherited the root layout's
+ * generic title — on the one public page whose whole purpose is to be
+ * found by someone searching for a wedding invitation template.
+ *
+ * The canonical drops `?tier=`: both tabs are the same page of the same
+ * site, and left alone they compete with each other in search results.
+ */
+export function generateMetadata(): Metadata {
+  return {
+    title: TITLE,
+    description: DESCRIPTION,
+    alternates: { canonical: "/mau-thiep" },
+    openGraph: {
+      title: TITLE,
+      description: DESCRIPTION,
+      url: "/mau-thiep",
+      type: "website",
+      locale: "vi_VN",
+    },
+  };
+}
 
 function parseTier(raw: string | string[] | undefined): GalleryTier {
   return raw === "premium" ? "premium" : "basic";

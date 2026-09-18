@@ -93,6 +93,19 @@ export async function generateMetadata({
     return {
       title,
       description,
+      // An invitation carries the couple's guest list by name (via `?g=`),
+      // the addresses of their home and venue, phone numbers and, where a
+      // gift section is used, bank account details. None of that was
+      // handed over to be searchable, and a couple's traffic comes from
+      // the link they send, never from Google.
+      //
+      // This does NOT affect link previews: Facebook's, Zalo's and
+      // iMessage's scrapers read og: tags and ignore the robots directive,
+      // which is why `openGraph` below stays exactly as it was and a test
+      // pins the two together. `robots.ts` also deliberately leaves /i/
+      // crawlable, because a crawler that is refused the page never reads
+      // this line.
+      robots: { index: false, follow: false },
       openGraph: {
         title,
         description,

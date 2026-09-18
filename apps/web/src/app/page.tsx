@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { prisma } from "@hpwd/db";
+import { siteUrl } from "@/lib/site-url";
 import { LandingPage } from "./LandingPage";
 
 // B3 fix: this page used to be statically prerendered at build time, which
@@ -30,6 +31,11 @@ export function generateMetadata(): Metadata {
   return {
     title: TITLE,
     description: DESCRIPTION,
+    // Resolved against `metadataBase` in the root layout. Without it the
+    // same page is reachable at `/`, `/?utm_source=...` and any other query
+    // a shared link picks up, and search engines rank the copies against
+    // each other.
+    alternates: { canonical: "/" },
     openGraph: {
       title: TITLE,
       description: DESCRIPTION,
@@ -38,6 +44,28 @@ export function generateMetadata(): Metadata {
       locale: "vi_VN",
     },
   };
+}
+
+/**
+ * Schema.org description of the site, for the search result rather than the
+ * page. Only `WebSite` — an `Organization` block would have to state a
+ * name, a logo and a contact point, and this project has no registered
+ * entity and no contact address yet (see the legal pages' own placeholder),
+ * so filling one in would be inventing a company.
+ *
+ * `type="application/ld+json"` is data, not code: browsers do not execute
+ * it, so the CSP's `script-src` does not apply and it needs no nonce.
+ * Verified in Chrome against the enforced policy.
+ */
+function websiteJsonLd(): string {
+  return JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "HPWD",
+    url: siteUrl(),
+    description: DESCRIPTION,
+    inLanguage: "vi-VN",
+  });
 }
 
 type LandingTemplateRow = { id: string; name: string; thumbnailUrl: string };
@@ -72,5 +100,10 @@ async function loadTemplates(): Promise<LandingTemplateRow[]> {
 export default async function HomePage() {
   const templates = await loadTemplates();
 
-  return <LandingPage templates={templates} />;
+  return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: websiteJsonLd() }} />
+      <LandingPage templates={templates} />
+    </>
+  );
 }
