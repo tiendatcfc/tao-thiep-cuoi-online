@@ -1,5 +1,4 @@
-import { useReducedMotion } from "framer-motion";
-import { motion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import type { ReactNode } from "react";
 import type { Section } from "@hpwd/schema";
 
@@ -61,7 +60,7 @@ export function AnimatedSection({ animation, children }: AnimatedSectionProps) {
   const variant = ANIMATION_VARIANTS[animation.preset];
 
   return (
-    <motion.div
+    <m.div
       data-animate={animation.preset}
       data-duration={animation.durationMs}
       className="empty:hidden"
@@ -77,6 +76,6 @@ export function AnimatedSection({ animation, children }: AnimatedSectionProps) {
       }}
     >
       {children}
-    </motion.div>
+    </m.div>
   );
 }

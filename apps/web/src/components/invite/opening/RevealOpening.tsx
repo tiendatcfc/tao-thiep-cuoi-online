@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -34,14 +34,14 @@ export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVari
   const t = (base: number) => (reduceMotion ? 0 : base);
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-30 overflow-hidden"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
       transition={{ duration: t(FADE_DURATION), delay: t(FADE_DELAY) }}
       onAnimationComplete={handleAnimationComplete}
     >
-      <motion.div
+      <m.div
         className="absolute inset-x-0 top-0 flex h-1/2 flex-col items-center justify-end gap-3 bg-[var(--background)] px-6 pb-8 text-center"
         initial={{ y: "0%" }}
         animate={{ y: tapped ? "-100%" : "0%" }}
@@ -64,13 +64,13 @@ export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVari
         {opening.showGuestName && guestName ? (
           <p className="text-sm text-gray-600">Kính mời: {guestName}</p>
         ) : null}
-      </motion.div>
+      </m.div>
 
       {/* The seam itself: a hairline in the accent colour so the split reads
           as deliberate before anything moves. */}
       <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--secondary)]" />
 
-      <motion.div
+      <m.div
         className="absolute inset-x-0 bottom-0 flex h-1/2 flex-col items-center justify-start gap-3 bg-[var(--background)] px-6 pt-8 text-center"
         initial={{ y: "0%" }}
         animate={{ y: tapped ? "100%" : "0%" }}
@@ -85,7 +85,7 @@ export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVari
         >
           Mở thiệp
         </button>
-      </motion.div>
-    </motion.div>
+      </m.div>
+    </m.div>
   );
 }

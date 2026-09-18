@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -36,7 +36,7 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
   const t = (base: number) => (reduceMotion ? 0 : base);
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-6 bg-[var(--background)] px-6"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
@@ -60,7 +60,7 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
             back the layout behaviour. */}
         <span className="relative block h-56 w-72" style={{ perspective: 1200 }}>
         <span className="absolute inset-x-0 bottom-0 block h-44 rounded-b-md bg-[var(--secondary)] shadow-xl" />
-        <motion.span
+        <m.span
           className="absolute inset-x-0 top-0 block h-32 origin-top bg-[var(--primary)]"
           style={{
             transformStyle: "preserve-3d",
@@ -75,7 +75,7 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
             {opening.monogram}
           </span>
         ) : null}
-        <motion.span
+        <m.span
           className="absolute inset-x-6 bottom-4 flex flex-col items-center justify-center gap-1 rounded bg-white/95 px-4 py-5 text-center shadow-md"
           initial={{ y: 0 }}
           animate={{ y: tapped ? -56 : 0 }}
@@ -84,12 +84,12 @@ export function EnvelopeOpening({ opening, guestName, onOpen, onTap }: OpeningVa
           {opening.showGuestName && guestName ? (
             <span className="block text-sm text-gray-700">Kính mời: {guestName}</span>
           ) : null}
-        </motion.span>
+        </m.span>
         </span>
         <span className="rounded-full bg-[var(--primary)] px-8 py-3 text-sm font-medium text-white shadow-lg">
           Mở thiệp
         </span>
       </button>
-    </motion.div>
+    </m.div>
   );
 }

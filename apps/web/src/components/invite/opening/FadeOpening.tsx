@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -22,7 +22,7 @@ export function FadeOpening({ opening, guestName, onOpen, onTap }: OpeningVarian
   );
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-6 bg-[var(--background)] px-6 text-center"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
@@ -44,6 +44,6 @@ export function FadeOpening({ opening, guestName, onOpen, onTap }: OpeningVarian
       >
         Mở thiệp
       </button>
-    </motion.div>
+    </m.div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -64,7 +64,7 @@ export function PetalsOpening({ opening, guestName, onOpen, onTap }: OpeningVari
   const t = (base: number) => (reduceMotion ? 0 : base);
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-30 overflow-hidden bg-[var(--background)]/95 backdrop-blur-sm"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
@@ -73,7 +73,7 @@ export function PetalsOpening({ opening, guestName, onOpen, onTap }: OpeningVari
     >
       <div aria-hidden="true" className="absolute inset-0">
         {PETALS.map((petal) => (
-          <motion.span
+          <m.span
             key={`${petal.left}-${petal.top}`}
             className="absolute block opacity-70"
             style={{
@@ -131,6 +131,6 @@ export function PetalsOpening({ opening, guestName, onOpen, onTap }: OpeningVari
           Mở thiệp
         </button>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

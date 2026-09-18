@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useReducedMotion } from "framer-motion";
+import { m, useReducedMotion } from "framer-motion";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -26,20 +26,20 @@ export function CurtainOpening({ opening, guestName, onOpen, onTap }: OpeningVar
   const t = (base: number) => (reduceMotion ? 0 : base);
 
   return (
-    <motion.div
+    <m.div
       className="fixed inset-0 z-30 overflow-hidden"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
       transition={{ duration: t(FADE_DURATION), delay: t(FADE_DELAY) }}
       onAnimationComplete={handleAnimationComplete}
     >
-      <motion.div
+      <m.div
         className="absolute inset-y-0 left-0 w-1/2 bg-[var(--primary)]"
         initial={{ x: "0%" }}
         animate={{ x: tapped ? "-100%" : "0%" }}
         transition={{ duration: t(PANEL_DURATION) }}
       />
-      <motion.div
+      <m.div
         className="absolute inset-y-0 right-0 w-1/2 bg-[var(--secondary)]"
         initial={{ x: "0%" }}
         animate={{ x: tapped ? "100%" : "0%" }}
@@ -62,6 +62,6 @@ export function CurtainOpening({ opening, guestName, onOpen, onTap }: OpeningVar
           Mở thiệp
         </button>
       </div>
-    </motion.div>
+    </m.div>
   );
 }

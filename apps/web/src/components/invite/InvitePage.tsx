@@ -1,5 +1,6 @@
 "use client";
 
+import { LazyMotion, domAnimation } from "framer-motion";
 import { useRef, useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
@@ -69,65 +70,84 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
   } as CSSProperties;
 
   return (
-    <InviteContext.Provider
-      value={{ guestName, showGuestName: document.opening.showGuestName, isPreview, slug }}
-    >
-      <div
-        data-invite-root
-        className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
-        style={themeStyle}
+    /*
+     * `<motion.div>` drags in framer-motion's WHOLE feature bundle —
+     * animations, gestures, drag and layout projection — because the
+     * component cannot know which of them a caller will use. Nothing on an
+     * invitation drags anything or animates a layout change (there is no
+     * `drag`, `layoutId` or `<AnimatePresence>` anywhere in this app), so
+     * every guest was downloading and parsing the two features nobody uses.
+     *
+     * `<LazyMotion features={domAnimation}>` plus the `m` components declares
+     * what is actually needed: animations + gestures, which is what
+     * `whileInView` (every section) and the five opening effects run on —
+     * `InViewFeature` lives in the gesture bundle, so scroll-triggered
+     * animation still works exactly as before.
+     *
+     * `strict` is the guard: it makes any stray `motion.*` throw instead of
+     * silently pulling the full bundle back in and quietly undoing this.
+     */
+    <LazyMotion features={domAnimation} strict>
+      <InviteContext.Provider
+        value={{ guestName, showGuestName: document.opening.showGuestName, isPreview, slug }}
       >
-        {/* `@font-face` for fonts this couple uploaded. Rendered here rather
-            than in the route so the editor's live preview, which mounts
-            this same component, declares them too — otherwise a custom font
-            would look right when published and fall back while editing. */}
-        <CustomFontStyle fonts={document.theme.customFonts} />
-        <OpeningGate
-          opening={document.opening}
-          guestName={guestName}
-          onOpened={() => setOpened(true)}
-          onTap={handleOpeningTap}
+        <div
+          data-invite-root
+          className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
+          style={themeStyle}
         >
-          <SectionRenderer document={document} />
-        </OpeningGate>
-        {/*
-         * `MusicPlayer` renders here as a sibling of `OpeningGate`, never
-         * inside it, so it stays mounted for the whole lifetime of the page
-         * — its rising-edge autoplay detector seeds itself from the
-         * *initial* `startSignal` value, so a remount with `startSignal`
-         * already `true` would silently never autoplay.
-         *
-         * `startSignal` only rises once BOTH the gate has opened AND
-         * `music.playAfterOpen` allows it — a couple can configure an
-         * opening effect while still opting out of auto-starting audio,
-         * leaving the player's own toggle button as the only way to start
-         * it. `ref` is the C1 path (see `handleOpeningTap` above) — both
-         * paths end up calling the exact same `playAudio`, just from
-         * different moments; whichever gets there first wins in practice.
-         *
-         * `interactive` (C7 fix): this button is `fixed`/`z-50`, ABOVE the
-         * opening overlay's `z-30` — without gating it on `opened`, it sat
-         * fully tappable/focusable on top of the still-closed gate.
-         * `isPreview` is included because `OpeningGate` never calls
-         * `onOpened` in preview mode (see its own docstring), so `opened`
-         * would otherwise never become `true` there and the editor's own
-         * preview would lose the button.
-         */}
-        <MusicPlayer
-          ref={musicPlayerRef}
-          music={document.music}
-          startSignal={opened && document.music.playAfterOpen}
-          interactive={opened || isPreview}
-        />
-        {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
-        {settings.showBadge ? (
-          <footer className="py-6 text-center text-xs text-gray-400">
-            <Link href="/" className="hover:underline">
-              Tạo miễn phí tại HPWD
-            </Link>
-          </footer>
-        ) : null}
-      </div>
-    </InviteContext.Provider>
+          {/* `@font-face` for fonts this couple uploaded. Rendered here rather
+              than in the route so the editor's live preview, which mounts
+              this same component, declares them too — otherwise a custom font
+              would look right when published and fall back while editing. */}
+          <CustomFontStyle fonts={document.theme.customFonts} />
+          <OpeningGate
+            opening={document.opening}
+            guestName={guestName}
+            onOpened={() => setOpened(true)}
+            onTap={handleOpeningTap}
+          >
+            <SectionRenderer document={document} />
+          </OpeningGate>
+          {/*
+           * `MusicPlayer` renders here as a sibling of `OpeningGate`, never
+           * inside it, so it stays mounted for the whole lifetime of the page
+           * — its rising-edge autoplay detector seeds itself from the
+           * *initial* `startSignal` value, so a remount with `startSignal`
+           * already `true` would silently never autoplay.
+           *
+           * `startSignal` only rises once BOTH the gate has opened AND
+           * `music.playAfterOpen` allows it — a couple can configure an
+           * opening effect while still opting out of auto-starting audio,
+           * leaving the player's own toggle button as the only way to start
+           * it. `ref` is the C1 path (see `handleOpeningTap` above) — both
+           * paths end up calling the exact same `playAudio`, just from
+           * different moments; whichever gets there first wins in practice.
+           *
+           * `interactive` (C7 fix): this button is `fixed`/`z-50`, ABOVE the
+           * opening overlay's `z-30` — without gating it on `opened`, it sat
+           * fully tappable/focusable on top of the still-closed gate.
+           * `isPreview` is included because `OpeningGate` never calls
+           * `onOpened` in preview mode (see its own docstring), so `opened`
+           * would otherwise never become `true` there and the editor's own
+           * preview would lose the button.
+           */}
+          <MusicPlayer
+            ref={musicPlayerRef}
+            music={document.music}
+            startSignal={opened && document.music.playAfterOpen}
+            interactive={opened || isPreview}
+          />
+          {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
+          {settings.showBadge ? (
+            <footer className="py-6 text-center text-xs text-gray-400">
+              <Link href="/" className="hover:underline">
+                Tạo miễn phí tại HPWD
+              </Link>
+            </footer>
+          ) : null}
+        </div>
+      </InviteContext.Provider>
+    </LazyMotion>
   );
 }

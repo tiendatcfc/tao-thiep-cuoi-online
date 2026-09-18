@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { Opening } from "@hpwd/schema";
+import { LazyMotion, domAnimation } from "framer-motion";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { InviteContext } from "../InviteContext";
@@ -33,15 +34,28 @@ const openingDoc: Opening = {
   showGuestName: true,
 };
 
+// `OpeningGate` animates with framer-motion's `m` components, which only
+// have features when a `LazyMotion` provider is above them — in the app
+// that is `InvitePage`, which every route and the editor preview render
+// through. Without one the transitions never run, `onAnimationComplete`
+// never fires, and the gate falls back on `useOpeningTap`'s safety net
+// instead of exercising the path this file is about. Rendering through the
+// same provider the app uses is what keeps these tests honest.
+function withMotion(ui: React.ReactNode) {
+  return <LazyMotion features={domAnimation} strict>{ui}</LazyMotion>;
+}
+
 describe("OpeningGate (prefers-reduced-motion)", () => {
   it("skips the animation and opens near-instantly on tap, still calling onOpened", async () => {
     const onOpened = vi.fn();
     render(
+      withMotion(
       <InviteContext.Provider value={{ guestName: "An", showGuestName: true, isPreview: false, slug: null }}>
         <OpeningGate opening={openingDoc} guestName="An" onOpened={onOpened}>
           <div>Nội dung thiệp</div>
         </OpeningGate>
       </InviteContext.Provider>,
+      ),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Mở thiệp" }));
