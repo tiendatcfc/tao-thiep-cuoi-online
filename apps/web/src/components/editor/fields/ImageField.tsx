@@ -168,7 +168,18 @@ export function ImageField({ label, value, onChange, onUploaded }: ImageFieldPro
       const formData = new FormData();
       formData.append("file", file);
       const res = await fetch("/api/uploads", { method: "POST", body: formData });
-      if (!res.ok) throw new Error(`POST /api/uploads failed with status ${res.status}`);
+      if (!res.ok) {
+        // The route answers 429 with a Vietnamese explanation — the hourly
+        // limit, or the account's total-asset cap — and those two are the
+        // only failures the person can actually act on. Replacing them with
+        // "vui lòng thử lại" told a couple who had hit a limit to do the
+        // one thing that could not work. `?? UPLOAD_ERROR` keeps every
+        // other status (and a body with no `error`) on the generic line.
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        setStatus("error");
+        setError(body.error ?? UPLOAD_ERROR);
+        return;
+      }
       const meta = (await res.json()) as { url: string; width: number; height: number; blurDataUrl: string };
 
       setStatus("idle");

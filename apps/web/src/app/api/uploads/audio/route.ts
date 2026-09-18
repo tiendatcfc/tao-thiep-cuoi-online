@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { MAX_AUDIO_SIZE_BYTES, audioSourceKey, isAudioContentType } from "@/lib/audio";
 import { enqueueAudioJob } from "@/lib/queues";
 import { putObject } from "@/lib/storage";
+import { ASSET_QUOTA_MESSAGE, isWithinAssetQuota } from "@/lib/storage-quota";
 import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 /**
@@ -43,6 +44,13 @@ export async function POST(request: Request) {
   // Every accepted upload becomes an ffmpeg process on the worker.
   if (!(await rateLimitUser("audioUpload", userId))) {
     return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
+
+  // Also before the body is read. `rateLimitUser` above bounds the RATE;
+  // nothing bounded the TOTAL, so an account could keep uploading at the
+  // permitted rate forever. See `storage-quota.ts` for the numbers.
+  if (!(await isWithinAssetQuota("audio", userId))) {
+    return NextResponse.json({ error: ASSET_QUOTA_MESSAGE.audio }, { status: 429 });
   }
 
   const declaredLength = Number(request.headers.get("content-length"));

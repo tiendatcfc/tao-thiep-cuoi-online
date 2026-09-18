@@ -1,3 +1,4 @@
+import { prisma } from "@hpwd/db";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Same rationale as every other route test in this directory: `auth()` is
@@ -18,6 +19,8 @@ vi.mock("@/lib/upload", async (importOriginal) => {
 });
 
 import { POST } from "../uploads/route";
+import { ASSET_QUOTA_MESSAGE, USER_ASSET_CAPS } from "@/lib/storage-quota";
+import { USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 function makeFile(name: string, type: string, bytes: Uint8Array<ArrayBuffer> | string): File {
   const data = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
@@ -266,5 +269,59 @@ describe("POST /api/uploads", () => {
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: "Không thể tải ảnh lên, vui lòng thử lại." });
     expect(consoleError).toHaveBeenCalled();
+  });
+});
+
+/**
+ * `user-rate-limit.ts` bounds how FAST one account can upload. Nothing
+ * bounded how MUCH: at the permitted 500 an hour an account could keep
+ * going indefinitely, and this project pays for its own object storage.
+ */
+describe("POST /api/uploads — the account's total-asset cap", () => {
+  it("lets the upload that lands exactly on the cap through", async () => {
+    vi.spyOn(prisma.mediaAsset, "count").mockResolvedValue(USER_ASSET_CAPS.image - 1);
+    processAndStoreImageMock.mockResolvedValue({
+      url: "https://cdn.test/a.webp",
+      width: 800,
+      height: 600,
+      blurDataUrl: "data:image/webp;base64,AA",
+    });
+
+    const res = await POST(await multipartRequest(makeFile("a.jpg", "image/jpeg", "x")));
+
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses the next one, naming the cap rather than the generic failure", async () => {
+    vi.spyOn(prisma.mediaAsset, "count").mockResolvedValue(USER_ASSET_CAPS.image);
+
+    const res = await POST(await multipartRequest(makeFile("a.jpg", "image/jpeg", "x")));
+
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: ASSET_QUOTA_MESSAGE.image });
+    expect(ASSET_QUOTA_MESSAGE.image).not.toBe(USER_RATE_LIMIT_MESSAGE);
+  });
+
+  it("counts this user's images only, not every asset they own", async () => {
+    const count = vi.spyOn(prisma.mediaAsset, "count").mockResolvedValue(USER_ASSET_CAPS.image);
+
+    await POST(await multipartRequest(makeFile("a.jpg", "image/jpeg", "x")));
+
+    expect(count).toHaveBeenCalledWith({ where: { userId: "user-1", kind: "image" } });
+  });
+
+  // The whole point of checking early: a refused request must not first pay
+  // for sharp to decode and re-encode three variants of the image.
+  it("answers before the body is parsed or sharp is ever called", async () => {
+    vi.spyOn(prisma.mediaAsset, "count").mockResolvedValue(USER_ASSET_CAPS.image);
+
+    // No content-length at all — the pre-check that guards RAM would answer
+    // 400 for this request. A 429 instead proves the cap ran ahead of it.
+    const res = await POST(
+      new Request("http://localhost/api/uploads", { method: "POST", body: "not multipart at all" }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(processAndStoreImageMock).not.toHaveBeenCalled();
   });
 });

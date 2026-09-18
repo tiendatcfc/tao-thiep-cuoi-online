@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { ImageDecodeError, processAndStoreImage } from "@/lib/upload";
+import { ASSET_QUOTA_MESSAGE, isWithinAssetQuota } from "@/lib/storage-quota";
 import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
@@ -36,6 +37,13 @@ export async function POST(request: Request) {
   // rows in a table.
   if (!(await rateLimitUser("imageUpload", session.user.id))) {
     return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
+
+  // Also before the body is read. `rateLimitUser` above bounds the RATE;
+  // nothing bounded the TOTAL, so an account could keep uploading at the
+  // permitted rate forever. See `storage-quota.ts` for the numbers.
+  if (!(await isWithinAssetQuota("image", session.user.id))) {
+    return NextResponse.json({ error: ASSET_QUOTA_MESSAGE.image }, { status: 429 });
   }
 
   // Cheap pre-check on the DECLARED length, before the body is ever parsed.

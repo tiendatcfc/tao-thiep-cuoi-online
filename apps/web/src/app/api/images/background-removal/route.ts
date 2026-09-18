@@ -4,6 +4,7 @@ import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
 import { enqueueBgRemovalJob } from "@/lib/queues";
 import { imageVariantKey } from "@/lib/upload";
+import { ASSET_QUOTA_MESSAGE, isWithinAssetQuota } from "@/lib/storage-quota";
 import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 /**
@@ -31,6 +32,13 @@ export async function POST(request: Request) {
   // user can starve everyone else's jobs rather than just their own.
   if (!(await rateLimitUser("backgroundRemoval", userId))) {
     return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
+
+  // The cutout is a NEW image asset, never an overwrite, so this route grows
+  // the account's asset count exactly like an upload does and has to answer
+  // to the same total.
+  if (!(await isWithinAssetQuota("image", userId))) {
+    return NextResponse.json({ error: ASSET_QUOTA_MESSAGE.image }, { status: 429 });
   }
 
   // Identified by URL, not by asset id. The invitation document stores only

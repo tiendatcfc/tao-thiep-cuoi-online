@@ -110,6 +110,48 @@ describe("ImageField", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  // The route already answers 429 with a Vietnamese explanation — "Bạn đang
+  // thao tác quá nhanh..." for the hourly limit, and the account-cap message
+  // for the lifetime one. Neither had ever reached a user: this handler threw
+  // on `!res.ok` and replaced every non-2xx with the same generic line, so a
+  // couple who hit a limit was told "Không thể tải ảnh lên, vui lòng thử lại."
+  // — advice to do the exact thing that cannot work.
+  it.each([
+    ["Bạn đang thao tác quá nhanh. Vui lòng thử lại sau ít phút."],
+    ["Tài khoản của bạn đã đạt giới hạn 5.000 ảnh. Vui lòng liên hệ hỗ trợ nếu bạn cần thêm."],
+  ])("shows the server's own explanation instead of the generic failure: %s", async (message) => {
+    const onChange = vi.fn();
+    fetchMock.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: message }),
+    } as Response);
+
+    render(<ImageField label="Ảnh bìa" value="" onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText("Ảnh bìa"), {
+      target: { files: [makeFile("cover.jpg", 1024, "image/jpeg")] },
+    });
+
+    await waitFor(() => expect(screen.getByText(message)).toBeInTheDocument());
+    expect(screen.queryByText("Không thể tải ảnh lên, vui lòng thử lại.")).not.toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("still falls back to the generic message when the server sends no explanation", async () => {
+    const onChange = vi.fn();
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) } as Response);
+
+    render(<ImageField label="Ảnh bìa" value="" onChange={onChange} />);
+    fireEvent.change(screen.getByLabelText("Ảnh bìa"), {
+      target: { files: [makeFile("cover.jpg", 1024, "image/jpeg")] },
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("Không thể tải ảnh lên, vui lòng thử lại.")).toBeInTheDocument(),
+    );
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("passes the server-measured width/height/blurDataUrl through to onUploaded", async () => {
     const onChange = vi.fn();
     const onUploaded = vi.fn();
