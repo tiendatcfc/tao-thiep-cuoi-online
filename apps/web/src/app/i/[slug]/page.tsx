@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound, permanentRedirect, unstable_rethrow } from "next/navigation";
 import { InvitationDocumentSchema } from "@hpwd/schema";
@@ -7,6 +8,24 @@ import { findCoverSection } from "@/lib/sections";
 import { parseInvitationSettings } from "@/lib/settings";
 
 const DEFAULT_TAGLINE = "Trân trọng kính mời bạn đến dự lễ cưới của chúng tôi.";
+
+/**
+ * Next runs `generateMetadata` and the page component for the SAME request,
+ * and both need the same invitation row. They each used to issue their own
+ * `findUnique`, so every guest opening an invitation cost two identical
+ * queries — 600 for a wedding whose 300 guests all open the link, for 300
+ * rows' worth of data.
+ *
+ * `cache()` is React's per-request memo: the second caller in the same
+ * request gets the first one's promise instead of a second round trip. It
+ * is scoped to the request, so two different guests still each get a fresh
+ * read — this is deduplication, not caching, and nothing here can go stale
+ * between the metadata pass and the render.
+ *
+ * The historical-slug lookup gets the same treatment: on a 404-or-redirect
+ * path both passes ask for it too.
+ */
+const loadInvitationBySlug = cache((slug: string) => prisma.invitation.findUnique({ where: { slug } }));
 
 type SearchParamsRecord = Record<string, string | string[] | undefined>;
 
@@ -21,7 +40,9 @@ type SearchParamsRecord = Record<string, string | string[] | undefined>;
  * redirecting to an unpublished document would reveal its existence/content,
  * which a plain 404 must not do.
  */
-async function findCurrentSlugForHistoricalSlug(slug: string): Promise<string | null> {
+const findCurrentSlugForHistoricalSlug = cache(async function findCurrentSlugForHistoricalSlug(
+  slug: string,
+): Promise<string | null> {
   const historical = await prisma.invitationSlug.findUnique({
     where: { slug },
     include: { invitation: { select: { slug: true, status: true } } },
@@ -30,7 +51,7 @@ async function findCurrentSlugForHistoricalSlug(slug: string): Promise<string | 
     return null;
   }
   return historical.invitation.slug;
-}
+});
 
 /**
  * Builds the redirect target for a historical slug, carrying every query
@@ -68,7 +89,7 @@ export async function generateMetadata({
   const { slug } = await params;
 
   try {
-    const invitation = await prisma.invitation.findUnique({ where: { slug } });
+    const invitation = await loadInvitationBySlug(slug);
     if (!invitation) {
       const currentSlug = await findCurrentSlugForHistoricalSlug(slug);
       if (currentSlug) {
@@ -139,7 +160,7 @@ export default async function PublicInvitationPage({
   const g = resolvedSearchParams.g;
   const guestToken = Array.isArray(g) ? g[0] : g;
 
-  const invitation = await prisma.invitation.findUnique({ where: { slug } });
+  const invitation = await loadInvitationBySlug(slug);
 
   // This whole block runs BEFORE the try/catch below wrapping document
   // parsing — `permanentRedirect`/`notFound` throw control-flow errors that
