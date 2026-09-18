@@ -1,4 +1,7 @@
 import Redis from "ioredis";
+// Connection policy is shared with the queue clients and the worker — see
+// `redisRetryStrategy` for the outage this one function exists to prevent.
+import { redisRetryStrategy } from "@hpwd/worker";
 
 /**
  * Module-level singleton Redis client — same hot-reload guard pattern as
@@ -10,11 +13,14 @@ import Redis from "ioredis";
  * issued before it's ready are queued (the default) rather than rejected
  * outright — against a reachable Redis that queue drains in a few ms once
  * the handshake finishes, so a burst of calls right after a cold start
- * still all succeed instead of racing the handshake. `connectTimeout` +
- * `retryStrategy` + `maxRetriesPerRequest` together bound how long a
- * genuinely dead/unreachable Redis can hold up a command before
- * `rateLimit`'s fail-open catch below kicks in — a stalled Redis must never
- * make guests wait to submit a wish, let alone block them.
+ * still all succeed instead of racing the handshake. `connectTimeout` and
+ * `maxRetriesPerRequest` bound how long a genuinely dead/unreachable Redis
+ * can hold up ONE COMMAND before `rateLimit`'s fail-open catch below kicks
+ * in — a stalled Redis must never make guests wait to submit a wish, let
+ * alone block them. `retryStrategy` is a different question entirely (how
+ * long before trying to RECONNECT) and it never gives up; this comment used
+ * to run the two together, and that is precisely how the reconnection was
+ * capped and the limiter silently died after the first Redis restart.
  */
 // C3: `INCR key` then, only on the first hit, `EXPIRE key windowSec` — two
 // round trips. A connection drop (or process crash) between them leaves the
@@ -50,7 +56,7 @@ function getRedisClient(): Redis {
     const client = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379", {
       connectTimeout: 1000,
       maxRetriesPerRequest: 1,
-      retryStrategy: (times) => (times > 2 ? null : Math.min(times * 100, 500)),
+      retryStrategy: redisRetryStrategy,
     });
     // Without a listener, ioredis's default behavior is to throw on an
     // "error" event, which would crash the process on a Redis blip. Every
@@ -102,4 +108,25 @@ export async function rateLimit(key: string, opts: RateLimitOptions): Promise<bo
     console.error("rateLimit: Redis error, failing open (request allowed):", error);
     return true;
   }
+}
+
+/**
+ * `PING` against the same connection every rate-limited request uses — so
+ * `/api/health` reports on the client the app actually depends on, not on a
+ * fresh one that might succeed while the pooled one is wedged.
+ *
+ * Throws on failure, unlike `rateLimit` which fails open: here the failure
+ * IS the answer being asked for.
+ */
+export async function pingRedis(): Promise<void> {
+  await getRedisClient().ping();
+}
+
+/**
+ * Reads one key from the same connection. Used by `/api/health` for the
+ * worker heartbeat; kept here rather than opening a second client so a
+ * wedged pooled connection is reported rather than stepped around.
+ */
+export async function readRedisKey(key: string): Promise<string | null> {
+  return getRedisClient().get(key);
 }

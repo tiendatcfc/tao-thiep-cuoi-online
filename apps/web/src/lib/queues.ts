@@ -1,6 +1,7 @@
 import {
   createAudioQueue,
   createBgRemovalQueue,
+  redisRetryStrategy,
   type AudioJobData,
   type AudioQueue,
   type BgRemovalJobData,
@@ -27,6 +28,25 @@ import {
 const globalForQueue = globalThis as unknown as { audioQueue?: AudioQueue; bgRemovalQueue?: BgRemovalQueue };
 
 /**
+ * How long an enqueue may take before the caller is told it failed.
+ *
+ * This is enforced by `addWithTimeout` below rather than by the connection
+ * options, and that split is the whole point. `retryStrategy` used to give
+ * up after three attempts, which did make a dead Redis surface quickly — by
+ * killing the connection for good, so the process never recovered when
+ * Redis came back (see `redisRetryStrategy` in @hpwd/worker for the outage
+ * this caused). Reconnection now never gives up, and the request-level
+ * deadline lives where it belongs: around the call.
+ *
+ * ioredis's own `commandTimeout` does not cover this case — a command
+ * issued while the socket is down waits in the offline queue and the timer
+ * never starts, which is exactly the "Redis is dead" case. It is still set
+ * because it covers the other one: a command that WAS sent and never
+ * answered.
+ */
+const ENQUEUE_TIMEOUT_MS = 5_000;
+
+/**
  * Bounded, unlike a worker's blocking connection: this runs inside a request
  * handler, so a dead Redis has to surface as an error in a couple of seconds
  * rather than holding the request open.
@@ -35,9 +55,39 @@ function connectionOptions() {
   return {
     url: process.env.REDIS_URL ?? "redis://localhost:6379",
     connectTimeout: 2000,
+    commandTimeout: 5000,
     maxRetriesPerRequest: 2,
-    retryStrategy: (times: number) => (times > 3 ? null : Math.min(times * 200, 1000)),
+    retryStrategy: redisRetryStrategy,
   };
+}
+
+/**
+ * Rejects if the enqueue has not landed within `ENQUEUE_TIMEOUT_MS`.
+ *
+ * A timed-out `add` may still reach Redis afterwards, producing a job for
+ * an asset the route has already marked failed. That is the better of the
+ * two outcomes: the couple sees an error and can retry, and the stray job
+ * writes a finished result over an asset nobody is waiting on. The
+ * alternative — holding the request open on a dead Redis — gives them a
+ * spinner that never resolves.
+ */
+async function addWithTimeout<T>(what: string, add: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      add,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${what}: Redis không phản hồi trong ${ENQUEUE_TIMEOUT_MS}ms.`)),
+          ENQUEUE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    // Without this the pending timer keeps the event loop (and `vitest run`)
+    // alive for the full timeout after a successful enqueue.
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function getAudioQueue(): AudioQueue {
@@ -66,7 +116,7 @@ function getBgRemovalQueue(): BgRemovalQueue {
  * Vietnamese error.
  */
 export async function enqueueAudioJob(data: AudioJobData): Promise<string> {
-  const job = await getAudioQueue().add("transcode", data);
+  const job = await addWithTimeout("Xử lý nhạc", getAudioQueue().add("transcode", data));
   if (!job.id) {
     // BullMQ assigns the id; no id means the add did not land in Redis, and
     // returning an empty string would give the caller nothing to poll on.
@@ -83,7 +133,10 @@ export async function enqueueAudioJob(data: AudioJobData): Promise<string> {
  * editor would poll a status that can never change.
  */
 export async function enqueueBgRemovalJob(data: BgRemovalJobData): Promise<string> {
-  const job = await getBgRemovalQueue().add("remove-background", data);
+  const job = await addWithTimeout(
+    "Xoá nền",
+    getBgRemovalQueue().add("remove-background", data),
+  );
   if (!job.id) {
     throw new Error("Không tạo được job xoá nền (BullMQ không trả về job id).");
   }

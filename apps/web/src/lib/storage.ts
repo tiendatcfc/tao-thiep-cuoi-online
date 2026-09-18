@@ -1,4 +1,9 @@
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  DeleteObjectCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
 /**
  * S3-compatible object storage. MinIO locally, Cloudflare R2 in production —
@@ -65,4 +70,15 @@ export async function deleteObject(key: string): Promise<void> {
   const bucket = requireEnv("R2_BUCKET");
   const client = getS3Client();
   await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+/**
+ * Cheapest call that proves the bucket is reachable AND the credentials are
+ * accepted — used by `/api/health`. Deliberately not a `GetObject` of some
+ * known key: that would also pass or fail on whether one particular file
+ * happens to exist, which is not what is being asked.
+ */
+export async function headBucket(): Promise<void> {
+  const bucket = requireEnv("R2_BUCKET");
+  await getS3Client().send(new HeadBucketCommand({ Bucket: bucket }));
 }

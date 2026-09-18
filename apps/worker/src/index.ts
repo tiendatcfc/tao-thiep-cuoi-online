@@ -1,5 +1,6 @@
 import type { Job, Processor, Worker } from "bullmq";
 import { processAudioJob } from "./audio-worker";
+import { startHeartbeat } from "./heartbeat";
 import { processBgRemovalJob } from "./background-removal-worker";
 import type { AudioJobData, BgRemovalJobData } from "./queues";
 import {
@@ -71,6 +72,11 @@ function withLogging<T>(
 }
 
 function main(): void {
+  // Started before the workers: if Redis is reachable at all, the process
+  // should be visible as alive from the moment it boots, not only once it
+  // has successfully attached to both queues.
+  const heartbeat = startHeartbeat(REDIS_URL);
+
   const workers: Worker[] = [
     createAudioWorker(
       { url: REDIS_URL },
@@ -130,6 +136,9 @@ function main(): void {
     forceExit.unref();
 
     try {
+      // Heartbeat first, so the health endpoint reports this process as down
+      // while it is still draining rather than after it has gone.
+      await heartbeat.stop();
       // BOTH workers, in parallel: closing only one would leave the other
       // holding a job when the supervisor's grace period runs out.
       await Promise.all(workers.map((worker) => worker.close()));

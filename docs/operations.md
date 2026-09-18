@@ -429,6 +429,71 @@ chẳng hạn) để chắc chắn encoding không bị hỏng.
 
 ---
 
+## 5d. Giám sát
+
+### `GET /api/health`
+
+```json
+{"status":"ok","checks":{"database":"ok","redis":"ok","storage":"ok","worker":"ok"}}
+```
+
+Mỗi mục đều **chạm thật** vào thứ nó gọi tên: `SELECT 1`, Redis `PING`,
+`HeadBucket`, và nhịp tim của worker. Một endpoint trả `{"ok":true}` mà không
+gọi gì là tệ hơn không có: nó báo xanh suốt sự cố mà người ta dựng nó lên để
+bắt, và được tin tưởng chính vì có người đã nhớ thêm nó vào.
+
+Body **không** chứa chi tiết lỗi (chuỗi kết nối, thông điệp driver, phiên bản)
+— endpoint này không cần đăng nhập. Chi tiết nằm ở log máy chủ.
+
+| Mã | Nghĩa |
+|---|---|
+| `200` | Instance này phục vụ được |
+| `503` | DB, Redis hoặc storage hỏng |
+
+**Hai người dùng, hai câu hỏi khác nhau:**
+
+- **Readiness probe của container** → dùng `/api/health`. Worker chết **không**
+  phải lý do để khởi động lại web.
+- **Uptime monitor** → dùng `/api/health?strict=1`. Cờ này tính cả worker, vì
+  worker chết là thứ **im lặng nhất** trong hệ: web vẫn xanh hoàn toàn, chỉ có
+  mọi file upload nằm mãi ở "Đang xử lý" / "Đang xoá nền", và người báo đầu
+  tiên là cặp đôi có bản nhạc không bao giờ hiện ra.
+
+Worker ghi nhịp tim vào Redis mỗi 15 giây, hạn 60 giây (gấp 4 lần, để một bản
+transcode dài hoặc một lần Redis chập không bị coi là chết). Lúc tắt sạch nó
+**xoá** key luôn, nên một lần deploy không bị báo như sự cố.
+
+Cấu hình monitor: gọi `/api/health?strict=1` mỗi 60 giây, báo động sau **2 lần
+liên tiếp** hỏng (một lần đơn lẻ thường là lúc deploy).
+
+### Những gì health check KHÔNG bắt được
+
+Quan trọng không kém phần nó bắt được:
+
+- **Hàng đợi ùn**. Worker sống nhưng chậm hơn tốc độ job đổ vào thì mọi mục đều
+  xanh. Kiểm tay: `docker exec hpwd-redis redis-cli LLEN bull:audio-transcode:wait`.
+- **`services/rembg` chết.** Không nằm trong health check. Triệu chứng là job
+  xoá nền hỏng sau 120 giây timeout — xem mục 5b.
+- **Đĩa đầy, chứng chỉ hết hạn, tên miền hết hạn.**
+- **Dữ liệu sai.** Database trả lời không có nghĩa là nội dung đúng.
+
+### Log
+
+Log hiện ở dạng **người đọc được**, một dòng có tiền tố (`[worker] job <id> …`,
+`[health] <mục> check failed: …`), đi ra stdout/stderr để `docker logs` hoặc
+journald thu.
+
+**Cố ý chưa chuyển sang JSON.** Log JSON chỉ đáng giá khi có thứ gì đó phân tích
+nó; dự án chưa có hệ thống gom log nào, nên đổi bây giờ chỉ làm khó đúng người
+đang đọc thật (con người, qua `docker logs`) để phục vụ một người dùng chưa tồn
+tại. Khi nào chọn được nơi gom log thì đổi cùng lúc.
+
+**Theo dõi lỗi (Sentry và tương tự) chưa có** — cần chủ dự án quyết, vì dự án
+tới giờ tự host mọi thứ và đây sẽ là dịch vụ bên thứ ba đầu tiên nhận dữ liệu
+của người dùng.
+
+---
+
 ## 6. Vài lệnh hay dùng
 
 ```bash

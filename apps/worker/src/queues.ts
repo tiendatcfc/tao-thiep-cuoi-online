@@ -167,3 +167,57 @@ export function createBgRemovalWorker(
     concurrency: BG_REMOVAL_WORKER_CONCURRENCY,
   });
 }
+
+/**
+ * WORKER LIVENESS.
+ *
+ * The worker is the quietest component in the system: when it dies, the web
+ * app stays perfectly healthy and every upload simply waits forever at
+ * "Đang xử lý" / "Đang xoá nền". Nothing errors, nothing 500s, and the first
+ * report comes from a couple whose music never appeared. So the worker
+ * writes a timestamp into Redis on a timer and `/api/health` reads it.
+ *
+ * The key is namespaced by the queue prefix for the same reason the queues
+ * are: a staging worker sharing one Redis must not make production look
+ * alive.
+ */
+export function workerHeartbeatKey(prefix: string = queuePrefix()): string {
+  return `${prefix}:worker:heartbeat`;
+}
+
+/** How often the worker writes its heartbeat. */
+export const WORKER_HEARTBEAT_INTERVAL_MS = 15_000;
+
+/**
+ * How long a heartbeat stays valid. Four intervals, not one: a worker busy
+ * with a long ffmpeg transcode, or a Redis blip that costs a write or two,
+ * must not be reported as dead. The cost of the slack is that a worker which
+ * dies is called dead up to a minute later, which is well inside any useful
+ * alerting window.
+ */
+export const WORKER_HEARTBEAT_TTL_SEC = 60;
+
+/**
+ * How long to wait before the Nth attempt to RE-establish a dropped Redis
+ * connection. Capped backoff, and it never returns a non-number.
+ *
+ * THE BUG THIS EXISTS TO PREVENT, found by `/api/health` on 2026-09-18:
+ * every connection in the codebase used `(times) => times > N ? null : …`.
+ * Returning `null` tells ioredis to STOP RECONNECTING, permanently. So
+ * after any Redis restart — a deploy, an OOM kill, a two-second blip — the
+ * web process never reconnected: `rateLimit` caught the error and failed
+ * open on every request for the rest of that process's life, meaning the
+ * wish and RSVP limits were silently gone, and enqueuing audio and
+ * background-removal jobs stayed broken too. Measured: Redis back up and
+ * answering PING, the app still reporting `"redis":"fail"` 30 seconds
+ * later, and it would have stayed that way until someone restarted it.
+ *
+ * Bounding how long ONE COMMAND may wait is a different setting —
+ * `maxRetriesPerRequest` and `connectTimeout` — and conflating the two is
+ * what produced the bug. Reconnection has no reason to ever give up: a
+ * process that cannot reach Redis has nothing better to do than keep
+ * trying.
+ */
+export function redisRetryStrategy(times: number): number {
+  return Math.min(times * 200, 5_000);
+}
