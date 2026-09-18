@@ -41,6 +41,7 @@ export function WishesSection({ section }: { section: Extract<Section, { type: "
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingList, setIsLoadingList] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
 
   const [guestName, setGuestName] = useState("");
   const [message, setMessage] = useState("");
@@ -76,15 +77,33 @@ export function WishesSection({ section }: { section: Extract<Section, { type: "
     };
   }, [slug]);
 
+  /**
+   * `onClick` gets this directly, so every path it can take has to settle
+   * the promise itself — an `async` handler that rejects becomes an
+   * unhandled rejection in the guest's browser.
+   *
+   * Both failure modes (network down, and a non-2xx answer) used to `return`
+   * without saying anything: the label went "Đang tải..." and back to "Xem
+   * thêm" with no new wishes, which a guest reads as "there are no more"
+   * rather than "that failed". `loadMoreError` is a separate piece of state
+   * from `feedback` on purpose — a failed page load must not wipe the
+   * "Cảm ơn bạn đã gửi lời chúc!" the guest is still reading above it.
+   */
   async function handleLoadMore() {
     if (!slug || !nextCursor || isLoadingMore) return;
     setIsLoadingMore(true);
+    setLoadMoreError(null);
     try {
       const res = await fetch(`/api/invites/${slug}/wishes?cursor=${encodeURIComponent(nextCursor)}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        setLoadMoreError(GENERIC_ERROR_MESSAGE);
+        return;
+      }
       const data: WishesListResponse = await res.json();
       setWishes((prev) => [...prev, ...data.wishes]);
       setNextCursor(data.nextCursor);
+    } catch {
+      setLoadMoreError(GENERIC_ERROR_MESSAGE);
     } finally {
       setIsLoadingMore(false);
     }
@@ -231,6 +250,12 @@ export function WishesSection({ section }: { section: Extract<Section, { type: "
           >
             {isLoadingMore ? "Đang tải..." : "Xem thêm"}
           </button>
+        ) : null}
+
+        {loadMoreError ? (
+          <p role="status" className="text-center text-sm text-red-600">
+            {loadMoreError}
+          </p>
         ) : null}
       </div>
     </SectionWrapper>

@@ -196,4 +196,89 @@ describe("WishesSection", () => {
     expect(screen.queryByRole("button", { name: "Xem thêm" })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenLastCalledWith("/api/invites/demo/wishes?cursor=1");
   });
+
+  // The first page and the submit form both report their failures. "Xem
+  // thêm" used to be the one control on this section that could fail in
+  // total silence: the label went "Đang tải..." and straight back to "Xem
+  // thêm" with no new wishes and no message, which reads as "there is
+  // nothing more" rather than "that did not work". A guest has no way to
+  // tell the two apart, so they stop pressing.
+  it.each([
+    ["the network drops", async () => { throw new TypeError("Failed to fetch"); }],
+    ["the server answers 500", async () => jsonResponse(500, {})],
+  ])("tells the guest when 'Xem thêm' fails because %s, and keeps the button so they can retry", async (_label, onCursor) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("cursor=")) return onCursor();
+      return jsonResponse(200, {
+        wishes: [{ id: "1", guestName: "Page1", message: "hi1", createdAt: "2026-01-01T00:00:00.000Z" }],
+        nextCursor: "1",
+      });
+    });
+
+    renderWithSlug(wishesSection(), "demo");
+    expect(await screen.findByText("Page1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Xem thêm" }));
+
+    expect(await screen.findByText("Có lỗi xảy ra, vui lòng thử lại.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Xem thêm" })).toBeEnabled();
+  });
+
+  // An `async` onClick handler whose body can reject is an unhandled
+  // rejection, which in a browser surfaces to the guest's console (and to
+  // any error reporter wired up later) as an uncaught error on a wedding
+  // invitation page.
+  it("does not leave the failed 'Xem thêm' fetch as an unhandled rejection", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.includes("cursor=")) throw new TypeError("Failed to fetch");
+        return jsonResponse(200, {
+          wishes: [{ id: "1", guestName: "Page1", message: "hi1", createdAt: "2026-01-01T00:00:00.000Z" }],
+          nextCursor: "1",
+        });
+      });
+
+      renderWithSlug(wishesSection(), "demo");
+      expect(await screen.findByText("Page1")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Xem thêm" }));
+      expect(await screen.findByText("Có lỗi xảy ra, vui lòng thử lại.")).toBeInTheDocument();
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("clears a previous 'Xem thêm' error once a retry succeeds", async () => {
+    let cursorCalls = 0;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("cursor=")) {
+        cursorCalls += 1;
+        if (cursorCalls === 1) throw new TypeError("Failed to fetch");
+        return jsonResponse(200, {
+          wishes: [{ id: "2", guestName: "Page2", message: "hi2", createdAt: "2026-01-02T00:00:00.000Z" }],
+          nextCursor: null,
+        });
+      }
+      return jsonResponse(200, {
+        wishes: [{ id: "1", guestName: "Page1", message: "hi1", createdAt: "2026-01-01T00:00:00.000Z" }],
+        nextCursor: "1",
+      });
+    });
+
+    renderWithSlug(wishesSection(), "demo");
+    expect(await screen.findByText("Page1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Xem thêm" }));
+    expect(await screen.findByText("Có lỗi xảy ra, vui lòng thử lại.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Xem thêm" }));
+    expect(await screen.findByText("Page2")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("Có lỗi xảy ra, vui lòng thử lại.")).not.toBeInTheDocument(),
+    );
+  });
 });
