@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { Section } from "@hpwd/schema";
 import { SectionWrapper } from "./SectionWrapper";
 
@@ -21,8 +22,22 @@ export function StorySection({ section }: { section: Extract<Section, { type: "s
             {item.title ? <p className="text-base font-semibold text-gray-800">{item.title}</p> : null}
             {item.text ? <p className="text-sm text-gray-600">{item.text}</p> : null}
             {item.image ? (
-              // eslint-disable-next-line @next/next/no-img-element -- editor-uploaded URL
-              <img src={item.image} alt={item.title} className="mt-2 h-40 w-full rounded-lg object-cover" />
+              /*
+               * Full-width inside the 430px invitation column, 160px tall.
+               * Same reason as CoverSection/CoupleSection: stored uploads
+               * go up to 1600px wide and a bare `<img>` downloaded all of
+               * it, once per story entry, for a strip this size. `sizes`
+               * mirrors AlbumSection's hero layout, which is the same box.
+               */
+              <div className="relative mt-2 h-40 w-full">
+                <Image
+                  src={item.image}
+                  alt={item.title}
+                  fill
+                  sizes="(max-width: 430px) 100vw, 430px"
+                  className="rounded-lg object-cover"
+                />
+              </div>
             ) : null}
           </li>
         ))}

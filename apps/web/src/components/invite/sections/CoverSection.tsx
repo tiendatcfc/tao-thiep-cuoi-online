@@ -1,6 +1,7 @@
 import type { Section } from "@hpwd/schema";
 import { VN_TIME_ZONE } from "@/lib/date";
 import { useInviteContext } from "../InviteContext";
+import Image from "next/image";
 import { SectionWrapper } from "./SectionWrapper";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -69,12 +70,26 @@ export function CoverSection({ section }: { section: Extract<Section, { type: "c
       className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-[var(--background)] px-6 py-14 text-center"
     >
       {coverImage ? (
-        // eslint-disable-next-line @next/next/no-img-element -- editor-uploaded URL, not a static asset Next can optimize
-        <img
-          src={coverImage}
-          alt=""
-          className="h-56 w-56 rounded-full object-cover shadow-lg"
-        />
+        /*
+         * `next/image`, not a bare `<img>`. The box is 224x224 CSS; the
+         * upload pipeline stores photos at up to 1600px wide, so a raw
+         * `<img>` made every guest download the full-resolution photo to
+         * paint a thumbnail. `sizes` tells the browser the real box so it
+         * picks a source scaled for its own device pixel ratio.
+         *
+         * `fill` because the document stores a URL and nothing else — there
+         * are no dimensions on `coverImage` the way there are on an album
+         * image — so the parent box supplies the geometry instead.
+         */
+        <div className="relative h-56 w-56">
+          <Image
+            src={coverImage}
+            alt=""
+            fill
+            sizes="224px"
+            className="rounded-full object-cover shadow-lg"
+          />
+        </div>
       ) : null}
       {tagline ? (
         <p className="text-sm uppercase tracking-[0.2em] text-[var(--secondary)]">{tagline}</p>
