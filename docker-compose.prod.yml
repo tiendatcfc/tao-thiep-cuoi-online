@@ -67,6 +67,12 @@ services:
       # bucket, too low and the limiter stops existing.
       TRUSTED_PROXY_HOPS: "1"
       CSP_REPORT_ONLY: ${CSP_REPORT_ONLY:-}
+      # The web app never calls rembg to do work — the worker does — but
+      # /api/health probes it, because nothing else was watching it and a
+      # dead rembg is otherwise completely silent. Leave this unset on a
+      # deployment that does not run the service and the check reports
+      # "off" instead of failing.
+      REMBG_URL: http://rembg:7000
     depends_on:
       postgres:
         condition: service_healthy
