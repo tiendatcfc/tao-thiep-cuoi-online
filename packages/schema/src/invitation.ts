@@ -283,6 +283,19 @@ export const ThemeSchema = z
           .object({
             family: z.string(),
             url: z.string(),
+            /**
+             * `MediaAsset.id` of the uploaded font, so removing a font from
+             * the theme can also delete the stored file
+             * (`DELETE /api/fonts/[assetId]`). Without it the editor could
+             * only drop the entry from the document and would leave a
+             * publicly-fetchable multi-megabyte object behind forever, with
+             * no way for its owner to clean it up.
+             *
+             * Defaulted rather than required so the (empty) `customFonts`
+             * arrays of every document saved before this field existed keep
+             * parsing, and so the output type stays `string`.
+             */
+            assetId: z.string().default(''),
           })
           .strict(),
       )

@@ -39,6 +39,29 @@ describe('TextPropsSchema.html length cap (C9)', () => {
   })
 })
 
+test('a customFonts entry saved before assetId existed still parses, and gains an empty id', () => {
+  // Every document written before the custom-font upload shipped carries
+  // `{ family, url }` entries and no `assetId`. Requiring the new field
+  // would make `InvitationDocumentSchema.parse` throw on them — which is
+  // not a validation error but a silent, total autosave failure for that
+  // whole invitation (Phase 1 blocker B1).
+  const doc: any = structuredClone(createDefaultDocument())
+  doc.theme.customFonts = [{ family: 'Noto Sans', url: 'https://cdn.test/a.woff2' }]
+
+  const parsed = InvitationDocumentSchema.parse(doc)
+
+  expect(parsed.theme.customFonts).toEqual([
+    { family: 'Noto Sans', url: 'https://cdn.test/a.woff2', assetId: '' },
+  ])
+})
+
+test('a customFonts entry rejects unknown keys, so a stray field cannot ride along', () => {
+  const doc: any = structuredClone(createDefaultDocument())
+  doc.theme.customFonts = [{ family: 'A', url: 'https://cdn.test/a.woff2', weight: 700 }]
+
+  expect(() => InvitationDocumentSchema.parse(doc)).toThrow()
+})
+
 test('parse-time defaults backfill missing fields on partial documents (templates/migrations)', () => {
   const doc: any = structuredClone(createDefaultDocument())
 

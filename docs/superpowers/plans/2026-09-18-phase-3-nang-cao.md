@@ -83,22 +83,22 @@ packages/db/scripts/templates/
 - Consumes: `putObject` (`lib/storage.ts`), `findOwnedInvitation` không cần (font thuộc user, không thuộc thiệp).
 - Produces: `MediaAsset{ kind: 'font', meta: { family, format, glyphWarning } }`; `theme.customFonts` được ThemePanel ghi vào.
 
-- [ ] **Step 1: Viết test cho `lib/font.ts` TRƯỚC.** Gồm: cap 5MB; allowlist `font/ttf|font/otf|font/woff2` + đuôi `.ttf/.otf/.woff2`; `VIETNAMESE_SAMPLE` chứa đủ `ăâđêôơư` và `ẮẰẲẴẶ`; `missingVietnameseGlyphs(font)` trả về danh sách ký tự thiếu; tên family được **làm sạch** trước khi vào CSS (xem Step 3).
+- [x] **Step 1: Viết test cho `lib/font.ts` TRƯỚC.** Gồm: cap 5MB; allowlist `font/ttf|font/otf|font/woff2` + đuôi `.ttf/.otf/.woff2`; `VIETNAMESE_SAMPLE` chứa đủ `ăâđêôơư` và `ẮẰẲẴẶ`; `missingVietnameseGlyphs(font)` trả về danh sách ký tự thiếu; tên family được **làm sạch** trước khi vào CSS (xem Step 3).
 
-- [ ] **Step 2: FAIL → Step 3: Implement.**
+- [x] **Step 2: FAIL → Step 3: Implement.**
   **Bảo mật — điểm nguy hiểm nhất của task này:** `family` lấy từ metadata trong file font do người lạ tải lên, rồi được nội suy vào CSS `@font-face { font-family: "..." }`. Một family chứa `"` hoặc `}` thoát ra khỏi khối CSS. **Phải có allowlist ký tự** (chữ, số, khoảng trắng, gạch ngang) và cắt độ dài, không phải denylist. Viết test bypass trước, giống cách `sanitize.richtext.test.ts` làm ở Task 8.
 
-- [ ] **Step 4: Route `POST /api/uploads/font`.** 401 → pre-check content-length (cap + margin) → formData → allowlist type → `file.size` → parse bằng `fontkit` (đây mới là kiểm tra thật "có phải font không", giống cách `processImage` là magic-byte check cho ảnh) → cảnh báo glyph tiếng Việt (**cảnh báo, không chặn** — người dùng có thể cố ý dùng font chỉ để hiện tên tiếng Anh) → convert TTF/OTF sang WOFF2 bằng `wawoff2` (WOFF2 sẵn thì giữ nguyên) → `putObject` → `MediaAsset` `status: 'ready'` (không có worker nào xử lý tiếp — xem bài học Task 10).
+- [x] **Step 4: Route `POST /api/uploads/font`.** 401 → pre-check content-length (cap + margin) → formData → allowlist type → `file.size` → parse bằng `fontkit` (đây mới là kiểm tra thật "có phải font không", giống cách `processImage` là magic-byte check cho ảnh) → cảnh báo glyph tiếng Việt (**cảnh báo, không chặn** — người dùng có thể cố ý dùng font chỉ để hiện tên tiếng Anh) → convert TTF/OTF sang WOFF2 bằng `wawoff2` (WOFF2 sẵn thì giữ nguyên) → `putObject` → `MediaAsset` `status: 'ready'` (không có worker nào xử lý tiếp — xem bài học Task 10).
 
-- [ ] **Step 5: `DELETE /api/fonts/[assetId]`** — 404 cho cả không tồn tại lẫn không phải của mình. Xoá cả object lẫn hàng DB.
+- [x] **Step 5: `DELETE /api/fonts/[assetId]`** — 404 cho cả không tồn tại lẫn không phải của mình. Xoá cả object lẫn hàng DB.
 
-- [ ] **Step 6: `FontUploadField` + mục "Font riêng" trong `ThemePanel`.** Tải lên → thêm vào `theme.customFonts` → family mới xuất hiện trong bảng chọn font tiêu đề/nội dung cùng với 8 font dựng sẵn. Hiện cảnh báo glyph bằng tiếng Việt nếu có.
+- [x] **Step 6: `FontUploadField` + mục "Font riêng" trong `ThemePanel`.** Tải lên → thêm vào `theme.customFonts` → family mới xuất hiện trong bảng chọn font tiêu đề/nội dung cùng với 8 font dựng sẵn. Hiện cảnh báo glyph bằng tiếng Việt nếu có.
 
-- [ ] **Step 7: `CustomFontStyle`** — render `<style>` với `@font-face` cho từng `theme.customFonts`, trên cả trang thiệp lẫn preview trong editor. Dùng `fontFamilyStack` hiện có làm fallback.
+- [x] **Step 7: `CustomFontStyle`** — render `<style>` với `@font-face` cho từng `theme.customFonts`, trên cả trang thiệp lẫn preview trong editor. Dùng `fontFamilyStack` hiện có làm fallback.
 
-- [ ] **Step 8: Chạy tất cả + lint + tsc + build. Kiểm chứng trình duyệt**: tải một font thật lên, đặt làm font tiêu đề, `curl /i/{slug}` thấy `@font-face` và file font tải được.
+- [x] **Step 8: Chạy tất cả + lint + tsc + build. Kiểm chứng trình duyệt**: tải một font thật lên, đặt làm font tiêu đề, `curl /i/{slug}` thấy `@font-face` và file font tải được.
 
-- [ ] **Step 9: Commit** `feat(fonts): custom font upload with vietnamese glyph check`
+- [x] **Step 9: Commit** `feat(fonts): custom font upload with vietnamese glyph check`
 
 ---
 

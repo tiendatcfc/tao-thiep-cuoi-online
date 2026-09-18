@@ -4,6 +4,7 @@ import { useRef, useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
 import { fontFamilyStack } from "@/lib/fonts";
+import { CustomFontStyle } from "./CustomFontStyle";
 import { InviteContext } from "./InviteContext";
 import { MusicPlayer, type MusicPlayerHandle } from "./MusicPlayer";
 import { OpeningGate } from "./opening/OpeningGate";
@@ -76,6 +77,11 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
         className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
         style={themeStyle}
       >
+        {/* `@font-face` for fonts this couple uploaded. Rendered here rather
+            than in the route so the editor's live preview, which mounts
+            this same component, declares them too — otherwise a custom font
+            would look right when published and fall back while editing. */}
+        <CustomFontStyle fonts={document.theme.customFonts} />
         <OpeningGate
           opening={document.opening}
           guestName={guestName}

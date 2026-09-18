@@ -1,4 +1,4 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 /**
  * S3-compatible object storage. MinIO locally, Cloudflare R2 in production —
@@ -51,4 +51,18 @@ export async function putObject(key: string, body: Buffer, contentType: string):
     })
   );
   return `${publicBaseUrl}/${key}`;
+}
+
+/**
+ * Removes one object. Used when a user deletes an uploaded font — without
+ * it, a font they got rid of in the editor would keep occupying storage
+ * (and stay publicly fetchable) forever.
+ *
+ * S3 delete is idempotent: removing a key that is already gone succeeds,
+ * so a retry after a partial failure is safe.
+ */
+export async function deleteObject(key: string): Promise<void> {
+  const bucket = requireEnv("R2_BUCKET");
+  const client = getS3Client();
+  await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
 }
