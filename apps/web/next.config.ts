@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { getAllowedImageHosts } from "./src/lib/image-hosts";
+import { warnAboutEnvFileConflict } from "./src/lib/env-files";
 
 // `/_next/image?url=` makes Next's image optimizer fetch whatever URL it's
 // given server-side — an unrestricted `remotePatterns` entry (e.g. a bare
@@ -9,6 +10,13 @@ import { getAllowedImageHosts } from "./src/lib/image-hosts";
 // actually is in this environment. `getAllowedImageHosts` is shared with
 // `app/i/[slug]/opengraph-image.tsx`'s own server-side cover-image fetch, so
 // the two enforcement points can never drift apart.
+// Runs once per `next dev`/`next build`, not per request. Next reads both
+// `.env` and `.env.local` from this directory and lets `.env.local` win, so
+// two copies means edits to one of them disappear with no error at all —
+// which is exactly what happened here after the Google OAuth credentials
+// were added. Key names only; never values.
+warnAboutEnvFileConflict(__dirname);
+
 const nextConfig: NextConfig = {
   // Traces the exact files the server needs into `.next/standalone`, so the
   // production image does not have to carry the node_modules of a whole
