@@ -1,5 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
+import { isProtectedPath } from "@/lib/protected-paths";
 
 /**
  * Edge-safe Auth.js config: providers + route protection only.
@@ -19,13 +20,16 @@ export const authConfig = {
     signIn: "/dang-nhap",
   },
   callbacks: {
+    /**
+     * NOTE: with `middleware.ts` passing a wrapper function to `auth()`,
+     * next-auth's `handleAuth` never acts on this answer (its `else if`
+     * chain prefers the wrapper), so the enforcement that matters happens
+     * in the middleware itself. This stays because it is the contract any
+     * other `auth()` call site gets, and both read the same
+     * `isProtectedPath` so neither can drift.
+     */
     authorized({ auth, request }) {
-      const isLoggedIn = !!auth?.user;
-      const { pathname } = request.nextUrl;
-      const isProtected =
-        pathname.startsWith("/dashboard") || pathname.startsWith("/editor");
-
-      if (isProtected) return isLoggedIn;
+      if (isProtectedPath(request.nextUrl.pathname)) return !!auth?.user;
       return true;
     },
   },

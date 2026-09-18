@@ -2,6 +2,25 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 /**
+ * Every route renders per request, so every response carries the nonce that
+ * `middleware.ts` just minted.
+ *
+ * This is not a performance preference, it is what makes the CSP correct.
+ * A statically prerendered page is served straight from the build output,
+ * whose inline bootstrap scripts were written once with no nonce, while the
+ * response still carries a fresh one — measured on a real production build:
+ * `/bao-mat` came back with 11 unnonced inline scripts against a header
+ * nonce, so `'strict-dynamic'` would have blocked every script on the page
+ * and it would never have hydrated. Marking the three affected pages
+ * individually would work until the next static page is added and silently
+ * breaks, so the rule lives at the root instead.
+ *
+ * The cost is small and known: only /bao-mat, /dieu-khoan and the 404 page
+ * were static; the other twelve routes already rendered per request.
+ */
+export const dynamic = "force-dynamic";
+
+/**
  * B2 fix: without an explicit `metadataBase`, Next has no way to turn a
  * relative URL (`app/i/[slug]/page.tsx`'s `openGraph.url = "/i/${slug}"`,
  * and the implicit `openGraph.images` entry every `opengraph-image.tsx`
