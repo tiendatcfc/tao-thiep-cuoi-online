@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { MAX_FONT_SIZE_BYTES, fontExtensionOf, fontObjectKey } from "@/lib/font";
 import { FontParseError, parseAndConvertFont } from "@/lib/font-server";
 import { putObject } from "@/lib/storage";
+import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 /**
  * Same margin and reasoning as the image and audio routes:
@@ -38,6 +39,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bạn cần đăng nhập để tải font lên." }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // Font parsing runs untrusted binary through fontkit and wawoff2.
+  if (!(await rateLimitUser("fontUpload", userId))) {
+    return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
 
   const declaredLength = Number(request.headers.get("content-length"));
   if (!Number.isFinite(declaredLength) || declaredLength <= 0) {

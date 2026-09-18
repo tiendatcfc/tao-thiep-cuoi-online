@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { MAX_AUDIO_SIZE_BYTES, audioSourceKey, isAudioContentType } from "@/lib/audio";
 import { enqueueAudioJob } from "@/lib/queues";
 import { putObject } from "@/lib/storage";
+import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 /**
  * Same margin and reasoning as the image route: `request.formData()` buffers
@@ -38,6 +39,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bạn cần đăng nhập để tải nhạc lên." }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // Every accepted upload becomes an ffmpeg process on the worker.
+  if (!(await rateLimitUser("audioUpload", userId))) {
+    return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
 
   const declaredLength = Number(request.headers.get("content-length"));
   if (!Number.isFinite(declaredLength) || declaredLength <= 0) {

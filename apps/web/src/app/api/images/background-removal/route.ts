@@ -4,6 +4,7 @@ import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
 import { enqueueBgRemovalJob } from "@/lib/queues";
 import { imageVariantKey } from "@/lib/upload";
+import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 /**
  * Queue an AI background removal for one of the caller's own photos (spec
@@ -25,6 +26,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Bạn cần đăng nhập." }, { status: 401 });
   }
   const userId = session.user.id;
+
+  // rembg runs at concurrency 1, so this is the one route where a single
+  // user can starve everyone else's jobs rather than just their own.
+  if (!(await rateLimitUser("backgroundRemoval", userId))) {
+    return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
+  }
 
   // Identified by URL, not by asset id. The invitation document stores only
   // URLs, so after a page reload the editor has no id to send — a field that

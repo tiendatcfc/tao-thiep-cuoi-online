@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
 import { buildInvitationDocumentFromTemplate, toInvitationSummary } from "@/lib/invitations";
+import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 const UNAUTH_MESSAGE = "Bạn cần đăng nhập.";
 const TEMPLATE_NOT_FOUND_MESSAGE = "Không tìm thấy mẫu thiệp.";
@@ -38,6 +39,10 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: UNAUTH_MESSAGE }, { status: 401 });
+  }
+
+  if (!(await rateLimitUser("invitationCreate", session.user.id))) {
+    return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
   }
 
   let body: unknown;

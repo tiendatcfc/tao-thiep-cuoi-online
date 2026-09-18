@@ -494,6 +494,74 @@ của người dùng.
 
 ---
 
+## 5e. Rate-limit: cái gì đang được giới hạn
+
+| Route | Khoá theo | Giới hạn | Vì sao con số đó |
+|---|---|---|---|
+| `POST /api/invites/[slug]/wishes` | IP + slug | 5 / 60s | Khách ẩn danh |
+| `POST /api/invites/[slug]/submissions` | IP + slug + section | 3 / 60s | Khách ẩn danh |
+| `POST /api/uploads` (ảnh) | **user** | 500 / giờ | Spec cho 200 ảnh mỗi thiệp; phải lọt cả một album đầy, gấp đôi, mà cặp đôi không hề biết có giới hạn |
+| `POST /api/uploads/audio` | **user** | 10 / giờ | Mỗi thiệp một bản nhạc; mỗi upload là một tiến trình ffmpeg |
+| `POST /api/uploads/font` | **user** | 10 / giờ | Chạy file nhị phân lạ qua fontkit + wawoff2 |
+| `POST /api/invitations` | **user** | 30 / giờ | Rẻ, nhưng vòng lặp vô hạn là một bảng không ai đọc nổi |
+| `POST /api/images/background-removal` | **user** | 100 / giờ | rembg chạy concurrency 1 — đây là route duy nhất một người dùng có thể làm đói job của tất cả người khác |
+
+Bốn route cuối **trước Phase 4 không có giới hạn nào**. "Đã đăng nhập" không
+phải rào cản: tài khoản Google miễn phí và vô hạn.
+
+Khoá theo **user chứ không theo IP** với các route đã đăng nhập: sau NAT của
+nhà mạng — chuyện mặc định ở Việt Nam — khoá theo IP khiến hai cặp đôi không
+quen biết dùng chung hạn mức.
+
+Tất cả đều **fail open** khi Redis lỗi. Đây là ảnh cưới của chính họ; một lần
+hạ tầng chập không được phép chặn họ làm thiệp.
+
+**Cách kiểm nhanh** (thay `<cookie>` bằng session thật):
+
+```bash
+for i in $(seq 1 33); do
+  curl -s -o /dev/null -w '%{http_code} ' -X POST https://ten-mien/api/invitations \
+    -H "Cookie: authjs.session-token=<cookie>" -H 'content-type: application/json' -d 'not-json'
+done
+```
+
+Đúng 30 lần `400` (body sai, giới hạn kiểm TRƯỚC khi parse nên không tạo gì)
+rồi `429`. Nếu không bao giờ thấy `429`, giới hạn đang không chạy.
+
+---
+
+## 5f. Load test trang thiệp
+
+Đo ngày 2026-09-18, `next start` bản production, `/i/demo`, **máy đo và máy
+chạy là một** (MacBook, dev stack Docker cùng chỗ). Con số để so sánh tương
+đối, **không phải để hứa với ai**.
+
+| Đồng thời | req/s | p50 | p95 | p99 | lỗi |
+|---|---|---|---|---|---|
+| 10 | 47.8 | 192 ms | 337 ms | 531 ms | 0 |
+| 25 | 59.1 | 425 ms | 476 ms | 533 ms | 0 |
+| 50 | 58.3 | 841 ms | 1139 ms | 1365 ms | 0 |
+| 100 | 57.1 | 1726 ms | 2050 ms | 2470 ms | 0 |
+
+Đọc bảng này:
+
+- **Bão hoà quanh 58–59 req/s** và không nhúc nhích dù tăng đồng thời — nghẽn
+  ở CPU render, không phải ở kết nối.
+- **Không có request nào hỏng** ở mọi mức, kể cả 100 đồng thời. Quá điểm bão
+  hoà thì độ trễ tăng tuyến tính chứ không đổ vỡ.
+- Điểm gãy nằm quanh **đồng thời 20–25**. Trên mức đó khách vẫn xem được
+  thiệp, chỉ chậm hơn.
+- Để dễ hình dung: 300 khách cùng mở thiệp trong một phút ≈ **5 req/s**. Còn
+  rất xa giới hạn. 3.000 người trong một phút ≈ 50 req/s, tức là sát.
+
+Chạy lại:
+
+```bash
+node scripts/loadtest.mjs http://127.0.0.1:3100/i/demo 25 400
+```
+
+---
+
 ## 6. Vài lệnh hay dùng
 
 ```bash

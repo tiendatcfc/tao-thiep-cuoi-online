@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { ImageDecodeError, processAndStoreImage } from "@/lib/upload";
+import { rateLimitUser, USER_RATE_LIMIT_MESSAGE } from "@/lib/user-rate-limit";
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 // `request.formData()` makes undici parse and buffer the ENTIRE multipart
@@ -28,6 +29,13 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Bạn cần đăng nhập để tải ảnh lên." }, { status: 401 });
+  }
+
+  // Before the body is read: this route re-encodes every image with sharp
+  // into three sizes, so an unbounded loop here is CPU and disk, not just
+  // rows in a table.
+  if (!(await rateLimitUser("imageUpload", session.user.id))) {
+    return NextResponse.json({ error: USER_RATE_LIMIT_MESSAGE }, { status: 429 });
   }
 
   // Cheap pre-check on the DECLARED length, before the body is ever parsed.
