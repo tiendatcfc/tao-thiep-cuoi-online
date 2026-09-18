@@ -1,4 +1,4 @@
-# HPWD — Bản giao việc (cập nhật 2026-09-17)
+# HPWD — Bản giao việc (cập nhật 2026-09-18)
 
 Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file này trước khi làm gì.
 
@@ -30,7 +30,9 @@ Phase 0 (nền móng), Phase 1 (MVP, 19 task + review toàn nhánh + đợt sử
 
 Việc này đồng thời hoàn thành Phase 2 Task 7 (YouTube) và phần blur thật của Task 10.
 
-**Phase 2 XONG toàn bộ 10/10 task (2026-09-17).** Khách mời + nhập CSV/Excel, form builder + xuất CSV, `apps/worker` (BullMQ + ffmpeg), upload nhạc riêng đầu-cuối, section YouTube, rich text TipTap, hai hiệu ứng mở màn mới, và `docs/operations.md`.
+**Phase 2 XONG toàn bộ 10/10 task (2026-09-17)** và **Phase 3 XONG toàn bộ 4/4 (2026-09-18)**.
+
+Phase 2: Khách mời + nhập CSV/Excel, form builder + xuất CSV, `apps/worker` (BullMQ + ffmpeg), upload nhạc riêng đầu-cuối, section YouTube, rich text TipTap, hai hiệu ứng mở màn mới, và `docs/operations.md`.
 
 ## CÒN THIẾU — theo thứ tự ưu tiên đề xuất
 
@@ -52,9 +54,23 @@ Ba task cuối, và những bất biến mới mà bất kỳ ai sửa vùng nà
   - Nhãn `petals` là "**Mưa cánh hoa**", cố ý khác "Cánh hoa" của ô chọn *particles* — hai thiết lập độc lập.
 - ~~**Task 10**~~: `docs/operations.md` (chạy worker, biến môi trường, runbook "nhạc kẹt Đang xử lý"). Blur thật đã xong từ nhóm A. Ảnh nay ghi `status: "ready"` thay vì để mặc định `pending` mãi mãi.
 
-### Nhóm C — Phase 3 (chưa bắt đầu, chưa viết plan)
+### ~~Nhóm C — Phase 3~~ — XONG 4/4 (2026-09-18)
 
-AI xoá nền ảnh (self-host `rembg` trong Docker, quyết định đã chốt là **không dùng API trả phí**), upload font tùy chỉnh (`theme.customFonts` có trong schema nhưng **không ai đọc**), 10 mẫu Premium (hiện `tier: 'basic'` hardcode ở `definitions.ts:108`), album chuyên nghiệp.
+Plan: `docs/superpowers/plans/2026-09-18-phase-3-nang-cao.md`. Ledger: `.superpowers/sdd/2026-09-18-phase-3-nang-cao/progress.md`.
+
+- ~~**Font riêng**~~: `POST /api/uploads/font` (fontkit validate, wawoff2 → WOFF2, cảnh báo glyph tiếng Việt), `DELETE /api/fonts/[assetId]`, `CustomFontStyle` sinh `@font-face`. `theme.customFonts` cuối cùng đã có người đọc, và thêm `assetId` (có default).
+  - **Bất biến mới:** tên font đọc từ metadata trong file người lạ tải lên rồi vào thẳng CSS. `sanitizeFontFamily`/`sanitizeFontSrcUrl` là **allowlist**, và chạy **lại lần nữa lúc render** vì document ghi đè được qua PATCH.
+  - **Bẫy:** `SSL_CERT_FILE` **thay thế** kho tin cậy chứ không bổ sung.
+- ~~**Album nâng cao**~~: `AlbumImageSchema.caption` (default `''`, max 200) + layout `hero`. Chú thích qua `sanitizePlainText`, hiện cả dưới ảnh lẫn trong lightbox.
+  - **Bẫy đã sửa:** `AlbumPanel.onUploaded` dựng object ảnh mới → đổi ảnh là mất chú thích.
+- ~~**10 mẫu Premium**~~: `templates/premium.ts`, helper chung ở `templates/builders.ts`. Gallery `/mau-thiep?tier=premium` giờ hiện thật.
+  - **Bẫy:** có **hai** chỗ hardcode "chưa có mẫu Premium" (page short-circuit truy vấn, và `TemplateGallery` render dòng "sắp ra mắt"). Truy vấn nay ở `lib/templates.ts`, có test trên DB thật.
+  - **Không đổi id/slug của 5 mẫu cũ** — `seed-templates.ts` upsert theo id, thumbnail suy từ slug. Có test chốt nguyên văn.
+- ~~**Xoá nền AI**~~: `services/rembg` (FastAPI + rembg `isnet-general-use`, CPU) + queue `background-removal` + `POST /api/images/background-removal` + nút "Xoá nền" trong `ImageField`.
+  - **Bất biến:** service **chỉ nhận bytes, không bao giờ nhận URL** (nhận URL = SSRF). Không khoá, không DB, không kho lưu trữ.
+  - Kết quả là **asset MỚI**, không ghi đè ảnh gốc.
+  - Route nhận **URL** chứ không phải assetId — document chỉ lưu URL.
+  - Ở máy dev chạy bằng **venv** (`services/rembg/.venv`, gitignore), không kéo image Docker. Xem `services/rembg/README.md`.
 
 ### Nhóm D — Phase 4 hardening (chưa bắt đầu)
 
