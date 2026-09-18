@@ -350,6 +350,85 @@ cần bấm lại.
 
 ---
 
+## 5c. Backup database và đường về
+
+`pnpm backup:db` chạy `pg_dump --format=custom` rồi đẩy lên object storage,
+giữ lại 14 bản mới nhất. `pnpm restore:db` là chiều ngược lại.
+
+### Bucket riêng — không thương lượng
+
+Bản dump **phải** nằm ở bucket khác bucket media, và script **từ chối chạy**
+nếu `BACKUP_BUCKET` trùng `R2_BUCKET`. Lý do: `apps/web/scripts/init-bucket.mjs`
+gắn policy cho phép ẩn danh `s3:GetObject` lên `<bucket>/*` — **mọi key**, không
+phải theo tiền tố — vì trang thiệp nhúng thẳng URL ảnh và nhạc. Một file
+pg_dump đặt trong đó là toàn bộ bảng `User`, mọi danh sách khách, mọi số điện
+thoại và mọi số tài khoản ngân hàng, ai đoán trúng một tên file là tải được.
+Không có tiền tố nào an toàn bên trong bucket đó.
+
+Tạo bucket backup (một lần) và **đừng gắn policy công khai cho nó**. Kiểm lại
+bằng cách tải thử không kèm khoá — phải ra `403`:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "$R2_ENDPOINT/$BACKUP_BUCKET/backups/<ten-file>.dump"
+```
+
+### Chạy hằng đêm
+
+```cron
+# 02:30 mỗi ngày, giờ máy chủ
+30 2 * * * cd /srv/hpwd && /usr/bin/pnpm backup:db >> /var/log/hpwd-backup.log 2>&1
+```
+
+Script thoát **khác 0** khi hỏng, để cron gửi mail cho người trực. Ba tình
+huống nó **không** upload gì và **không** xoá bản cũ nào:
+
+- `pg_dump` thoát khác 0 (sai credential, DB chết).
+- File tạo ra không bắt đầu bằng `PGDMP` — `pg_dump` có thể thoát 0 mà vẫn cho
+  ra thứ vô dụng (dump nhầm database rỗng, hoặc luồng bị cắt). Một file **trông
+  có vẻ đúng** trong bucket tệ hơn là không có file: đó chính là file người ta
+  sẽ với tay lấy lúc sự cố, sau nhiều tháng được báo "backup vẫn chạy tốt".
+- Xoá bản cũ chỉ chạy **SAU** khi upload thành công. Ngược lại thì một lần mạng
+  chập làm mất bản cũ nhất mà không có bản mới thay thế.
+
+### Khôi phục
+
+```bash
+pnpm restore:db --list                      # xem có những bản nào
+pnpm restore:db backups/hpwd-....dump "postgresql://user:pass@host:5432/db_dich"
+```
+
+Đích **phải gõ tay**, không lấy từ `DATABASE_URL`. `pg_restore --clean` xoá rồi
+tạo lại mọi object nó chạm tới; lấy mặc định từ môi trường nghĩa là một lần
+chạy đãng trí xoá sạch production.
+
+### Diễn tập — làm ít nhất một lần, trước khi cần
+
+**Backup chưa từng restore thì không phải backup.** Vòng kiểm đầy đủ, an toàn
+vì nó không đụng vào database đang chạy:
+
+```bash
+# 1. Tạo database nháp
+psql "$DATABASE_URL" -c 'CREATE DATABASE hpwd_restore_check;'
+
+# 2. Restore bản mới nhất vào đó
+pnpm restore:db <key> "postgresql://postgres:postgres@localhost:5432/hpwd_restore_check"
+
+# 3. So số hàng với bản gốc — phải khớp từng bảng
+for db in hpwd hpwd_restore_check; do
+  psql "postgresql://postgres:postgres@localhost:5432/$db" -t -A -c \
+    'SELECT '"'"'User'"'"', count(*) FROM "User" UNION ALL SELECT '"'"'Invitation'"'"', count(*) FROM "Invitation";'
+done
+
+# 4. Xoá database nháp
+psql "$DATABASE_URL" -c 'DROP DATABASE hpwd_restore_check;'
+```
+
+Đếm hàng thôi chưa đủ — mở thử một bản ghi có dấu tiếng Việt (một lời chúc
+chẳng hạn) để chắc chắn encoding không bị hỏng.
+
+---
+
 ## 6. Vài lệnh hay dùng
 
 ```bash

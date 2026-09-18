@@ -10,7 +10,9 @@
     "dev:init": "node --env-file=apps/web/.env.local apps/web/scripts/init-bucket.mjs",
     "seed:dev": "pnpm --filter @hpwd/db exec tsx scripts/seed-dev.ts",
     "seed:music": "pnpm --filter @hpwd/db exec tsx scripts/seed-music.ts",
-    "seed:templates": "pnpm --filter @hpwd/db exec tsx scripts/seed-templates.ts"
+    "seed:templates": "pnpm --filter @hpwd/db exec tsx scripts/seed-templates.ts",
+    "backup:db": "pnpm --filter @hpwd/db exec tsx scripts/backup.ts",
+    "restore:db": "pnpm --filter @hpwd/db exec tsx scripts/restore.ts"
   },
   "devDependencies": {
     "turbo": "^2.10.9",
