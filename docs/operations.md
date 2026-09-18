@@ -509,6 +509,58 @@ redis-cli INFO keyspace
 
 ---
 
+## 6b. Image và compose production
+
+```
+apps/web/Dockerfile        multi-stage, output standalone, chạy bằng user không phải root
+apps/worker/Dockerfile     có sẵn ffmpeg, exec thẳng tsx (không qua pnpm)
+services/rembg/Dockerfile  đã có từ Phase 3, nướng sẵn model
+docker-compose.prod.yml    web + worker + rembg + postgres + redis + Caddy
+deploy/Caddyfile           TLS tự động, ghi đè x-forwarded-for
+```
+
+Khác `docker-compose.dev.yml` ở ba điểm **không phải chỉ đổi mật khẩu**:
+
+1. **Chỉ reverse proxy mở cổng.** Postgres, Redis, rembg nằm trong mạng nội bộ,
+   không bind ra host. File dev bind `127.0.0.1` cho tiện; ở đây thì không có gì cả.
+2. **Caddy GHI ĐÈ `x-forwarded-for`** (`header_up X-Forwarded-For {remote_host}`)
+   chứ không nối thêm. Đây chính là điều làm `TRUSTED_PROXY_HOPS=1` trở thành
+   **đúng**: danh sách chỉ có một entry và nó do ta ghi. Mặc định của Caddy là
+   giữ lại phần khách gửi rồi nối vào, tức là để lại giá trị kẻ tấn công chọn.
+3. **Không có mật khẩu mặc định nào.** Thiếu biến là compose **báo lỗi ngay**,
+   không âm thầm chạy với giá trị rỗng.
+
+### Build
+
+```bash
+docker build -f apps/web/Dockerfile \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://ten-mien-that.vn \
+  --secret id=corp_ca,src=.certs/corp-ca.pem \
+  -t hpwd-web .
+```
+
+`--secret id=corp_ca` **chỉ cần trên máy sau proxy TLS của công ty**:
+`prisma generate` tải engine từ `binaries.prisma.sh` và sẽ lỗi "self-signed
+certificate in certificate chain". Cách đúng là **tin CA của proxy trong đúng
+lệnh đó** — tuyệt đối không tắt xác thực. Dùng secret mount nên chứng chỉ
+không nằm lại trong bất kỳ layer nào của image; máy không có proxy thì bỏ cờ
+này đi, build vẫn chạy.
+
+### ⚠️ Image CHƯA từng build thành công ở đâu cả
+
+Viết xong nhưng **chưa chứng minh**. Trên máy dev, lần thử đã:
+
+- ăn 6 GB đĩa vì repo **không có `.dockerignore`** (nay đã có: `node_modules`
+  và `.pnpm-store` đi thẳng vào build context);
+- vẫn tốn ~3 GB mỗi lần thử sau đó, và **làm Docker Desktop sập** khi đĩa
+  xuống 4 GB. Ổ dữ liệu máy này thường chỉ còn trên dưới 10 GB.
+
+CI (`.github/workflows/ci.yml`, job `images`) build cả ba image — runner có đủ
+đĩa và không có proxy TLS. **Nhưng repo chưa có remote nên CI chưa bao giờ
+chạy.** Đừng coi Dockerfile là đã kiểm cho tới khi thấy job đó xanh.
+
+---
+
 ## 7. Điểm cần biết trước khi deploy lần đầu
 
 - **Migration**: chạy `prisma migrate deploy` trước khi khởi động web bản mới.

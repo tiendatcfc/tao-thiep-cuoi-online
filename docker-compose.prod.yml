@@ -1,0 +1,157 @@
+# Production topology. NOT a copy of docker-compose.dev.yml with different
+# passwords — the shape is different in three ways that matter:
+#
+#  1. Only the reverse proxy publishes a port. Postgres, Redis, MinIO/R2 and
+#     rembg are reachable on the internal network and nowhere else. The dev
+#     file binds them to 127.0.0.1 for convenience; here they are not bound
+#     to the host at all.
+#  2. The proxy REPLACES x-forwarded-for rather than appending to it, which
+#     is what makes TRUSTED_PROXY_HOPS=1 correct (see lib/client-ip.ts: the
+#     rate limiter reads the entry the nearest trusted proxy wrote).
+#  3. Nothing carries a default password. Every secret comes from the
+#     environment, and the file fails loudly if one is missing.
+#
+# Usage:
+#   cp .env.example .env.prod   # then fill it in; see docs/operations.md
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# NOT INCLUDED, on purpose: TLS certificates and the domain. Caddy obtains
+# its own certificate from Let's Encrypt once DOMAIN points at this host —
+# a step that cannot be rehearsed without the real domain, and is listed as
+# a human task rather than pretended to be done.
+
+services:
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required, e.g. hpwd.vn}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # BUILD time, not run time — see the Dockerfile. Changing this needs
+        # a rebuild, not a restart.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:?set to the public origin, e.g. https://hpwd.vn}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://hpwd:${POSTGRES_PASSWORD:?required}@postgres:5432/hpwd
+      REDIS_URL: redis://redis:6379
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-}
+      AUTH_SECRET: ${AUTH_SECRET:?required, generate with openssl rand -base64 32}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:?required}
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:?required}
+      # Without this Auth.js refuses to trust the forwarded Host in
+      # production and Google sign-in fails outright. It is not optional
+      # behind a proxy.
+      AUTH_TRUST_HOST: "true"
+      R2_ENDPOINT: ${R2_ENDPOINT:?required}
+      R2_BUCKET: ${R2_BUCKET:?required}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?required}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?required}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL:?required}
+      # One proxy of ours in front. See docs/operations.md 2.2b before
+      # changing this: too high and legitimate guests share one rate-limit
+      # bucket, too low and the limiter stops existing.
+      TRUSTED_PROXY_HOPS: "1"
+      CSP_REPORT_ONLY: ${CSP_REPORT_ONLY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # The app's own check, which touches the database, Redis and the
+      # object store. Not `?strict=1`: a dead worker is a real problem but
+      # not a reason to restart the web container.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://hpwd:${POSTGRES_PASSWORD:?required}@postgres:5432/hpwd
+      REDIS_URL: redis://redis:6379
+      BULLMQ_PREFIX: ${BULLMQ_PREFIX:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:?required}
+      R2_BUCKET: ${R2_BUCKET:?required}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:?required}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:?required}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL:?required}
+      REMBG_URL: http://rembg:7000
+    # Long enough for an in-flight transcode to finish; the worker's own
+    # shutdown gives up at 30s, so this must be larger or Docker SIGKILLs it
+    # first and the graceful path is decorative.
+    stop_grace_period: 45s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  rembg:
+    build:
+      context: ./services/rembg
+    restart: unless-stopped
+    # NO ports. It has no authentication of its own and accepts arbitrary
+    # images to spend CPU on; the worker reaches it over the internal
+    # network and nothing else should.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:7000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hpwd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: hpwd
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hpwd -d hpwd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    # Persisted: this Redis holds queued jobs, not just a cache. Losing it
+    # loses every upload that has been accepted but not yet transcoded.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

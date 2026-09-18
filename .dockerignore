@@ -1,0 +1,45 @@
+# Without this file, `COPY . .` hands Docker the whole working tree —
+# including node_modules and .pnpm-store. Measured on the first build
+# attempt: 6 GB of free disk consumed, and `prisma generate` failing inside
+# the image because the host's darwin-arm64 query engine had been copied
+# over the linux one the deps stage had just installed. Both Dockerfiles
+# install dependencies themselves from the lockfile; nothing built on this
+# machine belongs in an image.
+
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build output. The image builds its own; copying a host build in would ship
+# whatever was last compiled here, including a dev-mode .next.
+.next
+**/.next
+dist
+**/dist
+.turbo
+**/.turbo
+
+# Secrets. A .env copied into an image is a secret published to everyone who
+# can pull it, and it would also silently override the environment the
+# container is actually given.
+.env
+.env.*
+!.env.example
+# .certs is NOT excluded here because it holds a CA certificate, which is
+# public by nature — but it is never COPYed either: the Dockerfiles take it
+# as a build secret so it stays out of the finished image.
+
+# Python virtualenv for services/rembg (~730 MB of macOS binaries) — that
+# service builds from its own context and installs its own dependencies.
+services/rembg/.venv
+
+.git
+.github
+.superpowers
+docs
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+coverage
+*.log
+.DS_Store

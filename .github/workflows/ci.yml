@@ -103,3 +103,52 @@ jobs:
 
       - name: Build
         run: pnpm --filter @hpwd/web build
+
+  # Separate job: the Dockerfiles are the deployment contract and nothing
+  # else in CI exercises them. They could not be built on the machine they
+  # were written on — a corporate TLS proxy intercepts binaries.prisma.sh
+  # (handled by the `corp_ca` build secret, which no CI runner needs) and the
+  # disk there had under 12 GB free, which a workspace install exhausts. This
+  # is where they get proven.
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Built, not pushed: there is no registry and no server yet. The point
+      # is that both images build at all, which is the part that silently
+      # rots as dependencies move.
+      - name: Build the web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: false
+          # A placeholder is correct here and only here: this proves the
+          # build works, and the real origin is baked in at deploy time.
+          # Shipping an image built with this value would put localhost in
+          # every link preview — see docs/operations.md section 2.1.
+          build-args: NEXT_PUBLIC_SITE_URL=https://example.invalid
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build the worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build the background-removal image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/rembg
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,0 +1,29 @@
+# Reverse proxy for docker-compose.prod.yml. Caddy obtains and renews a
+# Let's Encrypt certificate by itself once {$DOMAIN} resolves to this host.
+{$DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy web:3000 {
+		# REPLACE, never append. Caddy's default is to preserve whatever
+		# X-Forwarded-For the client sent and add to it, which would leave
+		# an attacker-chosen value in the list — and `lib/client-ip.ts`
+		# counts entries from the right, so a caller could pad the list and
+		# push the real entry out of the position the app trusts. With this
+		# header set explicitly there is exactly one entry and it is ours,
+		# which is what makes TRUSTED_PROXY_HOPS=1 true.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up Host {host}
+	}
+
+	# The app sets its own Content-Security-Policy, HSTS, Referrer-Policy
+	# and friends per request (apps/web/src/middleware.ts), including a
+	# per-request nonce. Nothing is added here: a second, static copy of
+	# those headers would either duplicate them or, worse, override the one
+	# carrying the nonce and block every script on the page.
+
+	log {
+		output stdout
+		format json
+	}
+}

@@ -10,6 +10,10 @@ import { getAllowedImageHosts } from "./src/lib/image-hosts";
 // `app/i/[slug]/opengraph-image.tsx`'s own server-side cover-image fetch, so
 // the two enforcement points can never drift apart.
 const nextConfig: NextConfig = {
+  // Traces the exact files the server needs into `.next/standalone`, so the
+  // production image does not have to carry the node_modules of a whole
+  // pnpm workspace. Required by apps/web/Dockerfile.
+  output: "standalone",
   // Escape hatch for verifying a production build while a dev server is
   // running: both write to `.next`, and `next build` over a live
   // `next dev` leaves the dev server serving half-overwritten chunks until
