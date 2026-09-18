@@ -1,11 +1,11 @@
-# HPWD — Bản giao việc (cập nhật 2026-09-18, sau Phase 4)
+# HPWD — Bản giao việc (cập nhật 2026-09-18, sau Phase 4 + đợt dọn mục hoãn)
 
 Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file này trước khi làm gì.
 
 ## Trạng thái hiện tại
 
 - Nhánh: `feat/phase-2-guest-import`, cây làm việc sạch, chưa merge vào `main` (main chỉ có docs).
-- Test: **1256 xanh** — web 1173, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo lint` chạy 2/4 package (db và schema vẫn chưa có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
+- Test: **1313 xanh** — web 1230, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
 - `next build` sạch. **Đừng build đè lên dev server đang chạy** — cả hai dùng chung `apps/web/.next`. Dùng `HPWD_DIST_DIR=.next/prod-check pnpm build` rồi `next start -p 3100` với cùng biến đó.
 - **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật, kể cả job `images` mới thêm. Đây là việc chặn nhiều thứ nhất.
 
@@ -91,15 +91,31 @@ Plan: `docs/superpowers/plans/2026-09-18-phase-4-hardening-launch.md`. Ledger: `
 - ~~**Image + compose**~~: `apps/web/Dockerfile`, `apps/worker/Dockerfile`, `docker-compose.prod.yml`, `deploy/Caddyfile`. **CHƯA build được ở đâu** — xem HUMAN TODO 10.
 - ~~**Rate-limit**~~: 5 route tốn CPU nay có giới hạn **theo user** (ảnh 500/giờ, nhạc 10, font 10, tạo thiệp 30, xoá nền 100). Load test `/i/demo`: bão hoà ~58 req/s, **0 lỗi** tới 100 đồng thời.
 
-### Nhóm E — 58 mục minor đã hoãn
+### Nhóm E — mục minor đã hoãn
 
-Nằm rải trong 3 ledger, dòng có chữ `minor (deferred)`. Lấy nhanh: `grep -h 'minor (deferred)' .superpowers/sdd/*/progress.md`. Đã được triage: không mục nào chặn merge.
+Nằm rải trong các ledger, dòng có chữ `minor (deferred)`. Lấy nhanh: `grep -h 'minor (deferred)' .superpowers/sdd/*/progress.md`. Không mục nào chặn merge.
+
+**CẢNH BÁO khi đọc danh sách này: nó có lẫn mục ĐÃ SỬA.** Ledger ghi lúc phát hiện, không ai quay lại gạch đi khi task sau sửa mất. Đợt 2026-09-18 định làm 3 mục và cả 3 đều đã xong rồi (`INCR`+`EXPIRE` đã atomic bằng Lua, `TextProps.html` đã có `.max(10_000)`, `new URL(R2_PUBLIC_URL)` đã chuyển sang `lib/image-hosts.ts` có guard + test). **Đọc code trước, danh sách sau.**
+
+### ~~Nhóm F — đợt dọn mục hoãn~~ — XONG 7 mục (2026-09-18)
+
+Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`.
+
+- ~~**`//evil.com` lọt allowlist href**~~: `SAFE_HREF_RE` coi nó là "đường dẫn nội bộ". `/\evil.com` cũng vậy (WHATWG coi `\` ở vị trí authority là `/`). Sửa bằng negative lookahead — allowlist **hẹp lại**, tokenizer không đổi một byte.
+- ~~**"Xem thêm" hỏng im lặng**~~: nuốt mọi mã lỗi + không `catch` → khách đọc thất bại thành "hết lời chúc", và fetch bị từ chối là unhandled rejection.
+- ~~**`/api/health` giờ canh `services/rembg`**~~: `backgroundRemoval` có **ba** giá trị — `ok` / `fail` / **`off`**. `off` = `REMBG_URL` trống = không deploy rembg, không probe, không bao giờ là lỗi. **`REMBG_URL` nay phải đặt cho cả service `web`**, không chỉ `worker`.
+- ~~**Trần TỔNG asset mỗi tài khoản**~~: ảnh 5.000 / nhạc 100 / font 50, trên cả 4 route tạo `MediaAsset` (kể cả background-removal). Giới hạn theo giờ bó **tốc độ**, cái này bó **tổng**. **Không** fail open, khác `rateLimitUser` — lý do trong `storage-quota.ts`.
+  - **Bẫy đã sửa cùng lúc:** `ImageField` làm `if (!res.ok) throw` nên **mọi** thông điệp 429 của server, kể cả giới hạn theo giờ từ Phase 4, chưa từng đến tay ai.
+- ~~**Lint cho `packages/db` + `packages/schema`**~~: `turbo lint` từng in "successful" khi kiểm một nửa. `no-explicit-any` tắt **chỉ cho** `schema/src/__tests__/**`, vì các test đó tồn tại để phán xử document mà hệ thống kiểu cấm.
+- ~~**`.env` / `.env.local` che nhau**~~: `next.config.ts` nay cảnh báo mỗi lần dev/build, in **tên khoá, không bao giờ in giá trị**. Không file nào bị xoá — chọn bản nào là quyết định của chủ dự án (xem mục 1 phần HUMAN TODO).
+- ~~**Mã QR = 60% trang thiệp**~~: `react-qr-code` vẽ một sub-path cho **mỗi ô**, cả ô đen lẫn ô trắng. Thay bằng `<rect>` + path mã hoá độ dài chạy. `/i/demo`: thô **123.212 → 49.354**, gzip **21.111 → 12.566**. Tập ô đen so trước/sau: **giống hệt** (851 và 799 ô).
+  - **Sửa một khẳng định sai của Phase 4:** 124 kB HTML **không** phải nghẽn LCP. Đo cùng điều kiện: 723 ms trước, 753 ms sau — nhiễu. Section quà ở **cuối tài liệu** nên byte của nó về sau khi phần tử LCP đã vẽ. Đừng chạy lại thí nghiệm này.
 
 ## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 12
 
 1. ~~**Google OAuth**~~ — **XONG 2026-09-18.** `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` đã có trong `apps/web/.env` (và `.env.local`), chủ dự án đã đăng nhập thật: có `User` "Tiến Đạt Nguyễn" (@gmail.com) + `Account` provider `google` + ảnh đại diện, và đã tạo được thiệp. Luồng sau đăng nhập không còn là vùng chưa ai bấm.
    - **Còn cho production:** đặt `AUTH_TRUST_HOST=true` (hoặc `AUTH_URL`) — thiếu là đăng nhập Google **hỏng hoàn toàn** khi tự host sau reverse proxy; đặt `NEXT_PUBLIC_SITE_URL` lúc **build**; thêm redirect URI của tên miền thật vào Google Cloud Console.
-   - **Bẫy cấu hình:** `apps/web/.env` và `apps/web/.env.local` đang **trùng nhau từng byte**. Next cho `.env.local` thắng, nên sửa `.env` sẽ không có tác dụng. Nên giữ một file.
+   - **Bẫy cấu hình (nay đã có cảnh báo, chưa được dọn):** `apps/web/.env` và `apps/web/.env.local` vẫn **trùng nhau từng byte**. Next cho `.env.local` thắng, nên sửa `.env` không có tác dụng. Từ 2026-09-18, `next dev` / `next build` in cảnh báo kèm danh sách khoá bị che (tên khoá thôi, không bao giờ in giá trị). **Vẫn cần người xoá một trong hai file** — code không tự xoá file chứa secret thật.
 2. **File font** — `apps/web/public/fonts/` hiện **chỉ có README.md**. Cần 16 file `.woff2` (8 họ × 400/700, subset tiếng Việt, OFL) **và** 1 file `og-heading.ttf` hoặc `.woff`. Đọc `apps/web/public/fonts/README.md`. Lưu ý: satori (dùng cho ảnh share) **không đọc được WOFF2** — thả mỗi WOFF2 vào thì CSS sửa được nhưng ảnh share vẫn hiện ô trắng thay cho Đ, ặ, ễ, ị.
 3. **Nhạc có bản quyền** — thư viện hiện là 3 tiếng bíp sine do ffmpeg sinh ra. `docs/music-credits.md` ghi rõ chúng không được lên production, kèm việc cần làm.
 4. **Quét thử QR** bằng app ngân hàng Việt Nam thật: `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png`. 2 phút, chặn tính năng liên quan tới tiền.
@@ -110,7 +126,7 @@ Nằm rải trong 3 ledger, dòng có chữ `minor (deferred)`. Lấy nhanh: `gr
 9. **Upload thử 1 ảnh chụp dọc từ điện thoại thật** qua editor — xác nhận ảnh đứng đúng chiều trong album (autoOrient đã có test orientation-6, nhưng chưa thử ảnh thật từ camera).
 10. **Build 3 image Docker** — chưa từng thành công ở đâu. Trên máy này hỏng vì proxy TLS chặn `binaries.prisma.sh` (đã có cửa `--secret id=corp_ca`) và vì ổ chỉ còn ~10 GB, một lần thử làm **Docker Desktop sập**. Job `images` trong CI làm được việc này — nhưng cần mục 6 (tạo repo + push) trước.
 11. **Tạo bucket backup riêng** (KHÔNG gắn policy công khai), đặt `BACKUP_BUCKET`, chạy `pnpm backup:db` và **diễn tập restore** theo `docs/operations.md` mục 5c. Backup chưa từng restore thì không phải backup.
-12. **Cắm uptime monitor** vào `/api/health?strict=1` (60 giây/lần, báo động sau 2 lần hỏng liên tiếp) và **quyết định về theo dõi lỗi** (Sentry hay tự host) — đây sẽ là dịch vụ bên thứ ba đầu tiên nhận dữ liệu người dùng, nên là quyết định của chủ dự án.
+12. **Cắm uptime monitor** vào `/api/health?strict=1` (60 giây/lần, báo động sau 2 lần hỏng liên tiếp) và **quyết định về theo dõi lỗi** (Sentry hay tự host) — đây sẽ là dịch vụ bên thứ ba đầu tiên nhận dữ liệu người dùng, nên là quyết định của chủ dự án. Endpoint nay kiểm **5** thành phần, không phải 4 (thêm `services/rembg`).
 
 ## Môi trường (bỏ qua là mất thời gian)
 

@@ -434,11 +434,11 @@ chẳng hạn) để chắc chắn encoding không bị hỏng.
 ### `GET /api/health`
 
 ```json
-{"status":"ok","checks":{"database":"ok","redis":"ok","storage":"ok","worker":"ok"}}
+{"status":"ok","checks":{"database":"ok","redis":"ok","storage":"ok","worker":"ok","backgroundRemoval":"ok"}}
 ```
 
 Mỗi mục đều **chạm thật** vào thứ nó gọi tên: `SELECT 1`, Redis `PING`,
-`HeadBucket`, và nhịp tim của worker. Một endpoint trả `{"ok":true}` mà không
+`HeadBucket`, nhịp tim của worker, và `GET {REMBG_URL}/health`. Một endpoint trả `{"ok":true}` mà không
 gọi gì là tệ hơn không có: nó báo xanh suốt sự cố mà người ta dựng nó lên để
 bắt, và được tin tưởng chính vì có người đã nhớ thêm nó vào.
 
@@ -449,6 +449,24 @@ Body **không** chứa chi tiết lỗi (chuỗi kết nối, thông điệp dri
 |---|---|
 | `200` | Instance này phục vụ được |
 | `503` | DB, Redis hoặc storage hỏng |
+
+**`backgroundRemoval` có ba giá trị, không phải hai:**
+
+| Giá trị | Nghĩa | Có làm hỏng `?strict=1` không |
+|---|---|---|
+| `ok` | `REMBG_URL` đã đặt và service trả 2xx | Không |
+| `fail` | `REMBG_URL` đã đặt nhưng service không trả lời | **Có** |
+| `off` | `REMBG_URL` **không** đặt — bản deploy này không chạy rembg | Không |
+
+`off` là cố ý. Máy dev chạy rembg bằng venv chứ không qua compose, và một bản
+deploy nhỏ có quyền không chạy nó. Nếu thăm dò một service không ai cài thì
+bảng điều khiển đỏ vĩnh viễn — và một monitor lúc nào cũng đỏ là monitor không
+ai đọc. Khi `REMBG_URL` trống, health check **không gửi request nào cả**.
+
+Muốn bật theo dõi rembg ở production thì đặt `REMBG_URL` cho **cả service
+`web`** chứ không chỉ `worker` (`docker-compose.prod.yml` đã làm sẵn). Web
+không bao giờ gọi rembg để làm việc — worker mới gọi — nhưng nó là tiến trình
+duy nhất có endpoint cho monitor cắm vào.
 
 **Hai người dùng, hai câu hỏi khác nhau:**
 
@@ -515,6 +533,40 @@ quen biết dùng chung hạn mức.
 
 Tất cả đều **fail open** khi Redis lỗi. Đây là ảnh cưới của chính họ; một lần
 hạ tầng chập không được phép chặn họ làm thiệp.
+
+### Trần TỔNG mỗi tài khoản — khác với giới hạn theo giờ
+
+Bảng trên giới hạn **tốc độ**. Nó không giới hạn **tổng**: 500 ảnh/giờ là
+12.000 ảnh/ngày, mỗi ngày, mãi mãi. Dự án này tự lưu trữ object storage nên
+hoá đơn rơi vào người vận hành.
+
+| Loại | Trần | Vì sao con số đó |
+|---|---|---|
+| ảnh | 5.000 | Mười album 200 ảnh đầy, cộng phần thay ảnh (ảnh cũ không bị xoá) và "Xoá nền" (luôn tạo asset MỚI, không ghi đè) |
+| nhạc | 100 | Mỗi thiệp một bản, mỗi bản tối đa 15MB |
+| font | 50 | Hai họ font × hai độ đậm đã là dư dả |
+
+Kiểm trước khi đọc body, trên cả 4 route tạo `MediaAsset` — kể cả
+background-removal, vốn không mang tên "upload" nhưng làm số asset tăng y hệt.
+
+Hai điều nó **cố ý không phải**:
+
+- **Không chính xác tuyệt đối.** Hai upload chạy song song có thể cùng đọc
+  `trần - 1` và cùng lọt. Làm cho chính xác cần transaction trên đường đi
+  nóng của mọi upload; trần này để chặn vòng lặp vô hạn, lệch vài cái không
+  thay đổi điều đó.
+- **Không fail open.** Khác `rateLimitUser`. Nó đếm hàng trong **đúng database**
+  mà upload sắp ghi `MediaAsset` vào — nuốt lỗi chỉ dời thất bại sang chỗ khó
+  hiểu hơn.
+
+Thông điệp nói **đúng con số** và chỉ đề nghị việc người ta làm được. Hiện
+**không có route nào xoá ảnh đã upload**, nên thông điệp ảnh không gợi ý xoá
+ảnh (có test chặn điều này). Font thì có, vì `DELETE /api/fonts/[assetId]` tồn
+tại. Muốn nới trần: sửa `USER_ASSET_CAPS` trong
+`apps/web/src/lib/storage-quota.ts`.
+
+Mã trả về là `429` chứ không phải `403`, vì bất biến của dự án là không route
+nào trả 403, và `429` là thứ client đã xử lý sẵn cho các route này.
 
 **Cách kiểm nhanh** (thay `<cookie>` bằng session thật):
 
