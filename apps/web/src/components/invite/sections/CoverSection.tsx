@@ -87,6 +87,37 @@ export function CoverSection({ section }: { section: Extract<Section, { type: "c
             alt=""
             fill
             sizes="224px"
+            /*
+             * `next/image` lazy-loads by default, which for the one image
+             * at the very top of the invitation means the browser does not
+             * even discover it until React has hydrated and the observer
+             * has run. Measured on a published invitation with a cover
+             * photo (Slow 4G, 4x CPU, 390x844 @3x): LCP 1343 ms, of which
+             * 634 ms was load DELAY — more than the 574 ms it took to
+             * download the image once it was finally asked for.
+             *
+             * `priority` makes Next emit a `<link rel="preload">` for it in
+             * the document head, so the request starts with the HTML
+             * instead of after hydration. It belongs on this image and no
+             * other: everything below the fold should stay lazy, and
+             * preloading several images at once just makes them compete.
+             *
+             * Phase 4 tried `fetchPriority="high"` here and removed it
+             * again for measuring as nothing. That experiment ran against
+             * /i/demo, which has NO cover image — there was no element to
+             * prioritise. This one is measured on a page that has one.
+             */
+            priority
+            /*
+             * `priority` alone drops `loading="lazy"` and emits the preload,
+             * but Next 15.5 puts `fetchpriority` on NEITHER the preload link
+             * nor the `<img>`. Chrome's own LCP-discovery audit reports that
+             * as a failed check, and the request goes out at Low priority,
+             * queued behind the JS chunks — 530 ms of load delay even with
+             * the preload sitting in the head and the image already cached.
+             * Passing it explicitly is what actually raises the priority.
+             */
+            fetchPriority="high"
             className="rounded-full object-cover shadow-lg"
           />
         </div>

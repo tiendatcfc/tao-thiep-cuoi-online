@@ -31,6 +31,37 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@hpwd/db", "@hpwd/worker"],
   images: {
     remotePatterns: getAllowedImageHosts(),
+    /*
+     * An invitation is a 430px column, and every `sizes` in this app is
+     * bounded by it (the widest is `100vw` up to 430px). So the largest a
+     * browser ever needs is 430 x 3 = 1290 device pixels.
+     *
+     * Next's default ladder jumps 1200 -> 1920, which meant a 3x phone —
+     * most phones — asked for 1920 to fill a 1290px box. `processImage`
+     * caps stored uploads at 1600px wide, and the optimizer never upscales,
+     * so 1920, 2048 and 3840 were three names for "send the whole 1600px
+     * photo": 593,014 bytes of the measurement image where 1200 was
+     * 152,036. 1440 gives that case a rung to land on instead.
+     *
+     * 2048 and 3840 are dropped because they cannot differ from 1920 while
+     * the source is capped at 1600 — they only lengthened every `srcset`
+     * (and the LCP preload link, which carries the whole list).
+     */
+    deviceSizes: [640, 750, 828, 1080, 1200, 1440, 1920],
+    /*
+     * Uploaded photos are immutable: `/api/uploads` writes a new object
+     * under a fresh unguessable key for every upload, editing a photo
+     * replaces the URL in the document rather than the bytes behind it, and
+     * background removal produces a NEW asset. So a cached variant can
+     * never go stale, and Next's 60-second default was throwing away work
+     * it would have to redo for the next guest.
+     *
+     * It is worth real time. Measured against this deployment, resizing a
+     * 1600x1600 source: 248ms cold, 2.8ms warm — 90x. On a wedding day 300
+     * guests open the same invitation within minutes, so the difference is
+     * one slow first load instead of everyone paying for a re-encode.
+     */
+    minimumCacheTTL: 60 * 60 * 24 * 31,
   },
 };
 
