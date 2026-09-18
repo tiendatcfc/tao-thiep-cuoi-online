@@ -49,12 +49,25 @@ describe("TemplateGallery", () => {
     expect(screen.queryByRole("link", { name: "Dùng mẫu này" })).not.toBeInTheDocument();
   });
 
-  it("shows the Premium 'coming soon' empty state instead of any cards when tier is premium, even if templates were passed", () => {
-    render(<TemplateGallery templates={templates} tier="premium" isAuthenticated={false} />);
+  it("renders Premium templates as cards, like any other tier", () => {
+    // This used to assert the opposite: a hard-coded "Mẫu Premium sắp ra
+    // mắt" line that ignored whatever list it was given. Phase 3 shipped
+    // ten Premium templates and the tab stayed empty behind it.
+    const premium = templates.map((t) => ({ ...t, tier: "premium" as const }));
 
-    expect(screen.getByText("Mẫu Premium sắp ra mắt")).toBeInTheDocument();
-    expect(screen.queryByTestId("template-card")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Dùng mẫu này" })).not.toBeInTheDocument();
+    render(<TemplateGallery templates={premium} tier="premium" isAuthenticated={false} />);
+
+    expect(screen.getAllByTestId("template-card")).toHaveLength(premium.length);
+    expect(screen.queryByText("Mẫu Premium sắp ra mắt")).not.toBeInTheDocument();
+  });
+
+  it("falls back to one empty-state line for a tier with no templates, whichever tier it is", () => {
+    for (const tier of ["basic", "premium"] as const) {
+      const view = render(<TemplateGallery templates={[]} tier={tier} isAuthenticated={false} />);
+      expect(screen.getByText("Chưa có mẫu thiệp nào.")).toBeInTheDocument();
+      expect(screen.queryByTestId("template-card")).not.toBeInTheDocument();
+      view.unmount();
+    }
   });
 
   it("renders the tier filter as links to /mau-thiep?tier=basic and ?tier=premium", () => {

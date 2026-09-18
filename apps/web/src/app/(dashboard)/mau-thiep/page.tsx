@@ -1,5 +1,5 @@
-import { prisma } from "@hpwd/db";
 import { auth } from "@/auth";
+import { listActiveTemplates } from "@/lib/templates";
 import { TemplateGallery, type GalleryTier } from "./TemplateGallery";
 
 function parseTier(raw: string | string[] | undefined): GalleryTier {
@@ -13,9 +13,13 @@ function parseTier(raw: string | string[] | undefined): GalleryTier {
  * requires an account: unauthenticated visitors get a sign-in link instead
  * of the create-and-edit button (see `TemplateGallery`).
  *
- * There are no Premium templates yet (YAGNI — out of scope for Task 18), so
- * that tier never queries the database; it always renders the "coming
- * soon" empty state.
+ * Both tiers query the database. This used to short-circuit the Premium
+ * tier to an empty array — a deliberate YAGNI shortcut from Task 18, when
+ * no Premium template existed — which silently survived Phase 3 seeding
+ * ten of them: the tab stayed empty and nothing failed, because the only
+ * tested half was the presentational component that renders whatever list
+ * it is handed. The query now lives in `lib/templates.ts`, where a test
+ * covers it against the real database.
  */
 export default async function TemplateGalleryPage({
   searchParams,
@@ -25,15 +29,7 @@ export default async function TemplateGalleryPage({
   const params = await searchParams;
   const tier = parseTier(params.tier);
 
-  const [session, templates] = await Promise.all([
-    auth(),
-    tier === "basic"
-      ? prisma.template.findMany({
-          where: { isActive: true, tier: "basic" },
-          orderBy: { name: "asc" },
-        })
-      : Promise.resolve([]),
-  ]);
+  const [session, templates] = await Promise.all([auth(), listActiveTemplates(tier)]);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
@@ -44,12 +40,7 @@ export default async function TemplateGalleryPage({
 
       <div className="mt-6">
         <TemplateGallery
-          templates={templates.map((t) => ({
-            id: t.id,
-            name: t.name,
-            tier: t.tier,
-            thumbnailUrl: t.thumbnailUrl,
-          }))}
+          templates={templates}
           tier={tier}
           isAuthenticated={Boolean(session?.user?.id)}
         />

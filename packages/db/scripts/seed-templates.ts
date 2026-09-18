@@ -2,10 +2,10 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { InvitationDocumentSchema } from '@hpwd/schema'
 import sharp from 'sharp'
 import { prisma } from '../src/index'
-import { BASIC_TEMPLATE_DEFINITIONS, type TemplateDefinition } from './templates/definitions'
+import { ALL_TEMPLATE_DEFINITIONS, type TemplateDefinition } from './templates/definitions'
 
 // ---------------------------------------------------------------------------
-// Task 18: seed the 5 Basic-tier templates + their thumbnails.
+// Seeds every template (5 Basic from Task 18 + 10 Premium from Phase 3) and its thumbnail.
 // ---------------------------------------------------------------------------
 //
 // The document data itself lives in `./templates/definitions.ts` (a pure
@@ -55,7 +55,8 @@ function escapeXml(s: string): string {
 /**
  * Builds a simple 600x900 representative thumbnail: a solid background in
  * the template's primary colour, a contrasting band in its secondary
- * colour holding the template's name, and a small tier label — all as one
+ * colour holding the template's name, and the template's own tier label
+ * (hard-coded to BASIC until Phase 3 added a second tier) — all as one
  * rasterized SVG (sharp/librsvg renders SVG input directly, no separate
  * composite step needed for text-only overlays like this).
  */
@@ -65,7 +66,7 @@ async function buildThumbnailPng(def: TemplateDefinition): Promise<Buffer> {
     <svg width="${THUMBNAIL_WIDTH}" height="${THUMBNAIL_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
       <rect width="${THUMBNAIL_WIDTH}" height="${THUMBNAIL_HEIGHT}" fill="${primary}" />
       <rect x="0" y="${THUMBNAIL_HEIGHT - THUMBNAIL_BAND_HEIGHT}" width="${THUMBNAIL_WIDTH}" height="${THUMBNAIL_BAND_HEIGHT}" fill="${secondary}" />
-      <text x="50%" y="70" text-anchor="middle" font-family="sans-serif" font-size="26" letter-spacing="4" fill="${background}" opacity="0.85">HPWD · BASIC</text>
+      <text x="50%" y="70" text-anchor="middle" font-family="sans-serif" font-size="26" letter-spacing="4" fill="${background}" opacity="0.85">HPWD · ${def.tier === 'premium' ? 'PREMIUM' : 'BASIC'}</text>
       <text x="50%" y="${THUMBNAIL_HEIGHT - THUMBNAIL_BAND_HEIGHT / 2}" text-anchor="middle" dominant-baseline="middle" font-family="sans-serif" font-size="46" font-weight="700" fill="${background}">${escapeXml(def.name)}</text>
     </svg>
   `.trim()
@@ -123,7 +124,7 @@ async function main() {
     )
   }
 
-  for (const def of BASIC_TEMPLATE_DEFINITIONS) {
+  for (const def of ALL_TEMPLATE_DEFINITIONS) {
     // Fail loudly rather than seeding a Template row whose document a
     // future `POST /api/invitations` would reject at create time — a
     // seeded template must always be usable.

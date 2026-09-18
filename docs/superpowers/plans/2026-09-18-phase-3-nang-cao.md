@@ -137,18 +137,18 @@ packages/db/scripts/templates/
 - Consumes: `createDefaultDocument()`, `createSection()`, `buildTheme`, `buildOpening`, `withSequentialOrder`.
 - Produces: 10 `TemplateDefinition` với `tier: 'premium'`.
 
-- [ ] **Step 1: Cho `buildTemplate` nhận `tier`** (mặc định `'basic'` để 5 mẫu cũ không đổi một byte). Test chốt: 5 mẫu cũ vẫn `tier: 'basic'`, id/slug không đổi — **đổi id là mất thiệp của người đã dùng mẫu đó**, vì `seed-templates.ts` upsert theo id cố định.
+- [x] **Step 1: Cho `buildTemplate` nhận `tier`** (mặc định `'basic'` để 5 mẫu cũ không đổi một byte). Test chốt: 5 mẫu cũ vẫn `tier: 'basic'`, id/slug không đổi — **đổi id là mất thiệp của người đã dùng mẫu đó**, vì `seed-templates.ts` upsert theo id cố định.
 
-- [ ] **Step 2: Viết test cho bộ 10 mẫu premium TRƯỚC khi viết dữ liệu:** đúng 10 mẫu `tier: 'premium'`; mọi id/slug là duy nhất trên toàn bộ 15 mẫu; **mọi `document` parse được bằng `InvitationDocumentSchema`**; mỗi mẫu dùng ít nhất một thứ mà mẫu basic không dùng (hiệu ứng mở màn mới, layout album mới, section video/story/text); không mẫu nào dùng font ngoài `FONT_OPTIONS` trừ khi cố ý.
+- [x] **Step 2: Viết test cho bộ 10 mẫu premium TRƯỚC khi viết dữ liệu:** đúng 10 mẫu `tier: 'premium'`; mọi id/slug là duy nhất trên toàn bộ 15 mẫu; **mọi `document` parse được bằng `InvitationDocumentSchema`**; mỗi mẫu dùng ít nhất một thứ mà mẫu basic không dùng (hiệu ứng mở màn mới, layout album mới, section video/story/text); không mẫu nào dùng font ngoài `FONT_OPTIONS` trừ khi cố ý.
 
-- [ ] **Step 3: FAIL → Step 4: Viết 10 mẫu.** Spec nói mẫu premium khác ở "parallax, layout album phức tạp, typography riêng". Parallax chưa tồn tại như một tính năng — **không** tự ý thêm; dùng những gì đã có: 6 hiệu ứng mở màn (kể cả `reveal`/`petals` mới), 4 layout album (kể cả `hero` mới), rich text, video, hạt rơi, và các cặp font khác nhau. Nếu muốn parallax thì phải là một task riêng, có test riêng.
+- [x] **Step 3: FAIL → Step 4: Viết 10 mẫu.** Spec nói mẫu premium khác ở "parallax, layout album phức tạp, typography riêng". Parallax chưa tồn tại như một tính năng — **không** tự ý thêm; dùng những gì đã có: 6 hiệu ứng mở màn (kể cả `reveal`/`petals` mới), 4 layout album (kể cả `hero` mới), rich text, video, hạt rơi, và các cặp font khác nhau. Nếu muốn parallax thì phải là một task riêng, có test riêng.
   Nội dung mẫu bằng **tiếng Việt thật**, không lorem ipsum — theo đúng chuẩn 5 mẫu cũ.
 
-- [ ] **Step 5: `seed-templates.ts` sinh thumbnail cho cả 15 mẫu** (đã idempotent sẵn; kiểm rằng nhãn tier trên thumbnail hiện đúng "Premium").
+- [x] **Step 5: `seed-templates.ts` sinh thumbnail cho cả 15 mẫu** (đã idempotent sẵn; kiểm rằng nhãn tier trên thumbnail hiện đúng "Premium").
 
-- [ ] **Step 6: Chạy seed thật + `curl /mau-thiep?tier=premium`** thấy đủ 10 mẫu; bấm "Dùng mẫu này" tạo được thiệp parse được.
+- [x] **Step 6: Chạy seed thật + `curl /mau-thiep?tier=premium`** thấy đủ 10 mẫu; bấm "Dùng mẫu này" tạo được thiệp parse được.
 
-- [ ] **Step 7: Commit** `feat(templates): ten premium templates`
+- [x] **Step 7: Commit** `feat(templates): ten premium templates`
 
 ---
 
