@@ -146,13 +146,20 @@ describe("AnimatedSection", () => {
         <SectionRenderer document={{ ...document, sections: [cover, video] }} />,
       );
 
+      // ONE wrapper, not two: SectionRenderer renders the first visible
+      // section eagerly (no motion wrapper) so it is not invisible until
+      // hydration — see SectionRenderer.firstSection.test.tsx. `cover` is
+      // that section here, so only `video`'s wrapper is left.
       const wrappers = Array.from(container.querySelectorAll("[data-animate]"));
-      expect(wrappers).toHaveLength(2);
-      const [coverWrapper, videoWrapper] = wrappers;
+      expect(wrappers).toHaveLength(1);
+      const [videoWrapper] = wrappers;
 
       // Sanity check on the positional assumption: cover (order 0) sorts
-      // before video (order 1) and actually renders content.
-      expect(coverWrapper.childNodes.length).toBeGreaterThan(0);
+      // before video (order 1) and actually renders content — without a
+      // wrapper of its own.
+      const coverContent = container.querySelector('[data-section="cover"]');
+      expect(coverContent).not.toBeNull();
+      expect(coverContent?.closest("[data-animate]")).toBeNull();
 
       // VideoSection renders null, so its wrapper has zero DOM children —
       // it must collapse out of layout via `empty:hidden` rather than
@@ -180,11 +187,15 @@ describe("AnimatedSection", () => {
         lastSavedAt: null,
       });
 
-      const cover = document.sections.find((s) => s.type === "cover");
-      if (!cover) throw new Error("fixture missing cover section");
-      expect(cover.animation.preset).toBe("fade"); // createSection's default, pre-write
+      // Deliberately NOT the cover: it sorts first, and SectionRenderer
+      // renders the first visible section without a motion wrapper so it
+      // paints before hydration. Asserting the store→DOM pipeline on the
+      // one section that has no wrapper would test nothing.
+      const couple = document.sections.find((s) => s.type === "couple");
+      if (!couple) throw new Error("fixture missing couple section");
+      expect(couple.animation.preset).toBe("fade"); // createSection's default, pre-write
 
-      useEditorStore.getState().updateSectionAnimation(cover.id, { preset: "slide-up", durationMs: 1200 });
+      useEditorStore.getState().updateSectionAnimation(couple.id, { preset: "slide-up", durationMs: 1200 });
       const written = useEditorStore.getState().document;
 
       const { container } = render(<SectionRenderer document={written} />);
