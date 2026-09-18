@@ -614,6 +614,95 @@ node scripts/loadtest.mjs http://127.0.0.1:3100/i/demo 25 400
 
 ---
 
+## 5g. Hiệu năng trang thiệp — những con số và lý do
+
+Trang khách (`/i/[slug]`) là thứ 300 người tải trong một buổi chiều. Mọi mục
+dưới đây đã đo thật, và mục nào đo ra **không cải thiện** thì cũng ghi lại
+đúng như vậy để người sau khỏi thử lại.
+
+### Ảnh: `deviceSizes` gắn với cột 430px
+
+Thiệp là một cột rộng tối đa **430px**, và mọi `sizes` trong app đều bị chặn
+bởi nó. Nên số pixel lớn nhất một trình duyệt cần là 430 × 3 = **1290**.
+
+Thang mặc định của Next nhảy 1200 → 1920. Máy 430px ở DPR3 (iPhone Pro Max)
+cần 1290 nên phải lấy 1920. Đo trên ảnh nguồn 1600×1600 (840.264 byte):
+
+| Nấc | Byte | Ai dùng |
+|---|---|---|
+| 1200 | 152.036 | máy 390px @3x — đã đủ, không đổi |
+| **1440** | **244.346** | **nấc mới: máy 430px @3x** |
+| 1920 | 593.014 | trước đây máy 430px phải lấy cái này |
+
+`processImage` cắt ảnh lưu ở 1600px và bộ tối ưu **không phóng to**, nên
+1920 / 2048 / 3840 là ba tên gọi của cùng một thứ — đã bỏ 2048 và 3840.
+
+**Sửa `deviceSizes` khi và chỉ khi bố cục đổi chiều rộng.** Thêm nấc thừa là
+thêm biến thể server phải sinh và lưu.
+
+### Ảnh: `minimumCacheTTL` 31 ngày
+
+Ảnh đã upload là **bất biến**: `/api/uploads` ghi object mới với key mới mỗi
+lần, đổi ảnh là đổi URL trong document chứ không ghi đè byte, xoá nền tạo
+asset MỚI. Nên biến thể trong cache không bao giờ cũ được, và mặc định 60
+giây của Next đang vứt đi đúng thứ nó sắp phải làm lại.
+
+    resize ảnh 1600×1600:  248 ms lạnh  →  2,8 ms ấm   (90×)
+    LCP cùng trang:       1343 ms lạnh  →   722 ms ấm
+
+**Cảnh báo triển khai:** cache ảnh nằm trong `.next/cache/images` **bên
+trong container**. `docker compose down` là mất sạch, và người khách đầu
+tiên sau mỗi lần deploy trả lại 248 ms đó. Nếu điều này thành vấn đề thì gắn
+volume cho thư mục ấy.
+
+### Ảnh bìa là phần tử LCP
+
+`CoverSection` đặt `priority` **và** `fetchPriority="high"`. Cần cả hai:
+`priority` bỏ lazy-load và sinh preload, nhưng **Next 15.5 không đặt
+`fetchpriority` lên link preload lẫn thẻ `<img>`** — Chrome báo đó là một
+kiểm tra thất bại và request đi ra ở mức ưu tiên Low.
+
+### Mã QR
+
+`react-qr-code` vẽ **một sub-path cho mỗi ô**, cả ô đen lẫn ô trắng. Hai mã
+QR ngân hàng từng là 70% trang. Nay là `<rect>` + path mã hoá độ dài chạy
+(`lib/qr-svg.ts`): `/i/demo` thô 123.212 → 49.354 byte, gzip 21.111 → 12.566.
+
+### Truy vấn
+
+`/i/[slug]` đọc database **một lần** mỗi lượt xem, không phải hai:
+`generateMetadata` và page component dùng chung `loadInvitationBySlug` bọc
+trong `cache()` của React. Đó là gộp theo REQUEST, không phải cache — hai
+khách khác nhau vẫn đọc mới.
+
+### Những thứ ĐÃ THỬ VÀ BỎ (đừng làm lại)
+
+| Thử | Kết quả đo |
+|---|---|
+| `fetchPriority="high"` trên `<img>` ảnh bìa (Phase 4) | Không đổi — nhưng phép thử chạy trên `/i/demo` **không có ảnh bìa**, nên vô nghĩa. Nay đã làm lại cho đúng. |
+| `<link rel=preload>` ảnh bìa thủ công (Phase 4) | 1223 → 1238 ms, không cải thiện |
+| Thu nhỏ HTML mã QR 60% | LCP 723 → 753 ms, **không đổi** — QR nằm cuối tài liệu, byte của nó về sau khi LCP đã vẽ |
+| `priority` + `fetchPriority` ảnh bìa | LCP 722 → 746 ms, không đổi trên localhost; nhưng kiểm tra LCP-discovery của Chrome từ 1/3 thất bại thành đạt cả 3 |
+
+### Đòn bẩy còn lại: 162 kB JavaScript
+
+Sau tất cả, LCP còn ~530–570 ms **load delay** — ảnh xếp hàng sau JavaScript
+trên đường truyền hẹp. Đó là vấn đề JS, không phải vấn đề ảnh.
+
+    /i/[slug] First Load JS   162 kB
+      React core              54,2 kB
+      chunk chung Next        46,3 kB
+      framer-motion           36,9 kB   <- 23%
+      còn lại                 24,6 kB
+
+framer-motion chỉ làm fade/slide/zoom khi cuộn và 5 hiệu ứng mở màn — CSS
+transition làm được hết. **Nhưng kết quả của việc đó không kiểm được bằng
+máy**: chất lượng hiệu ứng là mục "chỉ người làm được" trong HANDOFF, và
+đường mở màn là nơi một lỗi nghĩa là khách không mở được thiệp. Có một bẫy
+đã biết: `transitionend` **không bắn** khi duration = 0, tức là đúng nhánh
+`prefers-reduced-motion`. Làm thì làm riêng, có người cầm điện thoại thật
+kiểm.
+
 ## 6. Vài lệnh hay dùng
 
 ```bash

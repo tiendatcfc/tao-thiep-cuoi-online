@@ -1,11 +1,11 @@
-# HPWD — Bản giao việc (cập nhật 2026-09-18, sau Phase 4 + đợt dọn mục hoãn)
+# HPWD — Bản giao việc (cập nhật 2026-09-18, sau Phase 4 + dọn mục hoãn + đợt tối ưu)
 
 Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file này trước khi làm gì.
 
 ## Trạng thái hiện tại
 
 - Nhánh: `feat/phase-2-guest-import`, cây làm việc sạch, chưa merge vào `main` (main chỉ có docs).
-- Test: **1313 xanh** — web 1230, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
+- Test: **1318 xanh** — web 1235, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
 - `next build` sạch. **Đừng build đè lên dev server đang chạy** — cả hai dùng chung `apps/web/.next`. Dùng `HPWD_DIST_DIR=.next/prod-check pnpm build` rồi `next start -p 3100` với cùng biến đó.
 - **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật, kể cả job `images` mới thêm. Đây là việc chặn nhiều thứ nhất.
 
@@ -90,6 +90,20 @@ Plan: `docs/superpowers/plans/2026-09-18-phase-4-hardening-launch.md`. Ledger: `
 - ~~**LCP**~~: 1477 → ~710 ms (thiệp không ảnh bìa). Nguyên nhân: framer-motion ghi `opacity:0` vào HTML server-render nên thiệp trắng tới khi hydrate xong. `fetchPriority` và `preload` **đã thử và bỏ** vì đo không cải thiện — nghẽn thật là HTML 124 kB.
 - ~~**Image + compose**~~: `apps/web/Dockerfile`, `apps/worker/Dockerfile`, `docker-compose.prod.yml`, `deploy/Caddyfile`. **CHƯA build được ở đâu** — xem HUMAN TODO 10.
 - ~~**Rate-limit**~~: 5 route tốn CPU nay có giới hạn **theo user** (ảnh 500/giờ, nhạc 10, font 10, tạo thiệp 30, xoá nền 100). Load test `/i/demo`: bão hoà ~58 req/s, **0 lỗi** tới 100 đồng thời.
+
+### ~~Nhóm G — đợt tối ưu hiệu năng~~ — XONG (2026-09-18)
+
+Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`. Số liệu đầy đủ + những thứ đã thử và bỏ: `docs/operations.md` mục **5g**.
+
+- ~~**framer-motion bớt drag + layout**~~: `<motion.div>` kéo theo cả 4 nhóm tính năng; app này dùng 2. Nay `<LazyMotion features={domAnimation}>` + component `m`. `/i/[slug]` **172 → 162 kB**, editor 352 → 341 kB.
+  - **BẤT BIẾN MỚI — đọc trước khi sửa `InvitePage`:** component `m` chỉ chạy animation khi có `LazyMotion` phía trên, và khi không có thì **KHÔNG có lỗi nào cả**. Hiệu ứng mở màn im lặng không chạy → `onAnimationComplete` không bắn → cổng mở trễ 400 ms nhờ lưới an toàn; các section giữ nguyên `opacity: 0` và **không bao giờ hiện**. `InvitePage.motionFeatures.test.tsx` là chốt chặn (đã kiểm bằng đột biến). `strict` bật để `motion.*` sót lại sẽ ném lỗi.
+- ~~**Ảnh phục vụ đúng kích thước hiển thị**~~: `CoverSection` (224px), `CoupleSection` (128px, hai lần), `StorySection` — cả ba từng dùng `<img>` trần tải thẳng ảnh 1600px. Nay `next/image` + `sizes`. Ảnh 1600×1600 (840 kB) → ô 128px ở DPR3 lấy **1.682 byte**.
+  - **Lưu ý hành vi:** `next/image` từ chối URL không thuộc host cho phép, `<img>` thì không. Mọi ảnh đều đi qua `/api/uploads` nên không sao, nhưng URL sửa tay ngoài host sẽ không hiện.
+- ~~**`deviceSizes` + `minimumCacheTTL`**~~: bỏ 2048/3840 (trùng 1920 vì nguồn cắt ở 1600), thêm **1440** cho máy 430px @DPR3 (244 kB thay vì 593 kB). TTL 60 giây → **31 ngày** vì ảnh upload là bất biến: resize 248 ms lạnh → 2,8 ms ấm.
+- ~~**Ảnh bìa là LCP**~~: cần **cả** `priority` **và** `fetchPriority="high"` — Next 15.5 không tự đặt `fetchpriority` lên preload lẫn `<img>`.
+- ~~**Một truy vấn DB mỗi lượt xem thay vì hai**~~: `generateMetadata` và page component nay dùng chung `loadInvitationBySlug` bọc `cache()`. Đếm thật: **20 → 10** lần đọc cho 10 lượt xem.
+
+**CÒN LẠI, CỐ Ý CHƯA LÀM:** framer-motion vẫn là **36,9 kB (23%)** của bundle trang khách và là đòn bẩy lớn nhất còn lại — LCP còn ~550 ms load delay vì ảnh xếp hàng sau JS. CSS transition thay được, **nhưng kết quả không kiểm được bằng máy** (chất lượng hiệu ứng là mục người-làm trong danh sách dưới) và đường mở màn là nơi lỗi = khách không mở được thiệp. Bẫy đã biết: `transitionend` **không bắn** khi duration = 0, đúng nhánh `prefers-reduced-motion`. Làm riêng, có người cầm máy thật kiểm.
 
 ### Nhóm E — mục minor đã hoãn
 
