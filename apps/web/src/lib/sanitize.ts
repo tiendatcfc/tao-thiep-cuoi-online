@@ -95,7 +95,19 @@ const ANCHOR_OPEN_RE = new RegExp(
 // Only these schemes are ever unescaped into a live `href` — an allowlist,
 // not a `javascript:`/`data:`-specific denylist, so it isn't a pattern that
 // needs to keep growing as new dangerous schemes are discovered.
-const SAFE_HREF_RE = /^(https?:\/\/|mailto:|\/)/i;
+//
+// The final alternative is "a local path", and it must NOT match a
+// PROTOCOL-RELATIVE url. `//evil.com` starts with a slash but resolves
+// against the current page's scheme and replaces the HOST, so on
+// https://hpwd.vn/i/abc it navigates to https://evil.com — verified with
+// `new URL("//evil.com", "https://hpwd.vn/i/abc")`. `/\evil.com` is the
+// same destination: for http(s) the WHATWG url parser treats a backslash
+// in the authority-slashes position as a slash, and Node resolves it to
+// https://evil.com too. Both read as "internal link" to whoever pasted
+// them. The negative lookahead keeps every genuine path (`/`, `/i/demo`,
+// and even `/a//b`, where the doubled slash is inside the path rather than
+// at the front) matching exactly as before.
+const SAFE_HREF_RE = /^(https?:\/\/|mailto:|\/(?![/\\]))/i;
 
 // Recognized when escaping a lone `&` in the generic per-character path —
 // named, decimal, and hex character references. This is what makes

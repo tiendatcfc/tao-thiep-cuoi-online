@@ -160,6 +160,24 @@ describe("isSafeHref", () => {
     "rejects %s",
     (href) => expect(isSafeHref(href)).toBe(false),
   );
+
+  // A PROTOCOL-RELATIVE url borrows the current page's scheme and replaces
+  // the HOST: on https://hpwd.vn/i/abc, `//evil.com` resolves to
+  // https://evil.com, not to a path on this site. The leading `/` made the
+  // old allowlist read it as "a local path", which is exactly the mistake a
+  // couple makes when they paste `//maps.google.com/...` into the map-link
+  // field and see a link that looks internal. `/\` is the same thing: for
+  // http(s) the WHATWG url parser treats a backslash after the first slash
+  // as a second slash, so browsers resolve `/\evil.com` off-site too.
+  it.each([["//evil.com"], ["//evil.com/path"], ["/\\evil.com"], ["/\\\\evil.com"], ["//"]])(
+    "rejects the protocol-relative url %s, which points off-site despite starting with a slash",
+    (href) => expect(isSafeHref(href)).toBe(false),
+  );
+
+  // The narrowing must not cost the ordinary case it exists beside.
+  it.each([["/"], ["/i/demo"], ["/a//b"]])("still accepts the genuine local path %s", (href) =>
+    expect(isSafeHref(href)).toBe(true),
+  );
 });
 
 describe("sanitizePlainText — stored guest text (wishes)", () => {
