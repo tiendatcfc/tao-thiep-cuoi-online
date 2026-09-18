@@ -32,7 +32,7 @@ function albumSection(images: AlbumProps["images"]): Extract<Section, { type: "a
 }
 
 const images: AlbumProps["images"] = [
-  { url: "http://localhost:9000/hpwd/seed/album-1.jpg", width: 800, height: 600, blurDataUrl: "data:image/webp;base64,AAA" },
+  { url: "http://localhost:9000/hpwd/seed/album-1.jpg", width: 800, height: 600, blurDataUrl: "data:image/webp;base64,AAA", caption: "" },
 ];
 
 describe("AlbumSection — lightbox is code-split (Task 19 Lighthouse fix)", () => {

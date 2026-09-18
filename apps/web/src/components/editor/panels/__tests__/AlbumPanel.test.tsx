@@ -84,7 +84,7 @@ describe("AlbumPanel", () => {
 
   it("stores the real blurDataUrl an upload returns (not the transparent-pixel placeholder), and stays schema-valid", async () => {
     const section = albumSection();
-    section.props.images = [{ url: "https://cdn.test/old.jpg", width: 800, height: 600, blurDataUrl: "data:," }];
+    section.props.images = [{ url: "https://cdn.test/old.jpg", width: 800, height: 600, blurDataUrl: "data:,", caption: "" }];
     useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
 
     const realLookingBlur = "data:image/webp;base64,UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
@@ -120,6 +120,7 @@ describe("AlbumPanel", () => {
       width: 1200,
       height: 800,
       blurDataUrl: realLookingBlur,
+      caption: "",
     });
 
     const doc = { ...InvitationDocumentSchemaFixture(), sections: [updated] };
@@ -128,7 +129,7 @@ describe("AlbumPanel", () => {
 
   it("manually editing width/height clamps to a minimum of 1", () => {
     const section = albumSection();
-    section.props.images = [{ url: "https://cdn.test/a.jpg", width: 800, height: 600, blurDataUrl: "data:," }];
+    section.props.images = [{ url: "https://cdn.test/a.jpg", width: 800, height: 600, blurDataUrl: "data:,", caption: "" }];
     useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
     render(<AlbumPanel section={section} />);
 
@@ -159,3 +160,107 @@ function InvitationDocumentSchemaFixture() {
     sections: [],
   };
 }
+
+/**
+ * Phase 3 Task 2: captions and the `hero` layout.
+ */
+describe("AlbumPanel — captions and the hero layout", () => {
+  function sectionWithImage(caption = ""): Extract<Section, { type: "album" }> {
+    const section = albumSection();
+    section.props.images = [
+      { url: "https://cdn.test/a.jpg", width: 800, height: 600, blurDataUrl: "data:,", caption },
+    ];
+    useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
+    return section;
+  }
+
+  function storedImages(id: string) {
+    const section = useEditorStore
+      .getState()
+      .document.sections.find((s) => s.id === id) as Extract<Section, { type: "album" }>;
+    return section.props.images;
+  }
+
+  it("offers the hero layout alongside the original three", () => {
+    const section = sectionWithImage();
+    render(<AlbumPanel section={section} />);
+
+    fireEvent.change(screen.getByLabelText("Bố cục"), { target: { value: "hero" } });
+
+    expect(
+      (useEditorStore.getState().document.sections[0] as Extract<Section, { type: "album" }>).props.layout,
+    ).toBe("hero");
+  });
+
+  it("writes a typed caption onto the right image", () => {
+    const section = sectionWithImage();
+    render(<AlbumPanel section={section} />);
+
+    const input = screen.getByLabelText("Chú thích");
+    fireEvent.change(input, { target: { value: "Lễ ăn hỏi, 10/2026" } });
+    // TextField debounces and flushes on blur; without this the store never
+    // sees the edit and the test would pass vacuously.
+    fireEvent.blur(input);
+
+    expect(storedImages(section.id)[0].caption).toBe("Lễ ăn hỏi, 10/2026");
+  });
+
+  it("keeps the document schema-valid after captioning", () => {
+    const section = sectionWithImage();
+    render(<AlbumPanel section={section} />);
+
+    const input = screen.getByLabelText("Chú thích");
+    fireEvent.change(input, { target: { value: "Ảnh cưới" } });
+    fireEvent.blur(input);
+
+    const doc = { ...InvitationDocumentSchemaFixture(), sections: [useEditorStore.getState().document.sections[0]] };
+    expect(() => InvitationDocumentSchema.parse(doc)).not.toThrow();
+  });
+
+  it("caps the caption at what the schema allows, instead of letting autosave die", () => {
+    // `AlbumImageSchema.caption` is `.max(200)`. A longer value would make
+    // `InvitationDocumentSchema.parse` throw, which silently stops autosave
+    // for the WHOLE invitation, not just this field (Phase 1 blocker B1).
+    const section = sectionWithImage();
+    render(<AlbumPanel section={section} />);
+
+    const input = screen.getByLabelText("Chú thích");
+    fireEvent.change(input, { target: { value: "a".repeat(400) } });
+    fireEvent.blur(input);
+
+    expect(storedImages(section.id)[0].caption.length).toBeLessThanOrEqual(200);
+    const doc = { ...InvitationDocumentSchemaFixture(), sections: [useEditorStore.getState().document.sections[0]] };
+    expect(() => InvitationDocumentSchema.parse(doc)).not.toThrow();
+  });
+
+  it("keeps an existing caption when the photo behind it is replaced", () => {
+    // `onUploaded` used to write a whole new image object, which silently
+    // dropped whatever the couple had captioned as soon as they swapped the
+    // photo for a better shot of the same moment.
+    const section = sectionWithImage("Lễ ăn hỏi");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          url: "https://cdn.test/new-800.webp",
+          width: 1200,
+          height: 800,
+          blurDataUrl: "data:image/webp;base64,AAA",
+          assetId: "new-asset",
+        }),
+      }),
+    );
+
+    render(<AlbumPanel section={section} />);
+    fireEvent.change(screen.getByLabelText("Ảnh"), {
+      target: { files: [new File([new Uint8Array([1])], "p.jpg", { type: "image/jpeg" })] },
+    });
+
+    return waitFor(() => {
+      expect(storedImages(section.id)[0].url).toBe("https://cdn.test/new-800.webp");
+      expect(storedImages(section.id)[0].caption).toBe("Lễ ăn hỏi");
+    });
+  });
+});

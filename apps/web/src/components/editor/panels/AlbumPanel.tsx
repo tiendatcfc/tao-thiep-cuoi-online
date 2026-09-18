@@ -6,6 +6,7 @@ import { ImageField, TRANSPARENT_PIXEL_DATA_URL } from "../fields/ImageField";
 import { ListField } from "../fields/ListField";
 import { NumberField } from "../fields/NumberField";
 import { SelectField } from "../fields/SelectField";
+import { TextField } from "../fields/TextField";
 
 type AlbumImage = AlbumProps["images"][number];
 
@@ -13,7 +14,11 @@ const LAYOUT_OPTIONS = [
   { value: "grid", label: "Lưới" },
   { value: "masonry", label: "Xếp tầng" },
   { value: "carousel", label: "Băng chuyền" },
+  { value: "hero", label: "Ảnh nổi bật" },
 ];
+
+/** Mirrors `AlbumImageSchema.caption`'s `.max(200)`. Exceeding it would make the whole document fail to parse, which stops autosave for every section, not just this one. */
+const MAX_CAPTION_LENGTH = 200;
 
 /**
  * `AlbumImageSchema.width`/`height` are required, positive integers, and
@@ -24,7 +29,7 @@ const LAYOUT_OPTIONS = [
  * whose `onUploaded` overwrites all three with the real values at once.
  */
 function createPlaceholderImage(): AlbumImage {
-  return { url: "", width: 1, height: 1, blurDataUrl: TRANSPARENT_PIXEL_DATA_URL };
+  return { url: "", width: 1, height: 1, blurDataUrl: TRANSPARENT_PIXEL_DATA_URL, caption: "" };
 }
 
 /**
@@ -77,13 +82,25 @@ export function AlbumPanel({ section }: { section: Extract<Section, { type: "alb
               value={image.url}
               onChange={(url) => update({ ...image, url })}
               onUploaded={({ url, width, height, blurDataUrl }) =>
+                // Spread the existing image first: this used to build a
+                // whole new object, which silently discarded the couple's
+                // caption the moment they swapped in a better shot of the
+                // same moment.
                 update({
+                  ...image,
                   url,
                   width: clampPositiveInt(width),
                   height: clampPositiveInt(height),
                   blurDataUrl,
                 })
               }
+            />
+            <TextField
+              label="Chú thích"
+              value={image.caption}
+              maxLength={MAX_CAPTION_LENGTH}
+              onChange={(v) => update({ ...image, caption: v })}
+              hint="Không bắt buộc. Hiện dưới ảnh và trong chế độ xem toàn màn hình."
             />
             <div className="flex gap-2">
               <NumberField

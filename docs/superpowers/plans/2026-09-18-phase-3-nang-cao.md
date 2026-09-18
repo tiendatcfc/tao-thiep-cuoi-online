@@ -113,15 +113,15 @@ packages/db/scripts/templates/
 **Interfaces:**
 - Produces: `AlbumImageSchema` thêm `caption: z.string().default('')`; `AlbumPropsSchema.layout` thêm `'hero'`.
 
-- [ ] **Step 1: Viết test trước** cho: `caption` mặc định `''` nên document cũ vẫn parse; caption hiển thị dưới ảnh ở cả 3 layout cũ; caption đi vào lightbox; layout `hero` (ảnh đầu tràn rộng + lưới bên dưới) render đúng số ảnh.
+- [x] **Step 1: Viết test trước** cho: `caption` mặc định `''` nên document cũ vẫn parse; caption hiển thị dưới ảnh ở cả 3 layout cũ; caption đi vào lightbox; layout `hero` (ảnh đầu tràn rộng + lưới bên dưới) render đúng số ảnh.
 
-- [ ] **Step 2: FAIL → Step 3: Implement.** `caption` phải `.default('')` chứ **không** `.optional()` — cùng lý do `MusicSchema.assetId` đã chọn `.default(null)` ở Task 6: tài liệu lưu trước khi có trường này vẫn phải parse được, và kiểu đầu ra không được thành `string | undefined` làm hỏng các file test hiện có.
+- [x] **Step 2: FAIL → Step 3: Implement.** `caption` phải `.default('')` chứ **không** `.optional()` — cùng lý do `MusicSchema.assetId` đã chọn `.default(null)` ở Task 6: tài liệu lưu trước khi có trường này vẫn phải parse được, và kiểu đầu ra không được thành `string | undefined` làm hỏng các file test hiện có.
 
-- [ ] **Step 4: Caption đi qua `sanitizePlainText`** khi render, không phải `sanitizeHtml` — đây là text thuần, không phải markup.
+- [x] **Step 4: Caption đi qua `sanitizePlainText`** khi render, không phải `sanitizeHtml` — đây là text thuần, không phải markup.
 
-- [ ] **Step 5: Chạy tất cả + lint + tsc + build + kiểm chứng trình duyệt cả 4 layout.**
+- [x] **Step 5: Chạy tất cả + lint + tsc + build + kiểm chứng trình duyệt cả 4 layout.**
 
-- [ ] **Step 6: Commit** `feat(album): per-photo captions and hero layout`
+- [x] **Step 6: Commit** `feat(album): per-photo captions and hero layout`
 
 ---
 

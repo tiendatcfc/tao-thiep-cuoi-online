@@ -112,12 +112,27 @@ const AlbumImageSchema = z
     width: z.number().int().positive(),
     height: z.number().int().positive(),
     blurDataUrl: z.string(),
+    /**
+     * Optional per-photo caption ("Lễ ăn hỏi, 10/2026").
+     *
+     * Defaulted rather than optional, for the same reason `MusicSchema`'s
+     * `assetId` is: every album saved before this field existed must keep
+     * parsing — a document that stops parsing does not fail validation, it
+     * silently stops autosaving the WHOLE invitation (Phase 1 blocker B1)
+     * — and the output type has to stay `string` so existing call sites
+     * and test fixtures do not have to handle `undefined`.
+     *
+     * Capped well below the section's visual budget: a caption is a line
+     * under a photo, not a paragraph, and the `text` section exists for
+     * anything longer.
+     */
+    caption: z.string().max(200).default(''),
   })
   .strict()
 
 export const AlbumPropsSchema = z
   .object({
-    layout: z.enum(['grid', 'masonry', 'carousel']),
+    layout: z.enum(['grid', 'masonry', 'carousel', 'hero']),
     images: z.array(AlbumImageSchema),
   })
   .strict()

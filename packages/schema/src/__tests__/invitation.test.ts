@@ -83,3 +83,37 @@ test('parse-time defaults backfill missing fields on partial documents (template
   const parsedForm = parsed.sections.find((s) => s.type === 'form')
   expect(parsedForm?.type === 'form' && parsedForm.props.fields.every((f) => f.options.length === 0)).toBe(true)
 })
+
+test('an album image saved before captions existed still parses, and gains an empty caption', () => {
+  const doc: any = structuredClone(createDefaultDocument())
+  const album = doc.sections.find((s: any) => s.type === 'album')
+  album.props.images = [{ url: 'https://cdn.test/a.webp', width: 800, height: 600, blurDataUrl: 'data:,' }]
+
+  const parsed = InvitationDocumentSchema.parse(doc)
+  const parsedAlbum = parsed.sections.find((s) => s.type === 'album')
+
+  expect(parsedAlbum && parsedAlbum.type === 'album' && parsedAlbum.props.images[0].caption).toBe('')
+})
+
+test('an album caption is capped, so one photo cannot push the document past what the editor can save', () => {
+  const doc: any = structuredClone(createDefaultDocument())
+  const album = doc.sections.find((s: any) => s.type === 'album')
+  album.props.images = [
+    { url: 'https://cdn.test/a.webp', width: 800, height: 600, blurDataUrl: 'data:,', caption: 'a'.repeat(201) },
+  ]
+
+  expect(() => InvitationDocumentSchema.parse(doc)).toThrow()
+})
+
+test('the album accepts the hero layout alongside the original three', () => {
+  const doc: any = structuredClone(createDefaultDocument())
+  const album = doc.sections.find((s: any) => s.type === 'album')
+
+  for (const layout of ['grid', 'masonry', 'carousel', 'hero']) {
+    album.props.layout = layout
+    expect(() => InvitationDocumentSchema.parse(doc)).not.toThrow()
+  }
+
+  album.props.layout = 'collage'
+  expect(() => InvitationDocumentSchema.parse(doc)).toThrow()
+})
