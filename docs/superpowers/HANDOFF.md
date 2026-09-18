@@ -1,12 +1,13 @@
-# HPWD — Bản giao việc (cập nhật 2026-09-18)
+# HPWD — Bản giao việc (cập nhật 2026-09-18, sau Phase 4)
 
 Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file này trước khi làm gì.
 
 ## Trạng thái hiện tại
 
-- Nhánh: `feat/phase-0-1-mvp`, HEAD `b1bfc29` (+1 commit docs sau đó), cây làm việc sạch, **84 commit**, chưa merge vào `main` (main chỉ có docs).
-- Test: **775 (web) + 10 (db) + 7 (schema)** đều xanh; lint + `tsc --noEmit` + `next build` sạch. Kiểm bằng `pnpm exec turbo test --force`.
-- **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật.
+- Nhánh: `feat/phase-2-guest-import`, cây làm việc sạch, chưa merge vào `main` (main chỉ có docs).
+- Test: **1256 xanh** — web 1173, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo lint` chạy 2/4 package (db và schema vẫn chưa có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
+- `next build` sạch. **Đừng build đè lên dev server đang chạy** — cả hai dùng chung `apps/web/.next`. Dùng `HPWD_DIST_DIR=.next/prod-check pnpm build` rồi `next start -p 3100` với cùng biến đó.
+- **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật, kể cả job `images` mới thêm. Đây là việc chặn nhiều thứ nhất.
 
 ## Tài liệu nguồn (đọc theo thứ tự này)
 
@@ -72,15 +73,29 @@ Plan: `docs/superpowers/plans/2026-09-18-phase-3-nang-cao.md`. Ledger: `.superpo
   - Route nhận **URL** chứ không phải assetId — document chỉ lưu URL.
   - Ở máy dev chạy bằng **venv** (`services/rembg/.venv`, gitignore), không kéo image Docker. Xem `services/rembg/README.md`.
 
-### Nhóm D — Phase 4 hardening (chưa bắt đầu)
+### ~~Nhóm D — Phase 4 hardening~~ — XONG 8/8 (2026-09-18)
 
-CSP (hiện `next.config.ts` không có `headers()` nào, dù có 1 điểm `dangerouslySetInnerHTML` và ảnh do người dùng nhập); cấu hình tin cậy `x-forwarded-for` (`lib/client-ip.ts:12` tin entry đầu vô điều kiện → rate-limit vô hiệu nếu deploy không có Cloudflare đứng trước); khoảng cách LCP 2.7s vs mục tiêu 2.5s; backup pg_dump; monitoring; SEO.
+Plan: `docs/superpowers/plans/2026-09-18-phase-4-hardening-launch.md`. Ledger: `.superpowers/sdd/2026-09-18-phase-4-hardening-launch/progress.md`.
+
+- ~~**CSP**~~: phát từ `middleware.ts` với nonce mỗi request (KHÔNG phải `headers()` trong next.config — Next đóng băng nó vào build, mà policy phải nhắc origin `R2_PUBLIC_URL`). `CSP_REPORT_ONLY=true` là cửa thoát cho lần deploy đầu.
+  - **Bất biến mới:** root layout là `force-dynamic`. Trang prerender phục vụ script inline **không có nonce** trong khi response mang nonce mới → `'strict-dynamic'` chặn sạch. Đo thật trên bản production trước khi sửa: `/bao-mat` có **11 script inline không nonce**. Chỉ lộ ở `next build` + `next start`, không bao giờ lộ ở dev.
+  - **Bẫy:** Next lấy nonce từ header **của REQUEST**, không phải thứ middleware trả về.
+  - **Bẫy chết người:** `handleAuth` của next-auth dùng chuỗi `else if` — truyền wrapper làm nhánh chuyển hướng đăng nhập **không bao giờ chạy**. Bọc `middleware.ts` theo cách hiển nhiên sẽ mở toang `/dashboard` và `/editor`, không lỗi, không sai kiểu, không test đỏ. Cả hai nửa nay đọc chung `isProtectedPath`.
+  - `style-src` cố ý giữ `'unsafe-inline'` (framer-motion ghi `style=""`, nonce không phủ được thuộc tính).
+- ~~**`x-forwarded-for`**~~: đếm từ **phải sang** theo `TRUSTED_PROXY_HOPS` (mặc định 1), hoặc `CLIENT_IP_HEADER=cf-connecting-ip`. Mã cũ đọc entry ĐẦU — thứ khách tự ghi — nên rate-limit **không hề tồn tại**. Bằng chứng trước/sau nằm trong ledger.
+- ~~**SEO**~~: `robots.ts`, `sitemap.ts`, canonical, JSON-LD. **`/i/[slug]` nay `noindex`** (tên khách, địa chỉ, số điện thoại, số tài khoản). `robots.txt` **cố ý không chặn `/i/`** — crawler bị chặn sẽ không đọc được `noindex`.
+- ~~**Backup**~~: `pnpm backup:db` / `pnpm restore:db`, giữ 14 bản. **PHẢI dùng bucket riêng** — bucket media cho phép ẩn danh đọc **mọi key**, script từ chối chạy nếu trùng. Đã restore thử thành công, 10/10 bảng khớp.
+- ~~**Giám sát**~~: `GET /api/health` (DB + Redis + storage + nhịp tim worker), `?strict=1` tính cả worker.
+  - **Lỗi production tìm được nhờ nó:** mọi client Redis trả `null` trong `retryStrategy` → ioredis **ngừng kết nối lại vĩnh viễn**. Sau bất kỳ lần Redis restart nào, `rateLimit` fail open trên mọi request đến hết đời tiến trình. Đo: Redis sống lại, app vẫn `"redis":"fail"` sau 70 giây. Nay hồi phục trong 5 giây.
+- ~~**LCP**~~: 1477 → ~710 ms (thiệp không ảnh bìa). Nguyên nhân: framer-motion ghi `opacity:0` vào HTML server-render nên thiệp trắng tới khi hydrate xong. `fetchPriority` và `preload` **đã thử và bỏ** vì đo không cải thiện — nghẽn thật là HTML 124 kB.
+- ~~**Image + compose**~~: `apps/web/Dockerfile`, `apps/worker/Dockerfile`, `docker-compose.prod.yml`, `deploy/Caddyfile`. **CHƯA build được ở đâu** — xem HUMAN TODO 10.
+- ~~**Rate-limit**~~: 5 route tốn CPU nay có giới hạn **theo user** (ảnh 500/giờ, nhạc 10, font 10, tạo thiệp 30, xoá nền 100). Load test `/i/demo`: bão hoà ~58 req/s, **0 lỗi** tới 100 đồng thời.
 
 ### Nhóm E — 58 mục minor đã hoãn
 
 Nằm rải trong 3 ledger, dòng có chữ `minor (deferred)`. Lấy nhanh: `grep -h 'minor (deferred)' .superpowers/sdd/*/progress.md`. Đã được triage: không mục nào chặn merge.
 
-## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 8/9
+## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 12
 
 1. ~~**Google OAuth**~~ — **XONG 2026-09-18.** `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` đã có trong `apps/web/.env` (và `.env.local`), chủ dự án đã đăng nhập thật: có `User` "Tiến Đạt Nguyễn" (@gmail.com) + `Account` provider `google` + ảnh đại diện, và đã tạo được thiệp. Luồng sau đăng nhập không còn là vùng chưa ai bấm.
    - **Còn cho production:** đặt `AUTH_TRUST_HOST=true` (hoặc `AUTH_URL`) — thiếu là đăng nhập Google **hỏng hoàn toàn** khi tự host sau reverse proxy; đặt `NEXT_PUBLIC_SITE_URL` lúc **build**; thêm redirect URI của tên miền thật vào Google Cloud Console.
@@ -93,6 +108,9 @@ Nằm rải trong 3 ledger, dòng có chữ `minor (deferred)`. Lấy nhanh: `gr
 7. **Xem thiệp trên điện thoại thật** — tỉ lệ phong bì, cánh hoa rơi, hiệu ứng cuộn: không kiểm được headless.
 8. **Mở `/i/demo` với JavaScript TẮT trên Chrome thật** (Cài đặt trang → JavaScript → chặn) — xác nhận thiệp hiện ra, cuộn được, không còn lớp phủ. Bằng chứng hiện tại mới ở mức SSR-bytes + CSS chuẩn (noscript không giả lập headless được). 2 phút.
 9. **Upload thử 1 ảnh chụp dọc từ điện thoại thật** qua editor — xác nhận ảnh đứng đúng chiều trong album (autoOrient đã có test orientation-6, nhưng chưa thử ảnh thật từ camera).
+10. **Build 3 image Docker** — chưa từng thành công ở đâu. Trên máy này hỏng vì proxy TLS chặn `binaries.prisma.sh` (đã có cửa `--secret id=corp_ca`) và vì ổ chỉ còn ~10 GB, một lần thử làm **Docker Desktop sập**. Job `images` trong CI làm được việc này — nhưng cần mục 6 (tạo repo + push) trước.
+11. **Tạo bucket backup riêng** (KHÔNG gắn policy công khai), đặt `BACKUP_BUCKET`, chạy `pnpm backup:db` và **diễn tập restore** theo `docs/operations.md` mục 5c. Backup chưa từng restore thì không phải backup.
+12. **Cắm uptime monitor** vào `/api/health?strict=1` (60 giây/lần, báo động sau 2 lần hỏng liên tiếp) và **quyết định về theo dõi lỗi** (Sentry hay tự host) — đây sẽ là dịch vụ bên thứ ba đầu tiên nhận dữ liệu người dùng, nên là quyết định của chủ dự án.
 
 ## Môi trường (bỏ qua là mất thời gian)
 
