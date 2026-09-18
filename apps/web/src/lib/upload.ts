@@ -45,6 +45,19 @@ export class ImageDecodeError extends Error {
  * largest generated variant. Every variant shares the source aspect ratio,
  * which is all next/image needs them for.
  */
+/**
+ * Storage key of one stored image variant.
+ *
+ * Deterministic from (user, asset, width) rather than parsed back out of the
+ * public URL: `meta.variants` records urls, and recovering a key by
+ * string-stripping `R2_PUBLIC_URL` breaks the moment that value changes
+ * (a CDN domain in front of the bucket, say). The background-removal route
+ * needs the key to hand the worker something to download.
+ */
+export function imageVariantKey(userId: string, assetId: string, width: number): string {
+  return `u/${userId}/${assetId}-${width}.webp`;
+}
+
 export async function processAndStoreImage(params: ProcessAndStoreImageParams): Promise<ProcessAndStoreImageResult> {
   const { userId, buffer, sourceContentType } = params;
 
@@ -65,7 +78,7 @@ export async function processAndStoreImage(params: ProcessAndStoreImageParams): 
   // first and creating the DB row only once every PutObject has succeeded.
   const uploaded: { width: number; url: string }[] = [];
   for (const variant of variants) {
-    const url = await putObject(`u/${userId}/${assetId}-${variant.width}.webp`, variant.buffer, "image/webp");
+    const url = await putObject(imageVariantKey(userId, assetId, variant.width), variant.buffer, "image/webp");
     uploaded.push({ width: variant.width, url });
   }
   const canonical = uploaded[uploaded.length - 1];

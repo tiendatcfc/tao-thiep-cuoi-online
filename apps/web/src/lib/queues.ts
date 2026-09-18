@@ -1,7 +1,15 @@
-import { createAudioQueue, type AudioJobData, type AudioQueue } from "@hpwd/worker";
+import {
+  createAudioQueue,
+  createBgRemovalQueue,
+  type AudioJobData,
+  type AudioQueue,
+  type BgRemovalJobData,
+  type BgRemovalQueue,
+} from "@hpwd/worker";
 
 /**
- * Producer side of the audio transcoding queue.
+ * Producer side of the background queues (audio transcoding, background
+ * removal).
  *
  * The queue name, job payload shape and retry policy all come from
  * `@hpwd/worker` rather than being restated here — see that module for why a
@@ -16,21 +24,34 @@ import { createAudioQueue, type AudioJobData, type AudioQueue } from "@hpwd/work
  * edit in dev, and a fresh BullMQ queue per evaluation would leak a Redis
  * connection each time until the server runs out.
  */
-const globalForQueue = globalThis as unknown as { audioQueue?: AudioQueue };
+const globalForQueue = globalThis as unknown as { audioQueue?: AudioQueue; bgRemovalQueue?: BgRemovalQueue };
+
+/**
+ * Bounded, unlike a worker's blocking connection: this runs inside a request
+ * handler, so a dead Redis has to surface as an error in a couple of seconds
+ * rather than holding the request open.
+ */
+function connectionOptions() {
+  return {
+    url: process.env.REDIS_URL ?? "redis://localhost:6379",
+    connectTimeout: 2000,
+    maxRetriesPerRequest: 2,
+    retryStrategy: (times: number) => (times > 3 ? null : Math.min(times * 200, 1000)),
+  };
+}
 
 function getAudioQueue(): AudioQueue {
   if (!globalForQueue.audioQueue) {
-    globalForQueue.audioQueue = createAudioQueue({
-      url: process.env.REDIS_URL ?? "redis://localhost:6379",
-      // Bounded, unlike a worker's blocking connection: this runs inside a
-      // request handler, so a dead Redis has to surface as an error in a
-      // couple of seconds rather than holding the request open.
-      connectTimeout: 2000,
-      maxRetriesPerRequest: 2,
-      retryStrategy: (times: number) => (times > 3 ? null : Math.min(times * 200, 1000)),
-    });
+    globalForQueue.audioQueue = createAudioQueue(connectionOptions());
   }
   return globalForQueue.audioQueue;
+}
+
+function getBgRemovalQueue(): BgRemovalQueue {
+  if (!globalForQueue.bgRemovalQueue) {
+    globalForQueue.bgRemovalQueue = createBgRemovalQueue(connectionOptions());
+  }
+  return globalForQueue.bgRemovalQueue;
 }
 
 /**
@@ -54,9 +75,25 @@ export async function enqueueAudioJob(data: AudioJobData): Promise<string> {
   return job.id;
 }
 
-/** Drops the cached queue and closes its connections — used by tests, and so `vitest run` exits instead of hanging on a live socket. */
+/**
+ * Hands one photo to the background-removal worker and returns the job id.
+ *
+ * Not fail-open, for exactly the reason `enqueueAudioJob` is not: a job that
+ * never reaches the queue is a cut-out no worker will ever produce, and the
+ * editor would poll a status that can never change.
+ */
+export async function enqueueBgRemovalJob(data: BgRemovalJobData): Promise<string> {
+  const job = await getBgRemovalQueue().add("remove-background", data);
+  if (!job.id) {
+    throw new Error("Không tạo được job xoá nền (BullMQ không trả về job id).");
+  }
+  return job.id;
+}
+
+/** Drops the cached queues and closes their connections — used by tests, and so `vitest run` exits instead of hanging on a live socket. */
 export async function disconnectAudioQueue(): Promise<void> {
-  const queue = globalForQueue.audioQueue;
+  const queues = [globalForQueue.audioQueue, globalForQueue.bgRemovalQueue];
   globalForQueue.audioQueue = undefined;
-  await queue?.close();
+  globalForQueue.bgRemovalQueue = undefined;
+  await Promise.all(queues.map((queue) => queue?.close()));
 }

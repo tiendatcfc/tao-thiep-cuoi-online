@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent } from "react";
 
 const ALLOWED_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
@@ -8,6 +8,16 @@ const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const SIZE_ERROR = "Kích thước ảnh tối đa là 10MB.";
 const TYPE_ERROR = "Định dạng ảnh phải là JPEG, PNG hoặc WebP.";
 const UPLOAD_ERROR = "Không thể tải ảnh lên, vui lòng thử lại.";
+
+/** Same cadence and ceiling as `MusicPanel`'s transcode poll — one background queue, one waiting experience. */
+const POLL_INTERVAL_MS = 2000;
+const MAX_POLL_MS = 120_000;
+
+const REMOVE_BG_MESSAGES = {
+  failed: "Không xoá được nền ảnh này. Ảnh gốc vẫn được giữ nguyên.",
+  timeout: "Xoá nền lâu hơn dự kiến. Ảnh gốc vẫn được giữ nguyên, bạn thử lại sau nhé.",
+  generic: "Không xoá được nền, vui lòng thử lại.",
+} as const;
 
 /**
  * A 1x1 fully-transparent PNG, base64-encoded. `/api/uploads` now runs
@@ -44,6 +54,7 @@ export interface ImageFieldProps {
 }
 
 type Status = "idle" | "uploading" | "error";
+type RemoveBgPhase = "idle" | "working";
 
 /**
  * File picker + server-side upload: POSTs the raw file to `/api/uploads` as
@@ -59,7 +70,81 @@ export function ImageField({ label, value, onChange, onUploaded }: ImageFieldPro
   const inputId = useId();
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [removeBgPhase, setRemoveBgPhase] = useState<RemoveBgPhase>("idle");
   const inputRef = useRef<HTMLInputElement>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Guards every `setState` after an await: switching to another section
+  // unmounts this field mid-poll, and writing state then is a React warning
+  // and a leaked timer.
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (pollTimerRef.current !== null) clearTimeout(pollTimerRef.current);
+    };
+  }, []);
+
+  const pollCutout = useCallback(
+    async function poll(assetId: string, deadline: number): Promise<void> {
+      if (!mountedRef.current) return;
+      try {
+        const res = await fetch(`/api/media/${assetId}`);
+        const body = (await res.json()) as { status?: string; url?: string | null };
+        if (!mountedRef.current) return;
+
+        if (body.status === "ready" && body.url) {
+          setRemoveBgPhase("idle");
+          // Only the URL changes. rembg preserves the pixel dimensions, so
+          // whatever width/height the document already records still
+          // describes this image.
+          onChange(body.url);
+          return;
+        }
+        if (body.status === "failed") {
+          setRemoveBgPhase("idle");
+          setError(REMOVE_BG_MESSAGES.failed);
+          return;
+        }
+        if (Date.now() > deadline) {
+          setRemoveBgPhase("idle");
+          setError(REMOVE_BG_MESSAGES.timeout);
+          return;
+        }
+        pollTimerRef.current = setTimeout(() => void poll(assetId, deadline), POLL_INTERVAL_MS);
+      } catch {
+        if (!mountedRef.current) return;
+        setRemoveBgPhase("idle");
+        setError(REMOVE_BG_MESSAGES.generic);
+      }
+    },
+    [onChange],
+  );
+
+  async function handleRemoveBackground() {
+    setError(null);
+    setRemoveBgPhase("working");
+    try {
+      const res = await fetch("/api/images/background-removal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ url: value }),
+      });
+      const body = (await res.json()) as { assetId?: string; error?: string };
+      if (!mountedRef.current) return;
+      if (!res.ok || !body.assetId) {
+        setRemoveBgPhase("idle");
+        setError(body.error ?? REMOVE_BG_MESSAGES.generic);
+        return;
+      }
+      void pollCutout(body.assetId, Date.now() + MAX_POLL_MS);
+    } catch {
+      if (!mountedRef.current) return;
+      setRemoveBgPhase("idle");
+      setError(REMOVE_BG_MESSAGES.generic);
+    }
+  }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -106,14 +191,32 @@ export function ImageField({ label, value, onChange, onUploaded }: ImageFieldPro
         <div className="flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary user-uploaded remote URLs, not a build-time-known asset next/image can optimize */}
           <img src={value} alt={label} className="h-16 w-16 rounded-lg border border-gray-200 object-cover" />
-          <button
-            type="button"
-            aria-label="Xoá ảnh"
-            onClick={() => onChange("")}
-            className="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
-          >
-            Xoá ảnh
-          </button>
+          <div className="flex flex-col items-start gap-1">
+            <button
+              type="button"
+              aria-label="Xoá ảnh"
+              onClick={() => onChange("")}
+              className="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
+            >
+              Xoá ảnh
+            </button>
+            {/* The cut-out is written to a NEW asset, so the original object
+                is always still there — pressing this cannot destroy the
+                couple's photo, only point the field at a copy of it. */}
+            {/* No `aria-label`: the visible text IS the accessible name here,
+                and it changes with the state. A fixed label would leave a
+                screen-reader user hearing "Xoá nền" long after the job had
+                started, with no signal that anything was happening. */}
+            <button
+              type="button"
+              onClick={handleRemoveBackground}
+              aria-busy={removeBgPhase === "working"}
+              disabled={removeBgPhase === "working" || status === "uploading"}
+              className="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {removeBgPhase === "working" ? "Đang xoá nền…" : "Xoá nền"}
+            </button>
+          </div>
         </div>
       ) : null}
 

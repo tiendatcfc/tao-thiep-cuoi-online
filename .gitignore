@@ -8,3 +8,8 @@ node_modules/
 dist/
 .certs/
 .pnpm-store/
+
+# Python virtualenv for services/rembg (created by services/rembg/README.md steps)
+.venv/
+__pycache__/
+.pytest_cache/

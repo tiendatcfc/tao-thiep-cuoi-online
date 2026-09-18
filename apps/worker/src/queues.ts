@@ -58,7 +58,7 @@ export const AUDIO_JOB_OPTIONS: JobsOptions = {
  * worker `pnpm dev` now starts (and would then assert against queue state
  * that a live consumer is concurrently draining).
  */
-export function audioQueuePrefix(): string {
+export function queuePrefix(): string {
   // "bull" is bullmq's own default; keeping it means an existing deployment
   // that sets nothing keeps reading the keys it already has.
   return process.env.BULLMQ_PREFIX ?? "bull";
@@ -82,7 +82,7 @@ export function createAudioQueue(
 ): Queue<AudioJobData> {
   return new Queue<AudioJobData>(AUDIO_QUEUE_NAME, {
     connection,
-    prefix: options.prefix ?? audioQueuePrefix(),
+    prefix: options.prefix ?? queuePrefix(),
     defaultJobOptions: AUDIO_JOB_OPTIONS,
   });
 }
@@ -99,7 +99,71 @@ export function createAudioWorker(
 ): Worker<AudioJobData> {
   return new Worker<AudioJobData>(AUDIO_QUEUE_NAME, processor, {
     connection,
-    prefix: options.prefix ?? audioQueuePrefix(),
+    prefix: options.prefix ?? queuePrefix(),
     concurrency: AUDIO_WORKER_CONCURRENCY,
+  });
+}
+
+
+// ---------------------------------------------------------------------------
+// Background removal (spec feature 15)
+// ---------------------------------------------------------------------------
+
+/** Same deployment-level contract as `AUDIO_QUEUE_NAME`: one string, imported on both sides, never written as a literal twice. */
+export const BG_REMOVAL_QUEUE_NAME = "background-removal";
+
+/**
+ * One job at a time per process, unlike audio's two.
+ *
+ * ONNX inference already spreads itself across cores, so running two
+ * cut-outs concurrently does not finish two photos any sooner — it just
+ * doubles peak memory (the model alone is hundreds of megabytes) and makes
+ * both couples wait longer for their first result.
+ */
+export const BG_REMOVAL_WORKER_CONCURRENCY = 1;
+
+export interface BgRemovalJobData {
+  /** `MediaAsset.id` of the photo to cut out. Kept so the original is never touched — the couple must be able to undo. */
+  sourceAssetId: string;
+  /** `MediaAsset.id` the transparent PNG is written back to. Created up front, `status: "processing"`. */
+  targetAssetId: string;
+  /** Owner of both assets — used to build the destination key, and to keep one user's upload out of another's prefix. */
+  userId: string;
+  /** Object key of the source image variant to cut out, relative to the bucket. */
+  sourceKey: string;
+}
+
+/** Same retry policy as audio, and for the same reasons — see `AUDIO_JOB_OPTIONS`. */
+export const BG_REMOVAL_JOB_OPTIONS: JobsOptions = {
+  attempts: 3,
+  backoff: { type: "exponential", delay: 5_000 },
+  removeOnComplete: { count: 100 },
+  removeOnFail: { count: 500 },
+};
+
+export type BgRemovalQueue = Queue<BgRemovalJobData>;
+
+/** Producer side. Used by apps/web to enqueue; the worker never calls this. */
+export function createBgRemovalQueue(
+  connection: ConnectionOptions,
+  options: AudioQueueOptions = {},
+): Queue<BgRemovalJobData> {
+  return new Queue<BgRemovalJobData>(BG_REMOVAL_QUEUE_NAME, {
+    connection,
+    prefix: options.prefix ?? queuePrefix(),
+    defaultJobOptions: BG_REMOVAL_JOB_OPTIONS,
+  });
+}
+
+/** Consumer side. Takes the processor as an argument for the same reason `createAudioWorker` does. */
+export function createBgRemovalWorker(
+  connection: ConnectionOptions,
+  processor: Processor<BgRemovalJobData>,
+  options: AudioQueueOptions = {},
+): Worker<BgRemovalJobData> {
+  return new Worker<BgRemovalJobData>(BG_REMOVAL_QUEUE_NAME, processor, {
+    connection,
+    prefix: options.prefix ?? queuePrefix(),
+    concurrency: BG_REMOVAL_WORKER_CONCURRENCY,
   });
 }

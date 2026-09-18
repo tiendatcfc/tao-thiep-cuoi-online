@@ -1,0 +1,10 @@
+# Pinned exactly: this service is a model runner, and an unpinned upgrade of
+# onnxruntime or rembg changes what comes out of the same photo.
+rembg==2.0.61
+onnxruntime==1.20.1
+fastapi==0.115.6
+uvicorn==0.34.0
+# FastAPI needs this to parse multipart uploads at all; without it every
+# request to /remove-background fails with a 500 that names no cause.
+python-multipart==0.0.20
+pillow==11.1.0

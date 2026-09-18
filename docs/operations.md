@@ -12,7 +12,8 @@ Mọi đường dẫn file trong tài liệu này tính từ gốc repo.
 | Tiến trình | Là gì | Bắt buộc? |
 |---|---|---|
 | `apps/web` | Next.js — phục vụ thiệp, dashboard, API | Có |
-| `apps/worker` | BullMQ consumer — chuyển mã nhạc bằng ffmpeg | Có, nếu cho phép tải nhạc riêng |
+| `apps/worker` | BullMQ consumer — chuyển mã nhạc (ffmpeg) và xoá nền ảnh | Có, nếu cho phép tải nhạc riêng hoặc xoá nền |
+| `services/rembg` | FastAPI + rembg (CPU) — chỉ worker gọi | Có, nếu cho phép xoá nền ảnh |
 | PostgreSQL 16 | Toàn bộ dữ liệu | Có |
 | Redis 7 | Rate-limit **và** hàng đợi BullMQ | Có |
 | Lưu trữ S3 (Cloudflare R2) | Ảnh + nhạc | Có |
@@ -59,9 +60,15 @@ lên Zalo/Facebook/iMessage: ảnh xem trước và `og:url` trỏ về `http://
 
 ### 2.3. Bắt buộc cho `apps/worker`
 
-`DATABASE_URL`, `REDIS_URL`, `BULLMQ_PREFIX`, và cả 5 biến `R2_*`.
+`DATABASE_URL`, `REDIS_URL`, `BULLMQ_PREFIX`, cả 5 biến `R2_*`, và `REMBG_URL`
+(mặc định `http://127.0.0.1:7000`).
 
 Worker **không** cần biến `AUTH_*` hay `NEXT_PUBLIC_*`.
+
+### 2.4. `services/rembg`
+
+Không cần biến nào. `U2NET_HOME` đổi được nơi cache model; Dockerfile đã đặt
+sẵn `/app/models` và nướng model vào image.
 
 ---
 
@@ -103,10 +110,17 @@ mã đang dở bị SIGKILL, job đó phải chạy lại từ đầu.
 
 ### 3.3. Đồng thời và tài nguyên
 
-Mỗi tiến trình worker chạy tối đa **2 job cùng lúc** (`AUDIO_WORKER_CONCURRENCY` trong
-`apps/worker/src/queues.ts`). Mỗi job là một tiến trình ffmpeg con, giới hạn 120 giây và
-4 MB buffer đầu ra. Cần thông lượng cao hơn thì chạy thêm tiến trình worker — chúng chia
-nhau cùng một hàng đợi, không cần cấu hình gì thêm.
+Một tiến trình worker phục vụ **hai** hàng đợi:
+
+| Hàng đợi | Đồng thời | Vì sao |
+|---|---|---|
+| `audio-transcode` | 2 | ffmpeg bị giới hạn bởi CPU; rộng hơn chỉ làm mọi job chậm đi |
+| `background-removal` | 1 | Suy luận ONNX đã tự trải trên nhiều lõi. Chạy hai ảnh cùng lúc không xong sớm hơn, chỉ nhân đôi bộ nhớ đỉnh (riêng model đã vài trăm MB) |
+
+Mỗi job nhạc là một tiến trình ffmpeg con, giới hạn 120 giây và 4 MB buffer đầu ra.
+Mỗi job xoá nền là một lời gọi HTTP sang `services/rembg`, cũng giới hạn 120 giây.
+Cần thông lượng cao hơn thì chạy thêm tiến trình worker — chúng chia nhau cùng
+hàng đợi, không cần cấu hình gì thêm.
 
 Worker cần **đĩa tạm ghi được**: mỗi job tải file nguồn xuống một thư mục tạm, chuyển mã,
 tải kết quả lên, rồi xoá thư mục đó trong khối `finally`. Ước lượng dung lượng cao điểm:
@@ -246,6 +260,62 @@ Các lý do thường gặp:
 Không có nút "thử lại" trong giao diện. Cách nhanh nhất là bảo người dùng tải lại file —
 nó tạo asset mới và không đụng gì tới bản hỏng. Đừng sửa tay `status` về `processing`:
 không có job nào trong hàng đợi tương ứng, nó sẽ kẹt mãi.
+
+---
+
+## 5b. Sự cố: ảnh kẹt ở "Đang xoá nền"
+
+Song song với mục 5, nhưng có thêm một tiến trình nữa trong chuỗi.
+
+### Bước 1 — `services/rembg` có sống không?
+
+```bash
+curl -s http://127.0.0.1:7000/health
+# {"status":"ok","model":"isnet-general-use"}
+```
+
+Không trả lời → worker sẽ báo `ECONNREFUSED` trong `meta.error` sau 3 lần thử.
+Trả lời nhưng **sai model** → ai đó đặt `REMBG_MODEL`; kết quả cắt sẽ khác.
+
+### Bước 2 — worker có trỏ đúng địa chỉ không?
+
+Log lúc khởi động của worker in ra địa chỉ nó sẽ gọi:
+
+```
+[worker] listening prefix=bull redis=... | "audio-transcode" concurrency=2, "background-removal" concurrency=1 (rembg at http://127.0.0.1:7000)
+```
+
+### Bước 3 — hàng đợi
+
+Giống hệt mục 5 bước 4, chỉ đổi tên hàng đợi:
+
+```bash
+PREFIX=${BULLMQ_PREFIX:-bull}
+redis-cli LLEN  "$PREFIX:background-removal:wait"
+redis-cli LLEN  "$PREFIX:background-removal:active"
+redis-cli ZCARD "$PREFIX:background-removal:failed"
+```
+
+### Bước 4 — đọc lý do
+
+```sql
+SELECT id, meta->>'error'
+FROM "MediaAsset"
+WHERE kind = 'image' AND status = 'failed'
+ORDER BY "createdAt" DESC LIMIT 10;
+```
+
+| Dấu hiệu | Nguyên nhân |
+|---|---|
+| `ECONNREFUSED` / `fetch failed` | Service không chạy, hoặc `REMBG_URL` sai |
+| `returned 400: not a decodable image` | File nguồn hỏng |
+| `returned 413: image has too many pixels` | Ảnh vượt 24 megapixel |
+| `The operation was aborted` | Quá 120 giây — service quá tải hoặc bị treo |
+| `libGL.so.1` trong log của service | Image thiếu `libgl1` (xem Dockerfile) |
+
+**Ảnh gốc luôn còn nguyên.** Xoá nền ghi ra một `MediaAsset` MỚI và không bao
+giờ động vào bản gốc, nên một job hỏng không làm mất ảnh của ai cả — cặp đôi chỉ
+cần bấm lại.
 
 ---
 

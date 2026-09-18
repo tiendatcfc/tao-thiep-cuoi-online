@@ -1,9 +1,15 @@
+import type { Job, Processor, Worker } from "bullmq";
 import { processAudioJob } from "./audio-worker";
+import { processBgRemovalJob } from "./background-removal-worker";
+import type { AudioJobData, BgRemovalJobData } from "./queues";
 import {
   AUDIO_QUEUE_NAME,
   AUDIO_WORKER_CONCURRENCY,
-  audioQueuePrefix,
+  BG_REMOVAL_QUEUE_NAME,
+  BG_REMOVAL_WORKER_CONCURRENCY,
   createAudioWorker,
+  createBgRemovalWorker,
+  queuePrefix,
 } from "./queues";
 
 /**
@@ -36,46 +42,76 @@ const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
  */
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 
+/**
+ * Wraps a processor with the per-job logging every queue wants, so the two
+ * workers cannot drift into reporting differently.
+ *
+ * The error is logged here with its job context and then rethrown: BullMQ
+ * needs the rejection to schedule the retry and mark the job failed, and a
+ * swallowed one would be recorded as a completed job.
+ */
+function withLogging<T>(
+  queueName: string,
+  describe: (data: T) => string,
+  run: (job: Job<T>) => Promise<void>,
+): Processor<T> {
+  return async (job) => {
+    const startedAt = Date.now();
+    console.log(
+      `[worker] job ${job.id} started queue=${queueName} ${describe(job.data)} attempt=${job.attemptsMade + 1}`,
+    );
+    try {
+      await run(job);
+      console.log(`[worker] job ${job.id} finished in ${Date.now() - startedAt}ms`);
+    } catch (error) {
+      console.error(`[worker] job ${job.id} failed after ${Date.now() - startedAt}ms:`, error);
+      throw error;
+    }
+  };
+}
+
 function main(): void {
-  const worker = createAudioWorker(
-    { url: REDIS_URL },
-    async (job) => {
-      const startedAt = Date.now();
-      console.log(
-        `[worker] job ${job.id} started queue=${AUDIO_QUEUE_NAME} asset=${job.data.assetId} attempt=${job.attemptsMade + 1}`,
+  const workers: Worker[] = [
+    createAudioWorker(
+      { url: REDIS_URL },
+      withLogging<AudioJobData>(AUDIO_QUEUE_NAME, (data) => `asset=${data.assetId}`, processAudioJob),
+    ),
+    createBgRemovalWorker(
+      { url: REDIS_URL },
+      withLogging<BgRemovalJobData>(
+        BG_REMOVAL_QUEUE_NAME,
+        (data) => `asset=${data.targetAssetId}`,
+        processBgRemovalJob,
+      ),
+    ),
+  ];
+
+  for (const worker of workers) {
+    // Without an "error" listener, ioredis/BullMQ emit an unhandled "error"
+    // event on a Redis blip, which takes the whole process down. The worker
+    // should ride out a brief outage and reconnect instead.
+    worker.on("error", (error) => {
+      console.error(`[worker] redis/queue error on "${worker.name}":`, error);
+    });
+
+    // BullMQ emits "failed" for EVERY failed attempt, not only the last one, so
+    // the message has to say which — otherwise the log reads as three separate
+    // permanent failures when it is really one job being retried twice.
+    worker.on("failed", (job, error) => {
+      const attempt = job?.attemptsMade ?? 0;
+      const allowed = job?.opts?.attempts ?? 1;
+      const outcome = attempt >= allowed ? "no attempts left" : `will retry (${allowed - attempt} left)`;
+      console.error(
+        `[worker] job ${job?.id ?? "?"} on "${worker.name}" attempt ${attempt}/${allowed} failed, ${outcome}:`,
+        error.message,
       );
-      try {
-        await processAudioJob(job);
-        console.log(`[worker] job ${job.id} finished in ${Date.now() - startedAt}ms`);
-      } catch (error) {
-        // Logged here with the job context, then rethrown: BullMQ needs the
-        // rejection to schedule the retry and mark the job failed. Swallowing
-        // it would turn every failure into a silent success.
-        console.error(`[worker] job ${job.id} failed after ${Date.now() - startedAt}ms:`, error);
-        throw error;
-      }
-    },
-  );
-
-  // Without an "error" listener, ioredis/BullMQ emit an unhandled "error"
-  // event on a Redis blip, which takes the whole process down. The worker
-  // should ride out a brief outage and reconnect instead.
-  worker.on("error", (error) => {
-    console.error("[worker] redis/queue error:", error);
-  });
-
-  // BullMQ emits "failed" for EVERY failed attempt, not only the last one, so
-  // the message has to say which — otherwise the log reads as three separate
-  // permanent failures when it is really one job being retried twice.
-  worker.on("failed", (job, error) => {
-    const attempt = (job?.attemptsMade ?? 0);
-    const allowed = job?.opts?.attempts ?? 1;
-    const outcome = attempt >= allowed ? "no attempts left" : `will retry (${allowed - attempt} left)`;
-    console.error(`[worker] job ${job?.id ?? "?"} attempt ${attempt}/${allowed} failed, ${outcome}:`, error.message);
-  });
+    });
+  }
 
   console.log(
-    `[worker] listening on queue "${AUDIO_QUEUE_NAME}" prefix=${audioQueuePrefix()} concurrency=${AUDIO_WORKER_CONCURRENCY} redis=${REDIS_URL}`,
+    `[worker] listening prefix=${queuePrefix()} redis=${REDIS_URL} | ` +
+      `"${AUDIO_QUEUE_NAME}" concurrency=${AUDIO_WORKER_CONCURRENCY}, ` +
+      `"${BG_REMOVAL_QUEUE_NAME}" concurrency=${BG_REMOVAL_WORKER_CONCURRENCY} (rembg at ${process.env.REMBG_URL ?? "http://127.0.0.1:7000"})`,
   );
 
   let shuttingDown = false;
@@ -94,7 +130,9 @@ function main(): void {
     forceExit.unref();
 
     try {
-      await worker.close();
+      // BOTH workers, in parallel: closing only one would leave the other
+      // holding a job when the supervisor's grace period runs out.
+      await Promise.all(workers.map((worker) => worker.close()));
       clearTimeout(forceExit);
       console.log("[worker] shut down cleanly");
       process.exit(0);

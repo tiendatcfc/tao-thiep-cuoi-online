@@ -165,27 +165,27 @@ packages/db/scripts/templates/
 
 **Quyết định đã chốt:** self-host, **không dùng API trả phí**. Ở máy dev chạy bằng venv Python trong `services/rembg/.venv` (gitignore), không kéo image Docker — ổ đĩa đã từng đầy 100%.
 
-- [ ] **Step 1: Dựng service trước, độc lập với Node.** `services/rembg/main.py`: FastAPI, `POST /remove-background` nhận multipart ảnh, trả PNG có alpha; `GET /health`. Model `isnet-general-use`. Ràng buộc bắt buộc:
+- [x] **Step 1: Dựng service trước, độc lập với Node.** `services/rembg/main.py`: FastAPI, `POST /remove-background` nhận multipart ảnh, trả PNG có alpha; `GET /health`. Model `isnet-general-use`. Ràng buộc bắt buộc:
   - Giới hạn kích thước ảnh vào và **timeout**, giống cách `ffmpeg.ts` đã làm (`TIMEOUT_MS`, `MAX_BUFFER_BYTES`).
   - **Không bao giờ nhận URL để tự tải về** — chỉ nhận bytes. Nhận URL là mở SSRF, đúng lỗi mà `-protocol_whitelist file` của ffmpeg đã chặn.
   - Service **không** nói chuyện với Postgres hay R2. Nó là hàm thuần ảnh-vào/ảnh-ra; worker Node giữ toàn bộ quyền truy cập dữ liệu.
   - Nghe trên loopback ở dev; ở production không expose ra ngoài.
 
-- [ ] **Step 2: `services/rembg/test_main.py`** — dùng `TestClient` của FastAPI: ảnh thật vào → PNG ra, có kênh alpha, kích thước khớp; file không phải ảnh → 400; ảnh quá lớn → 413.
+- [x] **Step 2: `services/rembg/test_main.py`** — dùng `TestClient` của FastAPI: ảnh thật vào → PNG ra, có kênh alpha, kích thước khớp; file không phải ảnh → 400; ảnh quá lớn → 413.
 
-- [ ] **Step 3: Queue + worker.** `queues.ts` thêm `BG_REMOVAL_QUEUE_NAME`, `BgRemovalJobData { sourceAssetId, targetAssetId, userId, sourceKey }`, cùng `AUDIO_JOB_OPTIONS` (3 lần thử, backoff luỹ thừa). `index.ts` khởi động worker thứ hai — **kiểm rằng SIGTERM đóng cả hai**.
+- [x] **Step 3: Queue + worker.** `queues.ts` thêm `BG_REMOVAL_QUEUE_NAME`, `BgRemovalJobData { sourceAssetId, targetAssetId, userId, sourceKey }`, cùng `AUDIO_JOB_OPTIONS` (3 lần thử, backoff luỹ thừa). `index.ts` khởi động worker thứ hai — **kiểm rằng SIGTERM đóng cả hai**.
 
-- [ ] **Step 4: `background-removal-worker.ts`** — tải object nguồn → POST sang service → nhận PNG → `uploadFile` key `u/{userId}/{assetId}-nobg.png` → cập nhật `MediaAsset` `status: 'ready'`. Lỗi: chỉ đánh `failed` ở **lần thử cuối** (`job.attemptsMade + 1 >= attempts`), rồi rethrow — đúng khuôn `audio-worker.ts`. `meta` phải **đọc-rồi-trộn**, vì Prisma Json update **thay thế** cả cột.
+- [x] **Step 4: `background-removal-worker.ts`** — tải object nguồn → POST sang service → nhận PNG → `uploadFile` key `u/{userId}/{assetId}-nobg.png` → cập nhật `MediaAsset` `status: 'ready'`. Lỗi: chỉ đánh `failed` ở **lần thử cuối** (`job.attemptsMade + 1 >= attempts`), rồi rethrow — đúng khuôn `audio-worker.ts`. `meta` phải **đọc-rồi-trộn**, vì Prisma Json update **thay thế** cả cột.
 
-- [ ] **Step 5: Route `POST /api/images/background-removal`** — 401; asset nguồn phải thuộc về người gọi (404 nếu không); phải là `kind: 'image'` (400 nếu không); tạo `MediaAsset` mới `status: 'pending'` → enqueue → `processing`; enqueue hỏng thì đặt `failed` + 503, **không fail-open** (khuôn Task 6).
+- [x] **Step 5: Route `POST /api/images/background-removal`** — 401; asset nguồn phải thuộc về người gọi (404 nếu không); phải là `kind: 'image'` (400 nếu không); tạo `MediaAsset` mới `status: 'pending'` → enqueue → `processing`; enqueue hỏng thì đặt `failed` + 503, **không fail-open** (khuôn Task 6).
 
-- [ ] **Step 6: `ImageField` thêm nút "Xoá nền"** — chỉ hiện khi đã có ảnh; poll `GET /api/media/{assetId}` mỗi 2s, tối đa 120s (khuôn `MusicPanel`); xong thì thay URL ảnh. Giữ ảnh gốc: **không xoá asset nguồn**, người dùng phải hoàn tác được.
+- [x] **Step 6: `ImageField` thêm nút "Xoá nền"** — chỉ hiện khi đã có ảnh; poll `GET /api/media/{assetId}` mỗi 2s, tối đa 120s (khuôn `MusicPanel`); xong thì thay URL ảnh. Giữ ảnh gốc: **không xoá asset nguồn**, người dùng phải hoàn tác được.
 
-- [ ] **Step 7: `.env.example` + `docs/operations.md`** — `REMBG_URL`, cách chạy service, và thêm một mục runbook "ảnh kẹt ở Đang xoá nền" song song với mục nhạc đã có.
+- [x] **Step 7: `.env.example` + `docs/operations.md`** — `REMBG_URL`, cách chạy service, và thêm một mục runbook "ảnh kẹt ở Đang xoá nền" song song với mục nhạc đã có.
 
-- [ ] **Step 8: Chạy tất cả + kiểm chứng đầu-cuối bằng ảnh thật**: ảnh có nền → PNG kết quả có pixel alpha=0 ở góc và alpha=255 ở chủ thể (kiểm bằng sharp, không qua mắt thường).
+- [x] **Step 8: Chạy tất cả + kiểm chứng đầu-cuối bằng ảnh thật**: ảnh có nền → PNG kết quả có pixel alpha=0 ở góc và alpha=255 ở chủ thể (kiểm bằng sharp, không qua mắt thường).
 
-- [ ] **Step 9: Commit** `feat(images): self-hosted ai background removal`
+- [x] **Step 9: Commit** `feat(images): self-hosted ai background removal`
 
 ---
 

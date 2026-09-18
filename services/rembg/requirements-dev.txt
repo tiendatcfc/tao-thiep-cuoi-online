@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest==8.3.4
+# fastapi.testclient is a thin wrapper over httpx; without it importing
+# TestClient raises rather than failing a test.
+httpx==0.28.1
