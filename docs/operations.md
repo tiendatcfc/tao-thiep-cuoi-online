@@ -58,6 +58,32 @@ lên Zalo/Facebook/iMessage: ảnh xem trước và `og:url` trỏ về `http://
 | `AUTH_TRUST_HOST=true` **hoặc** `AUTH_URL` | **Bắt buộc khi tự host sau reverse proxy/CDN.** `@auth/core` mặc định `trustHost: false` ở production; thiếu nó thì đăng nhập Google hỏng hoàn toàn. Vercel không cần (đã ngầm định) |
 | `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_PUBLIC_URL` | |
 
+### 2.2b. Xác định IP khách — đặt SAI là mất rate-limit
+
+`x-forwarded-for` là một **danh sách người gọi tự mở đầu được**, mỗi proxy chỉ
+*nối thêm* vào cuối. Ai cũng gửi được `X-Forwarded-For: 1.2.3.4`, nên entry đầu
+tiên là do kẻ tấn công chọn. `lib/client-ip.ts` vì thế đếm **từ phải sang**, mỗi
+hop một entry, và deployment phải tự khai mình đứng sau mấy lớp — `Request` của
+Web không mang địa chỉ TCP nên không cách nào đoán được.
+
+| Hạ tầng | Đặt | Hệ quả |
+|---|---|---|
+| Chạy trần, không proxy | `TRUSTED_PROXY_HOPS=0` | Không tin gì cả; mọi khách chung một bucket. Đúng về an toàn nhưng một kẻ phá là cả đám bị chặn — **đừng chạy public kiểu này** |
+| Sau 1 reverse proxy | `TRUSTED_PROXY_HOPS=1` | Mặc định. Đúng với `docker-compose.prod.yml` |
+| Cloudflare + proxy | `CLIENT_IP_HEADER=cf-connecting-ip` | Tốt hơn đếm hop: Cloudflare **ghi đè** header này mỗi request thay vì nối thêm |
+
+**Cách kiểm sau khi deploy** — gửi một header giả và xem nó có bị tin không:
+
+```bash
+# Gửi 1 entry giả; sau 1 proxy thật, proxy sẽ nối IP thật vào SAU nó.
+curl -s -X POST https://ten-mien-that.vn/api/invites/<slug>/wishes \
+  -H 'content-type: application/json' -H 'x-forwarded-for: 1.2.3.4' \
+  -d '{"name":"test","message":"test"}' -o /dev/null -w '%{http_code}\n'
+```
+
+Lặp lại quá hạn mức (xem `WISH_RATE_LIMIT`). Nếu **không bao giờ** bị `429` dù đổi
+giá trị `x-forwarded-for` mỗi lần, cấu hình đang sai và rate-limit coi như không có.
+
 ### 2.3. Bắt buộc cho `apps/worker`
 
 `DATABASE_URL`, `REDIS_URL`, `BULLMQ_PREFIX`, cả 5 biến `R2_*`, và `REMBG_URL`
