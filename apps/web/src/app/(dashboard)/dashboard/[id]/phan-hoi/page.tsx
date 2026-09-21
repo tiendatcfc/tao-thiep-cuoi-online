@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@hpwd/db";
+import { PAGE_SIZE, pageRange, resolvePage, totalPagesFor } from "@/lib/pagination";
 import { InvitationDocumentSchema, type Section } from "@hpwd/schema";
 import { auth } from "@/auth";
 import { formatVietnameseDate } from "@/lib/date";
 import { formatSubmissionValue } from "@/lib/submissions";
 
-/** Matches the plan's "50 phản hồi mỗi trang". */
-const PAGE_SIZE = 50;
+
 
 type FormSectionDoc = Extract<Section, { type: "form" }>;
 
@@ -15,16 +15,6 @@ type FormSectionDoc = Extract<Section, { type: "form" }>;
 function parsePublishedDocument(raw: unknown) {
   const result = InvitationDocumentSchema.safeParse(raw);
   return result.success ? result.data : null;
-}
-
-/**
- * Reads `?trang=`, clamped into range. An out-of-range or junk value lands on
- * page 1 rather than showing an empty table with no way back.
- */
-function resolvePage(raw: string | string[] | undefined, totalPages: number): number {
-  const value = Number.parseInt(Array.isArray(raw) ? (raw[0] ?? "") : (raw ?? ""), 10);
-  if (!Number.isFinite(value) || value < 1) return 1;
-  return Math.min(value, Math.max(totalPages, 1));
 }
 
 /**
@@ -66,7 +56,7 @@ export default async function ResponsesPage({
     : [];
 
   const totalSubmissions = await prisma.formSubmission.count({ where: { invitationId: id } });
-  const totalPages = Math.max(1, Math.ceil(totalSubmissions / PAGE_SIZE));
+  const totalPages = totalPagesFor(totalSubmissions);
   const page = resolvePage(query.trang, totalPages);
 
   const submissions = await prisma.formSubmission.findMany({
@@ -114,8 +104,7 @@ export default async function ResponsesPage({
         })
       : null;
 
-  const firstOnPage = totalSubmissions === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
-  const lastOnPage = (page - 1) * PAGE_SIZE + submissions.length;
+  const { first: firstOnPage, last: lastOnPage } = pageRange(page, submissions.length, totalSubmissions);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10">
