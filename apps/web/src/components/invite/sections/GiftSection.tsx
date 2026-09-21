@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GiftProps, Section } from "@hpwd/schema";
 import { QrCode } from "@/components/QrCode";
 import { buildVietQRPayload } from "@/lib/vietqr";
@@ -63,6 +63,19 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
     }
   }, []);
 
+  /*
+   * The "Đã sao chép!" confirmation resets itself two seconds later, and
+   * that timer outlived the component: a guest who copies an account number
+   * and immediately opens the album lightbox (or leaves the page) left a
+   * `setCopied` scheduled against an unmounted component. Harmless today,
+   * but it is a timer this component owns and never cleaned up, and the one
+   * thing certain about a wedding page is that guests tap and move on.
+   */
+  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyResetRef.current !== null) clearTimeout(copyResetRef.current);
+  }, []);
+
   const payload = buildVietQRPayload({
     bankBin: account.bankBin,
     accountNumber: account.accountNumber,
@@ -84,7 +97,11 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
       // Only claim success once the copy actually resolved — showing "Đã
       // sao chép!" after a rejected promise would be a false positive.
       setCopied(true);
-      setTimeout(() => setCopied(false), COPY_CONFIRMATION_MS);
+      if (copyResetRef.current !== null) clearTimeout(copyResetRef.current);
+      copyResetRef.current = setTimeout(() => {
+        copyResetRef.current = null;
+        setCopied(false);
+      }, COPY_CONFIRMATION_MS);
     } catch {
       // Permission denied or otherwise unsupported — leave the button as-is
       // rather than lying about success.

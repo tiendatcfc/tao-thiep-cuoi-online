@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import type { GiftProps, Section } from "@hpwd/schema";
 import { createSection } from "@hpwd/schema";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { flushSync } from "react-dom";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -325,5 +325,25 @@ describe("GiftAccountCard SSR/hydration parity (clipboard capability)", () => {
     } finally {
       container.remove();
     }
+  });
+
+  // The confirmation resets itself after two seconds. That timer belongs to
+  // this component, and a guest who copies an account number then keeps
+  // scrolling (or closes the page) must not leave it running against an
+  // unmounted tree.
+  it("clears the copy-confirmation timer when the card unmounts", async () => {
+    const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    const { unmount } = render(<GiftSection section={giftSection([brideAccount])} />);
+    fireEvent.click(screen.getAllByRole("button", { name: /Sao chép/ })[0]!);
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+
+    const before = clearSpy.mock.calls.length;
+    unmount();
+
+    expect(clearSpy.mock.calls.length).toBeGreaterThan(before);
+    clearSpy.mockRestore();
   });
 });
