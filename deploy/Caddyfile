@@ -1,6 +1,26 @@
 # Reverse proxy for docker-compose.prod.yml. Caddy obtains and renews a
 # Let's Encrypt certificate by itself once {$DOMAIN} resolves to this host.
 {$DOMAIN} {
+	# MOSTLY INERT, and worth knowing why before someone "fixes" it. Next
+	# has `compress: true` by default and gzips every response itself, and
+	# Caddy will not re-encode a body that already carries a
+	# Content-Encoding — so in practice clients receive Next's gzip and this
+	# line only ever applies to anything Caddy serves directly.
+	#
+	# Leaving it that way is deliberate. Measured over the guest page's
+	# initial JavaScript (526,197 bytes uncompressed):
+	#
+	#     gzip -9    161,710   <- what Next sends today
+	#     zstd -3    166,776   Caddy's fast default — BIGGER than gzip
+	#     zstd -9    153,490
+	#     zstd -19   147,980
+	#
+	# So switching would need BOTH `compress: false` in next.config.ts and
+	# an explicit `encode zstd 9` here; at Caddy's default level it would
+	# make responses larger. That pair of changes buys about 8 kB a visit
+	# and couples the app's config to this proxy being in front of it —
+	# deploy the web container without Caddy after setting it, and every
+	# response goes out uncompressed. Not worth it for 5%.
 	encode zstd gzip
 
 	reverse_proxy web:3000 {

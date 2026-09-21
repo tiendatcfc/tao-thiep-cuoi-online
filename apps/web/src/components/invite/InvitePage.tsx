@@ -1,6 +1,7 @@
 "use client";
 
 import { LazyMotion, domAnimation } from "framer-motion";
+import dynamic from "next/dynamic";
 import { useRef, useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
@@ -9,8 +10,21 @@ import { CustomFontStyle } from "./CustomFontStyle";
 import { InviteContext } from "./InviteContext";
 import { MusicPlayer, type MusicPlayerHandle } from "./MusicPlayer";
 import { OpeningGate } from "./opening/OpeningGate";
-import { ParticlesOverlay } from "./ParticlesOverlay";
 import { SectionRenderer } from "./SectionRenderer";
+
+/*
+ * The falling-petals/confetti canvas renders only AFTER the guest taps the
+ * opening gate, and only when the couple configured particles at all — so it
+ * has no business being in the bundle every guest parses before the
+ * invitation first paints. Same treatment as `AlbumSection`'s lightbox.
+ *
+ * `ssr: false` because it is a canvas animation that draws nothing on the
+ * server, and no `loading` state because there is nothing to show: it is a
+ * decorative overlay, and appearing a beat late is what it would do anyway.
+ */
+const ParticlesOverlay = dynamic(() => import("./ParticlesOverlay").then((m) => m.ParticlesOverlay), {
+  ssr: false,
+});
 
 export interface InvitePageSettings {
   showBadge: boolean;
