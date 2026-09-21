@@ -9,6 +9,10 @@ Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file n�
 - `next build` sạch. **Đừng build đè lên dev server đang chạy** — cả hai dùng chung `apps/web/.next`. Dùng `HPWD_DIST_DIR=.next/prod-check pnpm build` rồi `next start -p 3100` với cùng biến đó.
 - **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật, kể cả job `images` mới thêm. Đây là việc chặn nhiều thứ nhất.
 
+## Muốn tự bấm tay kiểm sản phẩm?
+
+`docs/testing-guide.md` — danh sách 17 tính năng, cách kiểm từng cái, thứ gì bắt buộc phải mở trên điện thoại thật, và thứ gì **chưa** kiểm được (thiếu font, nhạc là tiếng bíp, QR cần app ngân hàng thật). Kèm 3 lệnh khởi động và dữ liệu mẫu đã có sẵn.
+
 ## Tài liệu nguồn (đọc theo thứ tự này)
 
 1. Spec: `docs/superpowers/specs/2026-08-10-wedding-invitation-builder-design.md` — mục 2 là bảng 17 tính năng, mục 7 là lộ trình 5 phase.
