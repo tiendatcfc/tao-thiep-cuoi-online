@@ -1,8 +1,12 @@
-version: '3.8'
 
 services:
   postgres:
     image: postgres:16
+    # Same policy as docker-compose.prod.yml. Without it the dev stack does
+    # not come back when Docker Desktop restarts (or crashes, which it has),
+    # and the first sign is the app failing against a database that simply
+    # is not running.
+    restart: unless-stopped
     container_name: hpwd-postgres
     environment:
       POSTGRES_PASSWORD: postgres
@@ -26,6 +30,11 @@ services:
   # jobs that represent real user uploads.
   redis:
     image: redis:7
+    # Same policy as docker-compose.prod.yml. Without it the dev stack does
+    # not come back when Docker Desktop restarts (or crashes, which it has),
+    # and the first sign is the app failing against a database that simply
+    # is not running.
+    restart: unless-stopped
     container_name: hpwd-redis
     ports:
       - "127.0.0.1:6379:6379"
@@ -36,6 +45,11 @@ services:
   # (no R2 account exists yet). Same API, so only env values change in prod.
   minio:
     image: minio/minio
+    # Same policy as docker-compose.prod.yml. Without it the dev stack does
+    # not come back when Docker Desktop restarts (or crashes, which it has),
+    # and the first sign is the app failing against a database that simply
+    # is not running.
+    restart: unless-stopped
     container_name: hpwd-minio
     command: server /data --console-address ":9001"
     ports:
