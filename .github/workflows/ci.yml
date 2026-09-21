@@ -6,9 +6,30 @@ on:
       - main
   pull_request:
 
+# Least privilege, declared explicitly. Without a `permissions` block the
+# workflow token inherits the repository default, which on older
+# repositories is read AND WRITE across contents, packages, issues and pull
+# requests. Neither job here writes anything — the image job builds with
+# `push: false` — so nothing needs more than read, and the time to say so is
+# before a future step is added that could be talked into using it.
+permissions:
+  contents: read
+
+# Pushing three times in a minute should not run three full builds to
+# completion. Only the newest run of a branch or PR matters; the rest are
+# cancelled, which on a Docker-building workflow is the difference between
+# minutes and tens of minutes of runner time.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # Installs, migrations, ffmpeg, lint, 1263 tests and a production build.
+    # Comfortably above a healthy run, and far below the 6-hour default a
+    # hung step would otherwise burn.
+    timeout-minutes: 25
 
     services:
       postgres:
@@ -112,6 +133,11 @@ jobs:
   # is where they get proven.
   images:
     runs-on: ubuntu-latest
+    # Three images from cold, the first time with no layer cache at all.
+    # Generous on purpose: this job has never run anywhere, so its real
+    # duration is unknown and a timeout that is too tight would read as a
+    # Dockerfile problem.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
