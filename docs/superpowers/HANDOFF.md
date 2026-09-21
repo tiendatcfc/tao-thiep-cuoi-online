@@ -5,7 +5,7 @@ Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file n�
 ## Trạng thái hiện tại
 
 - Nhánh: `feat/phase-2-guest-import`, cây làm việc sạch, chưa merge vào `main` (main chỉ có docs).
-- Test: **1346 xanh** — web 1263, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
+- Test: **1347 xanh** — web 1264, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
 - `next build` sạch. **Đừng build đè lên dev server đang chạy** — cả hai dùng chung `apps/web/.next`. Dùng `HPWD_DIST_DIR=.next/prod-check pnpm build` rồi `next start -p 3100` với cùng biến đó.
 - **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật, kể cả job `images` mới thêm. Đây là việc chặn nhiều thứ nhất.
 
@@ -118,6 +118,14 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md` (phần cuối
 - ~~**CI**~~: `permissions: contents: read` (trước đó nhận mặc định repo, có thể là ghi), `timeout-minutes` (trước đó mặc định **6 tiếng**), `concurrency` huỷ lượt bị thay thế.
 
 **CỐ Ý CHƯA LÀM:** ghim 6 action CI theo SHA (không có `gh` để tra, SHA sai làm hỏng lần chạy CI đầu tiên); phân trang danh sách khách (`GuestTable` **chưa có tìm kiếm** — phân trang 300 khách mà không tìm được sẽ tệ hơn; sửa đúng là tìm kiếm + phân trang, tức là tính năng).
+
+### ~~Nhóm I — tách mã (2026-09-21)~~
+
+Số liệu: `docs/operations.md` mục **5g**.
+
+- ~~**TipTap ra khỏi lượt tải đầu của editor**~~: 159 kB (47% của 341 kB) cho **một** trong mười panel, mà `selectedSectionId` khởi đầu là `null` nên chẳng panel nào render lúc mở. `/editor/[id]` **342 → 213 kB** (−38%). `panels/index.ts` thành `.tsx` + `"use client"` (`ssr: false` không dùng được từ server component).
+- ~~**`ParticlesOverlay`**~~: chỉ render sau khi mở thiệp. `/i/[slug]` 162 → **161 kB**. Một kilobyte — ghi đúng như vậy, không tô vẽ.
+- **ĐO RỒI KHÔNG LÀM — nén zstd**: `encode zstd gzip` trong Caddyfile **gần như vô tác dụng** vì Next tự gzip trước và Caddy không nén lại. Ở mức mặc định của Caddy, zstd **to hơn** gzip (166.776 so với 161.710). Lấy được 8 kB thì cần sửa **hai** file phải khớp nhau, lệch là mọi response đi ra không nén. Caddyfile nay ghi rõ điều này ngay tại chỗ.
 
 ### Nhóm E — mục minor đã hoãn
 

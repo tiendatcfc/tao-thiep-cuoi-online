@@ -684,16 +684,57 @@ khách khác nhau vẫn đọc mới.
 | Thu nhỏ HTML mã QR 60% | LCP 723 → 753 ms, **không đổi** — QR nằm cuối tài liệu, byte của nó về sau khi LCP đã vẽ |
 | `priority` + `fetchPriority` ảnh bìa | LCP 722 → 746 ms, không đổi trên localhost; nhưng kiểm tra LCP-discovery của Chrome từ 1/3 thất bại thành đạt cả 3 |
 
-### Đòn bẩy còn lại: 162 kB JavaScript
+### Tách mã: TipTap ra khỏi lượt tải đầu của editor
+
+Đo từ build manifest chứ không đoán: `/editor/[id]` tải **341 kB** trước khi
+vẽ, và **159 kB** trong đó là TipTap + ProseMirror, nằm rải ở ba chunk.
+
+Đúng **một** trong mười panel cần nó, và `selectedSectionId` khởi đầu là
+`null` nên không panel nào render cho tới khi cặp đôi bấm chọn một section.
+
+    /editor/[id]   342 kB -> 213 kB First Load JS   (-38%)
+    riêng trang    180 kB -> 51,7 kB
+    chunk tiptap trong lượt tải đầu:  3 -> 0
+
+Trang khách **không bị ảnh hưởng và chưa bao giờ bị**: `TextSection` chỉ ghi
+HTML đã sanitize, không đụng TipTap.
+
+`ParticlesOverlay` cũng tách tương tự (chỉ render **sau khi** khách mở
+thiệp): `/i/[slug]` 162 → 161 kB. Một kilobyte — giữ vì nó miễn phí và đúng
+về kiến trúc, không phải vì nó là thành tựu.
+
+### Nén: `encode zstd gzip` trong Caddyfile gần như VÔ TÁC DỤNG
+
+Next có `compress: true` mặc định và tự gzip mọi response, còn Caddy **không
+nén lại** body đã có `Content-Encoding`. Nên khách nhận gzip của Next, và
+dòng đó chỉ áp cho những gì Caddy phục vụ trực tiếp.
+
+Đo trên JavaScript lượt tải đầu của trang khách (526.197 byte chưa nén):
+
+| Cách nén | Byte | |
+|---|---|---|
+| gzip -9 | 161.710 | Next đang gửi cái này |
+| zstd -3 | 166.776 | mặc định nhanh của Caddy — **TO HƠN** gzip |
+| zstd -9 | 153.490 | |
+| zstd -19 | 147.980 | |
+
+Nên thay đổi hiển nhiên là **sai**: bỏ nén ở Next để Caddy nén, ở mức mặc
+định, sẽ làm response **to hơn**. Muốn lấy 8 kB kia cần **cả hai**:
+`compress: false` trong `next.config.ts` **và** `encode zstd 9` ở đây — hai
+thiết lập ở hai file phải khớp nhau, mà lệch nhau nghĩa là mọi response đi ra
+**không nén** kể từ ngày ai đó deploy container web mà không có proxy này.
+Không đáng đổi lấy 5%.
+
+### Đòn bẩy còn lại: 161 kB JavaScript
 
 Sau tất cả, LCP còn ~530–570 ms **load delay** — ảnh xếp hàng sau JavaScript
 trên đường truyền hẹp. Đó là vấn đề JS, không phải vấn đề ảnh.
 
-    /i/[slug] First Load JS   162 kB
+    /i/[slug] First Load JS   161 kB
       React core              54,2 kB
       chunk chung Next        46,3 kB
       framer-motion           36,9 kB   <- 23%
-      còn lại                 24,6 kB
+      mã ứng dụng             23,6 kB
 
 framer-motion chỉ làm fade/slide/zoom khi cuộn và 5 hiệu ứng mở màn — CSS
 transition làm được hết. **Nhưng kết quả của việc đó không kiểm được bằng
