@@ -1,11 +1,11 @@
-# HPWD — Bản giao việc (cập nhật 2026-09-18, sau Phase 4 + dọn mục hoãn + đợt tối ưu)
+# HPWD — Bản giao việc (cập nhật 2026-09-21, sau Phase 4 + dọn mục hoãn + tối ưu + soát mục hoãn cũ)
 
 Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file này trước khi làm gì.
 
 ## Trạng thái hiện tại
 
 - Nhánh: `feat/phase-2-guest-import`, cây làm việc sạch, chưa merge vào `main` (main chỉ có docs).
-- Test: **1318 xanh** — web 1235, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
+- Test: **1346 xanh** — web 1263, worker 27, db 44, schema 12 — cộng 11 test Python của `services/rembg`. `tsc --noEmit` sạch cho web và worker; `turbo test lint --force` nay **8/8** (cả 4 package đều có lint). Kiểm bằng `pnpm exec turbo test lint --force`.
 - `next build` sạch. **Đừng build đè lên dev server đang chạy** — cả hai dùng chung `apps/web/.next`. Dùng `HPWD_DIST_DIR=.next/prod-check pnpm build` rồi `next start -p 3100` với cùng biến đó.
 - **Chưa có git remote** → workflow CI (`.github/workflows/ci.yml`) chưa bao giờ chạy thật, kể cả job `images` mới thêm. Đây là việc chặn nhiều thứ nhất.
 
@@ -104,6 +104,20 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`. Số liệu �
 - ~~**Một truy vấn DB mỗi lượt xem thay vì hai**~~: `generateMetadata` và page component nay dùng chung `loadInvitationBySlug` bọc `cache()`. Đếm thật: **20 → 10** lần đọc cho 10 lượt xem.
 
 **CÒN LẠI, CỐ Ý CHƯA LÀM:** framer-motion vẫn là **36,9 kB (23%)** của bundle trang khách và là đòn bẩy lớn nhất còn lại — LCP còn ~550 ms load delay vì ảnh xếp hàng sau JS. CSS transition thay được, **nhưng kết quả không kiểm được bằng máy** (chất lượng hiệu ứng là mục người-làm trong danh sách dưới) và đường mở màn là nơi lỗi = khách không mở được thiệp. Bẫy đã biết: `transitionend` **không bắn** khi duration = 0, đúng nhánh `prefers-reduced-motion`. Làm riêng, có người cầm máy thật kiểm.
+
+### ~~Nhóm H — soát mục hoãn CŨ (Phase 0/1 + Phase 2)~~ — XONG 5 mục (2026-09-21)
+
+Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md` (phần cuối).
+
+**Lượt này xác nhận lại cảnh báo ở nhóm E: thêm 3 mục nữa hoá ra đã sửa xong từ lâu** (error.tsx cho editor đã được `(dashboard)/error.tsx` phủ; `phan-hoi` đã phân trang từ Phase 2; cổng compose đã bind `127.0.0.1`). Tổng cộng **6 mục được chọn ra để làm thì đã xong rồi**.
+
+- ~~**Oceanbank → MBV**~~: BIN 970414 mang tên không còn tồn tại từ 18/12/2024. **BIN không đổi** (mọi QR đã in vẫn đúng); chỉ nhãn đổi. Thêm trường `aliases` — gõ "Oceanbank" vẫn ra MBV, vì đó là tên trên chính thẻ ngân hàng của cặp đôi. Kiểm bằng nguồn báo chí, không nhớ.
+- ~~**Timer "Đã sao chép!"**~~: không dọn khi unmount.
+- ~~**`qrcode` devDep chết**~~ (kéo `yargs@15`: lockfile 6 → 0 tham chiếu) + **`restart: unless-stopped` cho dev stack** — Docker Desktop đã sập một lần và stack không tự về. Recreate đã kiểm không mất dữ liệu (md5 thiệp demo khớp).
+- ~~**Phân trang trang duyệt lời chúc**~~: `findMany` không `take`, một hàng tương tác mỗi lời chúc, trên đúng trang cặp đôi mở **trong ngày cưới**. `resolvePage` tách ra `lib/pagination.ts`, dùng chung với `phan-hoi`.
+- ~~**CI**~~: `permissions: contents: read` (trước đó nhận mặc định repo, có thể là ghi), `timeout-minutes` (trước đó mặc định **6 tiếng**), `concurrency` huỷ lượt bị thay thế.
+
+**CỐ Ý CHƯA LÀM:** ghim 6 action CI theo SHA (không có `gh` để tra, SHA sai làm hỏng lần chạy CI đầu tiên); phân trang danh sách khách (`GuestTable` **chưa có tìm kiếm** — phân trang 300 khách mà không tìm được sẽ tệ hơn; sửa đúng là tìm kiếm + phân trang, tức là tính năng).
 
 ### Nhóm E — mục minor đã hoãn
 
