@@ -84,4 +84,26 @@ describe("GiftPanel", () => {
     fireEvent.change(input, { target: { value: "1".repeat(40) } });
     expect((input as HTMLInputElement).value).toHaveLength(30);
   });
+
+  // Oceanbank has been MBV since 18/12/2024, but the couple's own bank card,
+  // their banking app's older screenshots and everyone they ask still say
+  // Oceanbank. Typing that has to find the bank, or they conclude it is not
+  // supported and pick the wrong one — on the field that routes their
+  // wedding money.
+  it("finds the renamed bank by the name its customers still use", () => {
+    render(<GiftPanel section={giftSection()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Tìm ngân hàng…"), { target: { value: "oceanbank" } });
+
+    expect(screen.getByText(/MBV — Ngân hàng TNHH MTV Việt Nam Hiện Đại/)).toBeInTheDocument();
+  });
+
+  it("finds it by the current name too, and shows only the current one", () => {
+    render(<GiftPanel section={giftSection()} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Tìm ngân hàng…"), { target: { value: "MBV" } });
+
+    expect(screen.getByText(/MBV — /)).toBeInTheDocument();
+    expect(screen.queryByText(/Oceanbank/)).not.toBeInTheDocument();
+  });
 });

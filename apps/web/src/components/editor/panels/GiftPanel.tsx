@@ -37,7 +37,11 @@ function BankPicker({ bankBin, onSelect }: { bankBin: string; onSelect: (bank: B
   const listId = useId();
   const selected = BANKS.find((b) => b.bin === bankBin);
   const filtered = query
-    ? BANKS.filter((b) => normalize(`${b.shortName} ${b.name}`).includes(normalize(query)))
+    ? BANKS.filter((b) =>
+        // Aliases are searched but never shown: a bank that changed its name
+        // is still called the old one by its own customers for years.
+        normalize(`${b.shortName} ${b.name} ${(b.aliases ?? []).join(" ")}`).includes(normalize(query)),
+      )
     : BANKS;
 
   return (

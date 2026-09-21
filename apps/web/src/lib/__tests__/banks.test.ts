@@ -29,4 +29,20 @@ describe("BANKS", () => {
     const sorted = [...names].sort((a, b) => a.localeCompare(b));
     expect(names).toEqual(sorted);
   });
+
+  // Oceanbank became MBV on 18/12/2024 (wholly owned by MB, re-registered as
+  // Ngân hàng TNHH MTV Việt Nam Hiện Đại). A rename does not change a BIN —
+  // and it must not, because that BIN is already encoded into every VietQR a
+  // couple has printed or shared.
+  it("lists 970414 under its current name, with the old one kept as a searchable alias", () => {
+    const bank = BANKS.find((b) => b.bin === "970414");
+
+    expect(bank?.shortName).toBe("MBV");
+    expect(bank?.name).toContain("Việt Nam Hiện Đại");
+    expect(bank?.aliases).toContain("Oceanbank");
+  });
+
+  it("shows no bank under the retired Oceanbank name", () => {
+    expect(BANKS.some((b) => b.shortName === "Oceanbank")).toBe(false);
+  });
 });

@@ -5,6 +5,13 @@ export interface Bank {
   shortName: string;
   /** Full registered name. */
   name: string;
+  /**
+   * Former or colloquial names, matched by the picker's search but never
+   * displayed. A bank that has been renamed is still known to its customers
+   * by the old name for years, and a couple who types the name on their own
+   * card and gets "no results" concludes their bank is unsupported.
+   */
+  aliases?: string[];
 }
 
 // NAPAS member bank BINs — same list/convention as VietQR.io's bank directory.
@@ -56,15 +63,21 @@ export const BANKS: Bank[] = [
   { bin: "970452", shortName: "KienLongBank", name: "Ngân hàng TMCP Kiên Long" },
   { bin: "970449", shortName: "LPBank", name: "Ngân hàng TMCP Lộc Phát Việt Nam" },
   { bin: "970422", shortName: "MBBank", name: "Ngân hàng TMCP Quân đội" },
+  {
+    // Renamed from Oceanbank on 18/12/2024, when it became wholly owned by
+    // MB and was re-registered as Ngân hàng TNHH MTV Việt Nam Hiện Đại
+    // (Modern Bank of Vietnam). The BIN is unchanged by a rename, so every
+    // QR already printed on an invitation keeps working — only the label a
+    // couple picks from needed updating.
+    bin: "970414",
+    shortName: "MBV",
+    name: "Ngân hàng TNHH MTV Việt Nam Hiện Đại",
+    aliases: ["Oceanbank", "Ocean Bank", "Đại Dương"],
+  },
   { bin: "970426", shortName: "MSB", name: "Ngân hàng TMCP Hàng Hải Việt Nam" },
   { bin: "970428", shortName: "NamABank", name: "Ngân hàng TMCP Nam Á" },
   { bin: "970419", shortName: "NCB", name: "Ngân hàng TMCP Quốc Dân" },
   { bin: "970448", shortName: "OCB", name: "Ngân hàng TMCP Phương Đông" },
-  {
-    bin: "970414",
-    shortName: "Oceanbank",
-    name: "Ngân hàng Thương mại TNHH MTV Đại Dương",
-  },
   {
     bin: "970430",
     shortName: "PGBank",
