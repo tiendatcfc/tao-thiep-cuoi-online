@@ -1,120 +1,113 @@
-# HUMAN TODO — self-hosted invitation fonts
+# Invitation fonts
 
-This directory is intentionally empty in git except for this file. The
-editor's font-pair picker (`ThemePanel`, backed by `FONT_OPTIONS` in
-`apps/web/src/lib/fonts.ts`) and the `@font-face` rules in
-`apps/web/src/app/fonts.css` both assume the 16 files below exist here.
-Until someone adds them, every font falls back to its CSS fallback stack
-(Georgia/system-sans/cursive) — the preview still renders correctly, just
-not in the "real" typeface yet.
+The 32 `.woff2` files beside this README are the eight preset typefaces the
+editor's font-pair picker offers (`FONT_OPTIONS` in
+`apps/web/src/lib/fonts.ts`), each in two subsets (`latin`, `vietnamese`)
+at two weights (400, 700). They are **committed**, and they are
+**generated** — do not hand-edit or hand-rename them:
 
-**There is a second, separate file requirement below** (see "For the OG
-image renderer") for `apps/web/src/app/i/[slug]/opengraph-image.tsx` —
-adding only the 16 WOFF2 files above fixes the CSS/preview but does
-**nothing** for the OG share-preview image, which uses a completely
-different renderer that can't read WOFF2 at all. Don't stop at the WOFF2
-files and assume Vietnamese diacritics are fixed everywhere — check both
-sections.
+```
+pnpm --filter @hpwd/web sync:fonts
+```
 
-## Why this isn't already done
+copies them out of the installed `@fontsource/*` packages and rewrites
+`apps/web/src/app/fonts.generated.css` to match. Re-run it when a family is
+added to `FONT_OPTIONS` or a `@fontsource` package is upgraded, and commit
+the result. `src/lib/__tests__/font-files.test.ts` fails if the committed
+files, the generated stylesheet and the script's manifest ever drift apart,
+including if a file goes missing — a 404 here is otherwise invisible,
+because the browser silently falls back to Georgia/system-sans and the page
+still renders perfectly, just in the wrong typeface. That is exactly what
+happened for months.
 
-The machine this task was implemented on sits behind a corporate TLS proxy
-that MITMs `fonts.gstatic.com` (and Google Fonts generally), so neither
-`next/font/google` nor a plain `curl`/`fetch` to Google Fonts works from
-here — every attempt gets a proxy-signed certificate instead of Google's,
-which fails TLS verification (and verification must never be disabled to
-work around it). Fetching these files requires a machine/network without
-that interception.
+## Why not `next/font/google`
 
-## What to download
+Unchanged, and still the rule: this machine sits behind a corporate TLS
+proxy that MITMs `fonts.gstatic.com`, so `next/font/google` and any direct
+download from Google Fonts fail here — every attempt gets a proxy-signed
+certificate instead of Google's, and TLS verification must never be
+disabled to work around it.
 
-All 8 families are Google Fonts, OFL-licensed, with a Vietnamese subset.
-For each, get the **regular (400)** and **bold (700)** static weights as
-**WOFF2**, and name them exactly as listed (matching `FONT_OPTIONS[].file`
-in `src/lib/fonts.ts`):
+What changed is only the transport. `@fontsource/*` publishes the
+byte-identical Google Fonts WOFF2 subsets to the **npm registry**, which
+the proxy passes through like any other package. So the files arrive over
+npm, get committed like any other asset, and are served same-origin from
+`/fonts/`. Nothing here contacts Google at build time or at runtime.
 
-| Family              | Files                                                          |
-| ------------------- | --------------------------------------------------------------- |
-| Playfair Display    | `playfair-display-400.woff2`, `playfair-display-700.woff2`     |
-| Cormorant Garamond   | `cormorant-garamond-400.woff2`, `cormorant-garamond-700.woff2` |
-| Lora                 | `lora-400.woff2`, `lora-700.woff2`                              |
-| Be Vietnam Pro       | `be-vietnam-pro-400.woff2`, `be-vietnam-pro-700.woff2`         |
-| Quicksand            | `quicksand-400.woff2`, `quicksand-700.woff2`                    |
-| Dancing Script       | `dancing-script-400.woff2`, `dancing-script-700.woff2`         |
-| Merriweather         | `merriweather-400.woff2`, `merriweather-700.woff2`             |
-| Inter                | `inter-400.woff2`, `inter-700.woff2`                            |
+(That was not true of the whole app until recently: the share-preview image
+renderer was reaching out to `fonts.googleapis.com` on every render. See
+"The WOFF1 copies" below — it is fixed, and there is a test that keeps it
+fixed.)
 
-## How to get them (from a machine without the proxy)
+## Subsets, and why there are two files per weight
 
-Easiest path — [google-webfonts-helper](https://gwfh.mranftl.com/fonts)
-(a well-known static mirror of the Google Fonts catalog):
+`latin` alone does not contain a single Vietnamese tone mark; `vietnamese`
+alone contains the marks and none of the letters to put them on. Both are
+needed, and both carry an explicit `unicode-range` in the generated
+stylesheet — two `@font-face` rules with the same family, weight and style
+but no range are **not** additive, the last declaration simply wins. The
+ranges are read from each package's own `unicode.json` rather than
+hardcoded, because Google revises them.
 
-1. Open `https://gwfh.mranftl.com/fonts/<font-slug>` (e.g. `playfair-display`).
-2. Under "Charsets", make sure **vietnamese** is checked (in addition to
-   latin) — this is what makes the font actually render Vietnamese
-   diacritics correctly.
-3. Under "Styles", select **regular (400)** and **700**.
-4. Download the "Modern Browsers" (WOFF2-only) package.
-5. Rename the two files to match the table above and drop them directly in
-   this directory (`apps/web/public/fonts/`) — no subfolders.
+The upside of doing it properly: a guest only downloads the Vietnamese file
+when the page actually uses a Vietnamese character.
 
-Alternative: download directly from
-`https://fonts.google.com/specimen/<Font+Name>` ("Download family", which
-gives TTFs) and convert to WOFF2 with a tool like `fonttools`
-(`fonttools varLib.instancer` / `woff2_compress`), keeping only the
-400/700 static instances.
+`latin-ext` and `cyrillic` ship in these packages too and are deliberately
+skipped — no Vietnamese wedding invitation needs them.
 
-## For the OG image renderer (separate from the CSS fonts above — read this even if you already added the WOFF2 files)
+## The WOFF1 copies, and the Google request they removed
 
-`opengraph-image.tsx`'s dynamic share-preview image is generated by
-`next/og`'s `ImageResponse`, which wraps `@vercel/og` and its bundled
-`satori` renderer — **not a browser**, and not the same font-loading code
-path as `fonts.css`. Its font parser (verified by reading the compiled
-bundle directly) only recognizes TrueType/OpenType/Type1/WOFF1 signatures
-(`\x00\x01\x00\x00`, `"true"`, `"typ1"`, `"OTTO"`, `"wOFF"`) — it has **no
-WOFF2 handling at all**. Dropping only the 16 WOFF2 files above in and
-calling this task done will leave the CSS/editor preview looking right while
-the OG image silently keeps rendering Vietnamese names with missing
-letters (Đ, and any vowel combining a circumflex/breve/horn with a tone
-mark, like ặ/ễ/ị) — easy to miss because nothing errors, it just renders
-blank glyph boxes.
+Beside the 32 `.woff2` sit 16 `.woff` (WOFF1) files — the same eight
+families, both subsets, weight 700 only. The same `sync:fonts` run produces
+them and `font-files.test.ts` guards them the same way. **No browser ever
+downloads them**; a test asserts the generated stylesheet never references
+them. They exist for one consumer: the share-preview image.
 
-What to add, on top of everything above:
+`apps/web/src/app/i/[slug]/opengraph-image.tsx` is rendered by `next/og`'s
+`ImageResponse`, which wraps `@vercel/og` and its bundled `satori` — not a
+browser, and not the code path `fonts.generated.css` feeds. satori's font
+parser (verified by reading the compiled bundle) recognises only
+TrueType/OpenType/Type1/WOFF1 signatures (`\x00\x01\x00\x00`, `"true"`,
+`"typ1"`, `"OTTO"`, `"wOFF"`). It has **no WOFF2 handling at all**, so none
+of the `.woff2` files above help it.
 
-1. Get a **TTF** (or WOFF1) copy of the **heading font's bold (700)**
-   weight — same family as whatever `apps/web/src/lib/fonts.ts`'s default
-   heading font is (`Playfair Display` as of writing), with the
-   **Vietnamese** charset included, same as the WOFF2 instructions above.
-2. Save it as exactly `og-heading.ttf` (or `og-heading.woff` if that's what
-   you have) directly in this directory — no subfolders, no other name.
-   `apps/web/src/lib/og-font.ts`'s `loadOgHeadingFont()` looks for exactly
-   these two filenames and checks the file's actual bytes (not just the
-   extension) before trusting it, specifically to catch the WOFF2-under-a-
-   `.ttf`-name mistake this section exists to prevent — if you get the
-   format wrong, it degrades to today's default-font behavior instead of
-   breaking, but Vietnamese names still won't render correctly until it's
-   actually a TTF/WOFF1 file.
-3. No code changes needed beyond that — the OG route picks it up
-   automatically the next time it renders (see the long comment at the top
-   of `opengraph-image.tsx` for how).
+This used to say a human had to download a full unsubsetted TTF from Google
+Fonts, because "satori takes one file per family" and a subsetted file is
+useless on its own — `latin` has no diacritics, `vietnamese` has no letters.
+**That premise was wrong.** satori resolves fonts *per character*: it walks
+the registered fonts and picks the first one that actually has a glyph. Two
+subsets both work, as long as they are registered under **different
+`name`s** — same name, same weight and same style means its font store
+keeps only one of them and silently drops the other. `og-font.ts` registers
+them as `HPWD OG Heading` and `HPWD OG Heading VN` for exactly that reason.
 
-Google Fonts' own "Download family" button (from
-`https://fonts.google.com/specimen/<Font+Name>`) gives TTFs directly, so
-this doesn't need the WOFF2-focused google-webfonts-helper flow above —
-just make sure the Vietnamese-subset glyphs are actually present in
-whichever TTF you grab (Google's "Download family" package includes the
-full character set, so this is normally not a concern for their own
-direct download, unlike some third-party WOFF2-only mirrors).
+### What was actually broken
 
-## Verifying
+Not what the old note claimed. With no font it could read, satori fell back
+to its own bundled `noto-sans-v27-latin-regular.ttf` — 226 glyphs, no ễ Đ ặ
+ư ờ ạ — and then, for each character it could not cover, called out at
+render time to:
 
-Once the WOFF2 files are in place, no code changes are needed — `fonts.css`'s
-`@font-face` `src: url("/fonts/<file>-<weight>.woff2")` rules will resolve
-instead of 404ing, and `ThemePanel`'s preview (and the real invitation
-render) will pick up the actual typeface automatically.
+```
+https://fonts.googleapis.com/css2?family=Noto+Sans&text=<the missing characters>
+https://fonts.gstatic.com/l/font?kit=...
+```
 
-Once `og-heading.ttf`/`.woff` is in place, visit `/i/<any published
-slug>/opengraph-image` directly and confirm the couple's names render with
-full Vietnamese diacritics (no blank boxes) — the file existing is not by
-itself proof it worked; a wrong-format file degrades silently by design (see
-above), so actually looking at the rendered image is the only real check.
+Three outbound requests per share render, one of them carrying characters
+from the couple's own names in a query string to Google — from the app
+whose entire premise is that it makes no third-party request. And when that
+call fails (restricted egress, or this machine's TLS proxy) the names
+render as empty boxes, which is the symptom the old note described without
+identifying the cause.
+
+`src/lib/__tests__/og-font.render.test.tsx` renders a real PNG of
+"Nguyễn Đặng & Trường Hạnh" and asserts **zero** outbound requests, with a
+control that removes the fonts and asserts the request comes back — so the
+guarantee cannot decay into a test that passes because nothing fetches any
+more.
+
+### If you add a family to `FONT_OPTIONS`
+
+Just re-run `pnpm --filter @hpwd/web sync:fonts` and commit. Both formats
+come from the one manifest; there is nothing to download by hand and no
+step that talks to Google.

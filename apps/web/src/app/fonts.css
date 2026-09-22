@@ -1,154 +1,56 @@
 /*
- * Self-hosted @font-face declarations backing the editor's font-pair picker
- * (`FONT_OPTIONS` in src/lib/fonts.ts, consumed by ThemePanel and
- * `fontFamilyStack`). Deliberately NOT next/font/google and not a runtime
- * fetch from fonts.gstatic.com — see public/fonts/README.md: the dev
- * machine building this had a corporate TLS proxy that MITMs
- * fonts.gstatic.com, making any Google Fonts request (build-time or
- * runtime) fail outright.
+ * Typographic wiring for the invitation subtree. The `@font-face` rules
+ * themselves live in `fonts.generated.css` (written by
+ * `scripts/sync-fonts.mjs`, imported alongside this file from
+ * `globals.css`); what is left here is hand-written and is about how the
+ * theme's font pair is APPLIED.
  *
- * Every rule below points at a same-origin file under /fonts/ (i.e.
- * public/fonts/) that a human still needs to download and commit — see the
- * README for the exact list. Until that happens, the browser's request for
- * the file 404s and it silently falls back to the stack `fontFamilyStack()`
- * appends after the family name: no crash, and no request ever goes to an
- * external host either way.
- */
-
-@font-face {
-  font-family: "Playfair Display";
-  src: url("/fonts/playfair-display-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Playfair Display";
-  src: url("/fonts/playfair-display-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Cormorant Garamond";
-  src: url("/fonts/cormorant-garamond-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Cormorant Garamond";
-  src: url("/fonts/cormorant-garamond-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Lora";
-  src: url("/fonts/lora-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Lora";
-  src: url("/fonts/lora-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Be Vietnam Pro";
-  src: url("/fonts/be-vietnam-pro-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Be Vietnam Pro";
-  src: url("/fonts/be-vietnam-pro-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Quicksand";
-  src: url("/fonts/quicksand-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Quicksand";
-  src: url("/fonts/quicksand-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Dancing Script";
-  src: url("/fonts/dancing-script-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Dancing Script";
-  src: url("/fonts/dancing-script-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Merriweather";
-  src: url("/fonts/merriweather-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Merriweather";
-  src: url("/fonts/merriweather-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter-400.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter-700.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-/*
- * Applies the theme's font-pair CSS custom properties (set by `InvitePage`
- * from `document.theme.headingFont`/`bodyFont` via `fontFamilyStack`) to
- * the invitation tree — the same "CSS var on the root wrapper" convention
- * already used for `--primary`/`--secondary`/`--background`. Headings use
- * `--font-heading`; everything else inherits `--font-body` from the root.
- * The `inherit` fallback means an invite rendered without these vars set
- * (shouldn't happen, but cheap insurance) just keeps the page's own font.
+ * Still deliberately NOT `next/font/google` and still no runtime fetch of
+ * any kind: every file is same-origin under /fonts/, copied out of the
+ * `@fontsource/*` npm packages. See the sync script's header for why npm
+ * works here when fonts.gstatic.com does not.
+ *
+ * `--font-heading`/`--font-body` are set by `InvitePage` from
+ * `document.theme.headingFont`/`bodyFont` via `fontFamilyStack` — the same
+ * "CSS var on the root wrapper" convention already used for
+ * `--primary`/`--secondary`/`--background`. The `inherit` fallback means
+ * an invite rendered without these vars set (shouldn't happen, but cheap
+ * insurance) just keeps the page's own font.
  */
 [data-invite-root] {
   font-family: var(--font-body, inherit);
+  /*
+   * Now that the real typefaces actually load, the browser's default
+   * rasterisation makes a 400-weight serif look noticeably heavier on
+   * macOS/iOS than the designer's intent. These two are the standard pair
+   * for text set in a display serif and they are safe on a page whose body
+   * copy is never below 13px.
+   */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: var(--leading-body);
 }
-[data-invite-root] h1,
-[data-invite-root] h2,
-[data-invite-root] h3 {
+
+/*
+ * Optical corrections that belong to the typeface, not to any one section:
+ * display serifs are drawn with generous default sidebearings, so headings
+ * set at 24px and up need negative tracking and tighter leading to stop
+ * reading as "default browser h2". Sections still choose their own SIZE
+ * and COLOUR with Tailwind utilities — nothing here sets either, so no
+ * section's explicit classes are being overridden from a distance.
+ *
+ * `text-wrap: balance` is the single highest-value line here: Vietnamese
+ * names and section titles wrap badly at 430px, regularly leaving one word
+ * alone on line two. Browsers without it simply wrap as before.
+ */
+[data-invite-root] :is(h1, h2, h3) {
   font-family: var(--font-heading, inherit);
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-display);
+  text-wrap: balance;
+}
+
+/* Body copy reads better ragged-right with short measures than justified, but long paragraphs still benefit from avoiding orphans. */
+[data-invite-root] p {
+  text-wrap: pretty;
 }

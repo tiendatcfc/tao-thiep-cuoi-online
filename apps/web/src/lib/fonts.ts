@@ -4,10 +4,11 @@
  * Deliberately NOT `next/font/google` and not a runtime fetch from
  * fonts.gstatic.com: this dev machine's corporate TLS proxy MITMs that
  * host, so any build-time or runtime Google Fonts request fails here. Every
- * family below is meant to be self-hosted instead — see
- * `public/fonts/README.md` (HUMAN TODO: the actual .woff2 files still need
- * to be downloaded and dropped in from a machine without that proxy) and
- * `src/app/fonts.css` for the `@font-face` rules pointing at them.
+ * family below is self-hosted instead: `scripts/sync-fonts.mjs` copies the
+ * files out of the `@fontsource/*` packages (npm, which the proxy passes
+ * through) into `public/fonts/`, in WOFF2 for the browser and WOFF1 for the
+ * OG image renderer, and writes `src/app/fonts.generated.css`. See
+ * `public/fonts/README.md`.
  *
  * `family` is the exact string persisted in `theme.headingFont`/
  * `theme.bodyFont` (`ThemeSchema` just has these as plain strings, no
@@ -104,8 +105,8 @@ export function findFontOption(family: string): FontOption | undefined {
 /**
  * Builds the CSS `font-family` value for `--font-heading`/`--font-body`:
  * the self-hosted family (quoted) followed by its fallback stack, so text
- * renders correctly with the system fallback today and upgrades seamlessly
- * once the human drops the real .woff2 files in. An unrecognized family
+ * still renders in something sensible while the woff2 is in flight or if it
+ * ever 404s, rather than in nothing. An unrecognized family
  * name (e.g. legacy data) still produces a usable stack instead of
  * throwing or returning "".
  */

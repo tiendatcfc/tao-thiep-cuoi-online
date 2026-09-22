@@ -3,7 +3,7 @@ import { prisma } from "@hpwd/db";
 import { InvitationDocumentSchema } from "@hpwd/schema";
 import { VN_TIME_ZONE } from "@/lib/date";
 import { isAllowedImageUrl } from "@/lib/image-hosts";
-import { loadOgHeadingFont, OG_HEADING_FONT_NAME, type OgFontDescriptor } from "@/lib/og-font";
+import { loadOgHeadingFont, type OgHeadingFont } from "@/lib/og-font";
 import { findCoverSection } from "@/lib/sections";
 
 // Default (Node.js) runtime — deliberately NOT `export const runtime = "edge"`:
@@ -25,6 +25,8 @@ interface OgContent {
   coverImage: string | null;
   primary: string;
   background: string;
+  /** `theme.headingFont`, so the card is set in the same face as the invitation it links to. */
+  headingFont: string;
 }
 
 const FALLBACK_CONTENT: OgContent = {
@@ -34,6 +36,7 @@ const FALLBACK_CONTENT: OgContent = {
   coverImage: null,
   primary: FALLBACK_PRIMARY,
   background: FALLBACK_BACKGROUND,
+  headingFont: "",
 };
 
 /**
@@ -157,6 +160,7 @@ async function loadOgContent(slug: string): Promise<OgContent> {
       coverImage,
       primary: parsed.data.theme.primary || FALLBACK_PRIMARY,
       background: parsed.data.theme.background || FALLBACK_BACKGROUND,
+      headingFont: parsed.data.theme.headingFont || "",
     };
   } catch (error) {
     console.error(`opengraph-image: failed to load content for slug=${slug}:`, error);
@@ -169,17 +173,49 @@ async function loadOgContent(slug: string): Promise<OgContent> {
  * white text stays legible over any photo; falls back to a flat brand-color
  * card when there's no usable cover photo.
  *
- * Font: no self-hosted WOFF/TTF files existed at all when this route was
- * first written, so it rendered with satori's bundled default font (no
- * Vietnamese diacritic coverage). `loadOgHeadingFont` (see `lib/og-font.ts`)
- * now checks for a self-hosted TTF/WOFF1 copy — **not** the WOFF2 files
- * `public/fonts/*.woff2` used by the site's own CSS, which satori cannot
- * parse at all — and this falls back to the exact same "sans-serif,
- * whatever satori bundles" behavior as before whenever that file doesn't
- * exist yet (or isn't a format satori can read). Vietnamese diacritics stay
- * incomplete until that TTF/WOFF1 file actually exists — see the Task 17
- * report for what that looks like today.
+ * Font: `loadOgHeadingFont` (see `lib/og-font.ts`) loads the couple's own
+ * heading family as a pair of self-hosted WOFF1 subsets — **not** the
+ * `public/fonts/*.woff2` the site's CSS uses, which satori cannot parse at
+ * all. `fontFamily` therefore names BOTH subsets, in latin-then-vietnamese
+ * order, and this falls back to "whatever satori bundles" only when those
+ * files are missing.
+ *
+ * Getting this right is a privacy fix, not a cosmetic one. satori's bundled
+ * fallback is Noto Sans **latin**, which has no ế ặ ữ Đ; for any character
+ * no registered font covers, it calls
+ * `fonts.googleapis.com/css2?family=Noto+Sans&text=<those characters>` at
+ * render time. That sent the couple's own name characters to Google on
+ * every share render, from an app that otherwise makes no third-party
+ * request at all — and rendered empty boxes whenever the call failed.
+ * `opengraph-image.network.test.tsx` renders a Vietnamese name and asserts
+ * zero outbound fetches.
  */
+/**
+ * The scrim that keeps the white name legible over an arbitrary cover
+ * photo — a couple's photo can be any brightness, and without this the
+ * text is white-on-pale.
+ *
+ * Every edge is given explicitly, and so are `width`/`height`, because
+ * **satori does not implement the `inset` shorthand**. It silently ignores
+ * the property rather than erroring, which left this element with no box
+ * at all: the scrim was a no-op for as long as it has existed, and every
+ * share image drew white text straight onto the photo. `inset: 0` renders
+ * correctly in every browser, so nothing short of comparing the rendered
+ * pixels would have caught it — which is what
+ * `__tests__/opengraph-image.scrim.test.tsx` does.
+ */
+export const COVER_SCRIM_STYLE = {
+  position: "absolute" as const,
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+  width: `${size.width}px`,
+  height: `${size.height}px`,
+  display: "flex",
+  backgroundColor: "rgba(20, 12, 14, 0.45)",
+};
+
 function renderCard(content: OgContent, includeCoverImage: boolean, fontFamily: string) {
   return (
     <div
@@ -198,10 +234,13 @@ function renderCard(content: OgContent, includeCoverImage: boolean, fontFamily: 
           src={content.coverImage}
           width={size.width}
           height={size.height}
-          style={{ position: "absolute", inset: 0, objectFit: "cover", width: `${size.width}px`, height: `${size.height}px` }}
+          // `top`/`left` spelled out rather than `inset: 0` — satori ignores
+          // the shorthand entirely; see `COVER_SCRIM_STYLE`.
+          style={{ position: "absolute", top: 0, left: 0, objectFit: "cover", width: `${size.width}px`, height: `${size.height}px` }}
         />
       ) : null}
-      <div style={{ position: "absolute", inset: 0, display: "flex", backgroundColor: "rgba(20, 12, 14, 0.45)" }} />
+      {/* Only over a photo: on the flat brand-colour card the name is already the theme colour on its own background. */}
+      {includeCoverImage && content.coverImage ? <div style={COVER_SCRIM_STYLE} /> : null}
       <div
         style={{
           position: "relative",
@@ -248,14 +287,18 @@ function renderBrandedFallback() {
   );
 }
 
-function fontsOption(font: OgFontDescriptor | null) {
-  return font ? [font] : undefined;
+function fontsOption(font: OgHeadingFont | null) {
+  return font ? font.fonts : undefined;
 }
 
 export default async function Image({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const [content, headingFont] = await Promise.all([loadOgContent(slug), loadOgHeadingFont()]);
-  const fontFamily = headingFont ? OG_HEADING_FONT_NAME : "sans-serif";
+  // Sequential, not `Promise.all`: which font file to read depends on the
+  // document's `theme.headingFont`. The second step is a local file read
+  // next to a DB round-trip, so there is nothing meaningful to overlap.
+  const content = await loadOgContent(slug);
+  const headingFont = await loadOgHeadingFont(content.headingFont);
+  const fontFamily = headingFont ? headingFont.fontFamily : "sans-serif";
   const fonts = fontsOption(headingFont);
 
   // `loadOgContent` already fetched and validated `content.coverImage` (if
