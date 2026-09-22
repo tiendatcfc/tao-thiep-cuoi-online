@@ -24,6 +24,18 @@ function PersonFields({
       <ImageField label="Ảnh" value={person.photo} onChange={(v) => onChange({ ...person, photo: v })} />
       <TextAreaField label="Giới thiệu" value={person.intro} onChange={(v) => onChange({ ...person, intro: v })} />
       <TextField label="Phụ huynh" value={person.parents} onChange={(v) => onChange({ ...person, parents: v })} />
+      <TextField
+        label="Quê quán phụ huynh"
+        value={person.parentsCity}
+        onChange={(v) => onChange({ ...person, parentsCity: v })}
+        hint="Ví dụ: Quận 1, TP. Hồ Chí Minh"
+      />
+      <TextField
+        label="Vai vế"
+        value={person.role}
+        onChange={(v) => onChange({ ...person, role: v })}
+        hint="Trưởng nam, Thứ nữ, Út nữ… Để trống thì thiệp hiện 'Cô dâu' / 'Chú rể'"
+      />
     </fieldset>
   );
 }

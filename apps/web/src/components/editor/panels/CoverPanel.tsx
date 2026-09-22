@@ -8,7 +8,7 @@ import { TextField } from "../fields/TextField";
 
 export function CoverPanel({ section }: { section: Extract<Section, { type: "cover" }> }) {
   const updateSectionProps = useEditorStore((state) => state.updateSectionProps);
-  const { groomName, brideName, date, coverImage, tagline } = section.props;
+  const { groomName, brideName, date, coverImage, tagline, lunarDate } = section.props;
 
   function patch(next: Partial<CoverProps>) {
     updateSectionProps(section.id, next);
@@ -21,6 +21,12 @@ export function CoverPanel({ section }: { section: Extract<Section, { type: "cov
       <DateField label="Ngày cưới" value={date} onChange={(v) => patch({ date: v })} />
       <ImageField label="Ảnh bìa" value={coverImage} onChange={(v) => patch({ coverImage: v })} />
       <TextField label="Khẩu hiệu" value={tagline} onChange={(v) => patch({ tagline: v })} />
+      <TextField
+        label="Ngày âm"
+        value={lunarDate}
+        onChange={(v) => patch({ lunarDate: v })}
+        hint="Hiện trong ngoặc dưới ngày dương. Gõ tay — âm lịch có tháng nhuận và dị bản theo vùng, đoán sai còn tệ hơn để trống"
+      />
     </div>
   );
 }

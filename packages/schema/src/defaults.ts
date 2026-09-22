@@ -1,7 +1,7 @@
 import type { InvitationDocument, Section, SectionType } from './invitation'
 
 function emptyPerson() {
-  return { name: '', photo: '', intro: '', parents: '' }
+  return { name: '', photo: '', intro: '', parents: '', role: '', parentsCity: '' }
 }
 
 /**
@@ -23,7 +23,7 @@ export function createSection(type: SectionType): Section {
       return {
         ...base,
         type: 'cover',
-        props: { groomName: '', brideName: '', date: '', coverImage: '', tagline: '' },
+        props: { groomName: '', brideName: '', date: '', coverImage: '', tagline: '', lunarDate: '' },
       }
     case 'couple':
       return {
@@ -73,6 +73,18 @@ export function createSection(type: SectionType): Section {
         type: 'form',
         props: { title: 'Xác nhận tham dự', fields: [], submitLabel: 'Gửi', isRsvp: false },
       }
+    case 'dresscode':
+      return {
+        ...base,
+        type: 'dresscode',
+        props: { title: 'Dress code', note: '', colors: [] },
+      }
+    case 'timeline':
+      return {
+        ...base,
+        type: 'timeline',
+        props: { title: 'Lịch trình ngày cưới', items: [] },
+      }
     case 'text':
       return {
         ...base,
@@ -113,6 +125,7 @@ export function createDefaultDocument(): InvitationDocument {
     date: '2026-12-20T09:00:00+07:00',
     coverImage: '',
     tagline: 'Trân trọng kính mời',
+    lunarDate: 'tức ngày 12 tháng 11 năm Bính Ngọ',
   })
 
   const couple = seedSection('couple', 1, {
@@ -121,12 +134,16 @@ export function createDefaultDocument(): InvitationDocument {
       photo: '',
       intro: 'Con trai của ông Nguyễn Văn A và bà Trần Thị B',
       parents: 'Ông Nguyễn Văn A & Bà Trần Thị B',
+      role: 'Trưởng nam',
+      parentsCity: 'Quận 1, TP. Hồ Chí Minh',
     },
     bride: {
       name: 'Thu Hà',
       photo: '',
       intro: 'Con gái của ông Lê Văn C và bà Phạm Thị D',
       parents: 'Ông Lê Văn C & Bà Phạm Thị D',
+      role: 'Út nữ',
+      parentsCity: 'Quận 3, TP. Hồ Chí Minh',
     },
   })
 
@@ -138,13 +155,15 @@ export function createDefaultDocument(): InvitationDocument {
         date: '2026-12-20T09:00:00+07:00',
         address: 'Nhà gái, số 12 đường Lê Lợi, Quận 1, TP.HCM',
         mapUrl: '',
+        guestTime: '',
       },
       {
         name: 'Lễ Thành Hôn',
         time: '18:00',
         date: '2026-12-20T18:00:00+07:00',
         address: 'Trung tâm Tiệc cưới White Palace, 194 Hoàng Văn Thụ, Phú Nhuận, TP.HCM',
-        mapUrl: '',
+        mapUrl: 'https://maps.google.com/?q=White+Palace+Ho%C3%A0ng+V%C4%83n+Th%E1%BB%A5',
+        guestTime: '17:30',
       },
     ],
   })
@@ -154,7 +173,27 @@ export function createDefaultDocument(): InvitationDocument {
     images: [],
   })
 
-  const gift = seedSection('gift', 4, {
+  // Dress code and the day's running order sit between the album and the
+  // gift box, which is where a printed invitation puts them: after the
+  // couple has been introduced and before anyone is asked for anything.
+  const dresscode = seedSection('dresscode', 4, {
+    title: 'Dress code',
+    note: 'Trang phục dự tiệc — mời bạn chọn một trong các tông màu dưới đây',
+    colors: ['#5E1224', '#A62B45', '#C9A227', '#EFE7DC'],
+  })
+
+  const timeline = seedSection('timeline', 5, {
+    title: 'Lịch trình ngày cưới',
+    items: [
+      { time: '17:00', label: 'Đón khách', icon: 'flower' as const },
+      { time: '18:00', label: 'Khai tiệc', icon: 'toast' as const },
+      { time: '18:30', label: 'Nghi thức cưới', icon: 'rings' as const },
+      { time: '19:00', label: 'Cắt bánh & nâng ly', icon: 'cake' as const },
+      { time: '20:30', label: 'Kết thúc tiệc', icon: 'music' as const },
+    ],
+  })
+
+  const gift = seedSection('gift', 6, {
     title: 'Hộp mừng cưới',
     description:
       'Sự hiện diện của bạn là niềm hạnh phúc của chúng tôi. Nếu muốn gửi lời chúc mừng bằng vật chất, bạn có thể chuyển khoản qua thông tin bên dưới.',
@@ -176,13 +215,13 @@ export function createDefaultDocument(): InvitationDocument {
     ],
   })
 
-  const wishes = seedSection('wishes', 5, {
+  const wishes = seedSection('wishes', 7, {
     title: 'Sổ lời chúc',
     description: 'Gửi lời chúc phúc đến cô dâu chú rể',
     requireApproval: false,
   })
 
-  const form = seedSection('form', 6, {
+  const form = seedSection('form', 8, {
     title: 'Xác nhận tham dự',
     submitLabel: 'Gửi',
     isRsvp: true,
@@ -242,6 +281,6 @@ export function createDefaultDocument(): InvitationDocument {
       monogram: '',
       showGuestName: true,
     },
-    sections: [cover, couple, events, album, gift, wishes, form],
+    sections: [cover, couple, events, album, dresscode, timeline, gift, wishes, form],
   }
 }

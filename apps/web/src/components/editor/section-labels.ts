@@ -12,4 +12,6 @@ export const SECTION_TYPE_LABELS: Record<SectionType, string> = {
   wishes: "Sổ lời chúc",
   form: "Biểu mẫu",
   text: "Văn bản",
+  dresscode: "Dress code",
+  timeline: "Lịch trình",
 };

@@ -3,11 +3,13 @@ import type { InvitationDocument, Section, SectionType } from "@hpwd/schema";
 import { AlbumSection } from "./sections/AlbumSection";
 import { CoupleSection } from "./sections/CoupleSection";
 import { CoverSection } from "./sections/CoverSection";
+import { DressCodeSection } from "./sections/DressCodeSection";
 import { EventsSection } from "./sections/EventsSection";
 import { FormSection } from "./sections/FormSection";
 import { GiftSection } from "./sections/GiftSection";
 import { StorySection } from "./sections/StorySection";
 import { TextSection } from "./sections/TextSection";
+import { TimelineSection } from "./sections/TimelineSection";
 import { VideoSection } from "./sections/VideoSection";
 import { WishesSection } from "./sections/WishesSection";
 import { AnimatedSection } from "./AnimatedSection";
@@ -18,7 +20,7 @@ const NO_ANIMATION: Section["animation"] = { preset: "none", durationMs: 0 };
 /**
  * One component per `SectionType`, each typed to the exact props shape for
  * its own section — a typo pairing e.g. `couple` with `EventsSection` is a
- * compile error. All ten section types render real content.
+ * compile error. All twelve section types render real content.
  */
 const registry: { [K in SectionType]: ComponentType<{ section: Extract<Section, { type: K }> }> } = {
   cover: CoverSection,
@@ -31,6 +33,8 @@ const registry: { [K in SectionType]: ComponentType<{ section: Extract<Section, 
   wishes: WishesSection,
   form: FormSection,
   text: TextSection,
+  dresscode: DressCodeSection,
+  timeline: TimelineSection,
 };
 
 /**

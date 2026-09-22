@@ -8,7 +8,14 @@ import { EventsPanel } from "../EventsPanel";
 function eventsSection(): Extract<Section, { type: "events" }> {
   const base = createSection("events") as Extract<Section, { type: "events" }>;
   base.props.items = [
-    { name: "Lễ Vu Quy", time: "09:00", date: "2026-12-20T09:00:00+07:00", address: "Nhà gái", mapUrl: "" },
+    {
+      name: "Lễ Vu Quy",
+      time: "09:00",
+      date: "2026-12-20T09:00:00+07:00",
+      address: "Nhà gái",
+      mapUrl: "",
+      guestTime: "",
+    },
   ];
   return base;
 }
@@ -33,7 +40,14 @@ describe("EventsPanel", () => {
 
   it("moving the only-two-item list down then removing leaves a schema-valid items array", () => {
     const section = eventsSection();
-    section.props.items.push({ name: "Lễ Thành Hôn", time: "18:00", date: "2026-12-20T18:00:00+07:00", address: "Nhà trai", mapUrl: "" });
+    section.props.items.push({
+      name: "Lễ Thành Hôn",
+      time: "18:00",
+      date: "2026-12-20T18:00:00+07:00",
+      address: "Nhà trai",
+      mapUrl: "",
+      guestTime: "",
+    });
     useEditorStore.setState({ document: { version: 1, sections: [section] } as never });
     render(<EventsPanel section={section} />);
 

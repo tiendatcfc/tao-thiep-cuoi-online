@@ -15,6 +15,8 @@ export const SECTION_TYPES = [
   'wishes',
   'form',
   'text',
+  'dresscode',
+  'timeline',
 ] as const
 
 export const SectionTypeSchema = z.enum(SECTION_TYPES)
@@ -49,6 +51,23 @@ export const CoverPropsSchema = z
     date: z.string(),
     coverImage: z.string(),
     tagline: z.string(),
+    /**
+     * The lunar date, shown in brackets under the solar one — "(tức ngày
+     * 12 tháng 11 năm Bính Ngọ)". Vietnamese weddings are CHOSEN by this
+     * date, and older relatives read it first; leaving it out was a real
+     * gap, not a decoration.
+     *
+     * A free string rather than a computed conversion: the lunar calendar
+     * has regional variants and leap months, couples are given this date
+     * by whoever picked it for them, and a wrong automatic answer here
+     * would be worse than none.
+     *
+     * `.default('')`, never `.optional()` — see the note on
+     * `AlbumImageSchema.caption`: every cover saved before this field
+     * existed has to keep parsing, and the output type has to stay
+     * `string` rather than `string | undefined`.
+     */
+    lunarDate: z.string().default(''),
   })
   .strict()
 export type CoverProps = z.infer<typeof CoverPropsSchema>
@@ -59,6 +78,18 @@ const PersonSchema = z
     photo: z.string(),
     intro: z.string(),
     parents: z.string(),
+    /**
+     * Birth order and side — "Trưởng nam", "Út nữ", "Thứ nữ". A Vietnamese
+     * invitation states it directly under the name, because it is how the
+     * families identify which of their children is marrying.
+     *
+     * Free text, not an enum: the vocabulary runs past trưởng/thứ/út into
+     * numbered positions, and a fixed list would simply be wrong for some
+     * families.
+     */
+    role: z.string().default(''),
+    /** The parents' home town, printed under their names — "Quận 1, TP. Hồ Chí Minh". */
+    parentsCity: z.string().default(''),
   })
   .strict()
 
@@ -93,6 +124,13 @@ const EventItemSchema = z
     date: z.string(),
     address: z.string(),
     mapUrl: z.string(),
+    /**
+     * When guests are asked to arrive, as distinct from when the event
+     * starts — "đón khách 17:30, khai tiệc 18:00". Vietnamese receptions
+     * print both, and a guest who reads only the second one arrives as the
+     * food is going out.
+     */
+    guestTime: z.string().default(''),
   })
   .strict()
 
@@ -200,6 +238,53 @@ export const FormPropsSchema = z
   .strict()
 export type FormProps = z.infer<typeof FormPropsSchema>
 
+/**
+ * The colours guests are asked to wear, as swatches.
+ *
+ * `colors` is a plain array of CSS colour strings rather than a fixed
+ * palette: couples pick these to match their flowers, and any list this
+ * schema invented would be wrong for most of them. They are rendered as
+ * swatches and never as text, so an unparseable value degrades to a blank
+ * circle rather than to garbled copy.
+ */
+export const DressCodePropsSchema = z
+  .object({
+    title: z.string(),
+    note: z.string(),
+    colors: z.array(z.string()),
+  })
+  .strict()
+export type DressCodeProps = z.infer<typeof DressCodePropsSchema>
+
+/**
+ * `icon` is an ENUM of shapes this app draws, not a URL and not an emoji.
+ *
+ * A URL would be a third-party request on a page that makes none, and an
+ * emoji renders as a different picture on every phone — and as a black
+ * blob on several Android builds, which is not what a couple wants beside
+ * "Lễ thành hôn". The list is deliberately short; `none` is a valid,
+ * commonly-right answer.
+ */
+export const TIMELINE_ICONS = ['none', 'rings', 'camera', 'cake', 'toast', 'car', 'flower', 'music'] as const
+export const TimelineIconSchema = z.enum(TIMELINE_ICONS)
+export type TimelineIcon = z.infer<typeof TimelineIconSchema>
+
+export const TimelinePropsSchema = z
+  .object({
+    title: z.string(),
+    items: z.array(
+      z
+        .object({
+          time: z.string(),
+          label: z.string(),
+          icon: TimelineIconSchema.default('none'),
+        })
+        .strict(),
+    ),
+  })
+  .strict()
+export type TimelineProps = z.infer<typeof TimelinePropsSchema>
+
 export const TextPropsSchema = z
   .object({
     // C9: unbounded previously — the Task 8 deferral note explicitly said
@@ -262,6 +347,16 @@ const FormSectionSchema = SectionBaseSchema.extend({
   props: FormPropsSchema,
 }).strict()
 
+const DressCodeSectionSchema = SectionBaseSchema.extend({
+  type: z.literal('dresscode'),
+  props: DressCodePropsSchema,
+}).strict()
+
+const TimelineSectionSchema = SectionBaseSchema.extend({
+  type: z.literal('timeline'),
+  props: TimelinePropsSchema,
+}).strict()
+
 const TextSectionSchema = SectionBaseSchema.extend({
   type: z.literal('text'),
   props: TextPropsSchema,
@@ -278,6 +373,8 @@ export const SectionSchema = z.discriminatedUnion('type', [
   WishesSectionSchema,
   FormSectionSchema,
   TextSectionSchema,
+  DressCodeSectionSchema,
+  TimelineSectionSchema,
 ])
 export type Section = z.infer<typeof SectionSchema>
 

@@ -9,7 +9,9 @@ import { CouplePanel } from "./CouplePanel";
 import { EventsPanel } from "./EventsPanel";
 import { FormPanel } from "./FormPanel";
 import { GiftPanel } from "./GiftPanel";
+import { DressCodePanel } from "./DressCodePanel";
 import { StoryPanel } from "./StoryPanel";
+import { TimelinePanel } from "./TimelinePanel";
 import { VideoPanel } from "./VideoPanel";
 import { WishesPanel } from "./WishesPanel";
 
@@ -41,6 +43,8 @@ export const panelRegistry: { [K in SectionType]: ComponentType<{ section: Extra
   cover: CoverPanel,
   couple: CouplePanel,
   story: StoryPanel,
+  dresscode: DressCodePanel,
+  timeline: TimelinePanel,
   events: EventsPanel,
   album: AlbumPanel,
   video: VideoPanel,

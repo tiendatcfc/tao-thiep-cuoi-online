@@ -19,7 +19,7 @@ export function EventsPanel({ section }: { section: Extract<Section, { type: "ev
       label="Các sự kiện"
       items={items}
       onChange={(next) => updateSectionProps(section.id, { items: next })}
-      createItem={() => ({ name: "", time: "", date: "", address: "", mapUrl: "" })}
+      createItem={() => ({ name: "", time: "", date: "", address: "", mapUrl: "", guestTime: "" })}
       itemLabel={(item, i) => item.name || `Sự kiện ${i + 1}`}
       emptyMessage="Chưa có sự kiện nào."
       renderItem={(item, _index, update) => (
@@ -32,6 +32,12 @@ export function EventsPanel({ section }: { section: Extract<Section, { type: "ev
             onChange={(v) => update({ ...item, time: v })}
             placeholder="09:00"
             hint="Hiển thị trên thiệp cùng với ngày, ví dụ 09:00"
+          />
+          <TextField
+            label="Giờ đón khách"
+            value={item.guestTime}
+            onChange={(v) => update({ ...item, guestTime: v })}
+            hint="Để trống nếu trùng giờ bắt đầu. Ví dụ 17:30 — khách đến lúc này, tiệc khai lúc giờ ở trên"
           />
           <TextAreaField label="Địa điểm" value={item.address} onChange={(v) => update({ ...item, address: v })} />
           <TextField
