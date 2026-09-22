@@ -1,6 +1,7 @@
 "use client";
 
 import { m, useReducedMotion } from "framer-motion";
+import { OpeningCaption, OpeningCta } from "./OpeningContent";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -16,7 +17,7 @@ const TOTAL_DURATION_MS = 650;
  * fades away once the panels are clear, calling `onOpen` from that final
  * fade's `onAnimationComplete`.
  */
-export function CurtainOpening({ opening, guestName, onOpen, onTap }: OpeningVariantProps) {
+export function CurtainOpening({ opening, guestName, identity = null, onOpen, onTap }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
   const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
     onOpen,
@@ -27,6 +28,7 @@ export function CurtainOpening({ opening, guestName, onOpen, onTap }: OpeningVar
 
   return (
     <m.div
+      data-opening-gate
       className="fixed inset-0 z-30 overflow-hidden"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
@@ -45,21 +47,19 @@ export function CurtainOpening({ opening, guestName, onOpen, onTap }: OpeningVar
         animate={{ x: tapped ? "100%" : "0%" }}
         transition={{ duration: t(PANEL_DURATION) }}
       />
-      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-6 px-6 text-center">
-        {opening.monogram ? (
-          <p className="text-2xl font-semibold tracking-wide text-white drop-shadow">{opening.monogram}</p>
-        ) : null}
-        {opening.showGuestName && guestName ? (
-          <p className="text-sm text-white/90 drop-shadow">Kính mời: {guestName}</p>
-        ) : null}
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-8 px-6 text-center">
+        {/* `onColor`: this content sits on the two solid panels, which
+            are the couple's own primary/secondary — the paper ink tokens
+            would be unreadable there. */}
+        <OpeningCaption opening={opening} guestName={guestName} identity={identity} tone="onColor" />
         <button
           type="button"
           onClick={handleTap}
           disabled={tapped}
           aria-label="Mở thiệp"
-          className="pointer-events-auto rounded-full bg-white px-8 py-3 text-sm font-medium text-[var(--primary)] shadow-lg transition-transform active:scale-95"
+          className="pointer-events-auto mt-2 rounded-full transition-transform focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white active:scale-95"
         >
-          Mở thiệp
+          <OpeningCta tone="onColor" />
         </button>
       </div>
     </m.div>

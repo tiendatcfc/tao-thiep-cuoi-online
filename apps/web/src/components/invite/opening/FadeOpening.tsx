@@ -1,6 +1,7 @@
 "use client";
 
 import { m, useReducedMotion } from "framer-motion";
+import { OpeningCaption, OpeningCta } from "./OpeningContent";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -13,7 +14,7 @@ const TOTAL_DURATION_MS = 500;
  * tap, revealing the invitation underneath. `onOpen` fires once that fade
  * finishes (`onAnimationComplete`), not on the raw click.
  */
-export function FadeOpening({ opening, guestName, onOpen, onTap }: OpeningVariantProps) {
+export function FadeOpening({ opening, guestName, identity = null, onOpen, onTap }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
   const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
     onOpen,
@@ -23,27 +24,27 @@ export function FadeOpening({ opening, guestName, onOpen, onTap }: OpeningVarian
 
   return (
     <m.div
-      className="fixed inset-0 z-30 flex flex-col items-center justify-center gap-6 bg-[var(--background)] px-6 text-center"
+      data-opening-gate
+      /* Same reasoning as `EnvelopeOpening`: centring content taller than
+         a fixed container makes its top unreachable. */
+      className="fixed inset-0 z-30 overflow-y-auto overscroll-contain bg-[var(--background)] text-center"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
       transition={{ duration: reduceMotion ? 0 : FADE_DURATION }}
       onAnimationComplete={handleAnimationComplete}
     >
-      {opening.monogram ? (
-        <p className="text-2xl font-semibold tracking-wide text-[var(--primary)]">{opening.monogram}</p>
-      ) : null}
-      {opening.showGuestName && guestName ? (
-        <p className="text-sm text-gray-600">Kính mời: {guestName}</p>
-      ) : null}
+      <div className="flex min-h-full flex-col items-center justify-center gap-8 px-6 py-8">
+      <OpeningCaption opening={opening} guestName={guestName} identity={identity} tone="ink" />
       <button
         type="button"
         onClick={handleTap}
         disabled={tapped}
         aria-label="Mở thiệp"
-        className="rounded-full bg-[var(--primary)] px-8 py-3 text-sm font-medium text-white shadow-lg transition-transform active:scale-95"
+        className="mt-2 rounded-full transition-transform focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--primary)] active:scale-95"
       >
-        Mở thiệp
+        <OpeningCta tone="ink" />
       </button>
+      </div>
     </m.div>
   );
 }

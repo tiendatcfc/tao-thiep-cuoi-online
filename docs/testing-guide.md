@@ -1,9 +1,17 @@
 # HPWD — Cách tự kiểm toàn bộ tính năng
 
 Danh sách để **người** bấm tay qua 17 tính năng trong spec, kèm trạng thái đã
-kiểm trên máy dev tính đến 2026-09-21. Test tự động (1.347 cái) chứng minh
+kiểm trên máy dev tính đến 2026-09-21. Test tự động (1.362 cái) chứng minh
 từng mảnh chạy đúng; file này là để chứng minh **chúng ghép lại thành sản
 phẩm dùng được** — thứ không test tự động nào nói hộ được.
+
+**Mỗi lần kiểm giao diện, đổi khổ màn hình ít nhất bốn lần.** Bốn lỗi nặng
+nhất từng lọt qua ở dự án này đều chỉ lộ ra ở một khổ mà máy dev không mở:
+thiệp thành một dải 430px trên nền trắng ở màn rộng, mục trang bìa cao bằng
+cửa sổ trình duyệt bên trong khung xem trước 780px, bảng khách mời cuộn
+ngang trên điện thoại, và màn mở phong bì cụt cả hai đầu khi cầm điện thoại
+nằm ngang. Bộ khổ tối thiểu: **320×568, 390×844, 844×390 (nằm ngang),
+820×1180, 1440×900** — cộng với chế độ tối của hệ điều hành.
 
 Runbook sự cố nằm ở `docs/operations.md`. Đây chỉ là danh sách kiểm.
 
@@ -115,7 +123,7 @@ trên điện thoại thật — **[chặn]** chưa thử được, xem mục 3.
 
 | Việc | Vì sao | Cần gì |
 |---|---|---|
-| **Font chữ thật** | `apps/web/public/fonts/` chỉ có README — **thiếu cả 16 file** | Mọi font rơi về Georgia/system. Preview vẫn đúng bố cục, **sai mặt chữ**. Ảnh share (OG) còn cần thêm 1 file `.ttf` riêng vì satori không đọc được WOFF2. Đọc `apps/web/public/fonts/README.md`. |
+| **Ảnh share (OG) có dấu tiếng Việt** | satori không đọc được WOFF2, và các `.woff` của `@fontsource` đều đã subset | Font hiển thị trên trang **đã xong** (32 file WOFF2 trong `apps/web/public/fonts/`, sinh bằng `pnpm --filter @hpwd/web sync:fonts`). Riêng ảnh share còn cần 1 file `og-heading.ttf` đầy đủ; chưa có thì Đ, ặ, ễ, ị ra ô trắng. Đọc `apps/web/public/fonts/README.md`. |
 | **Nhạc thật** | Thư viện là 3 tiếng bíp sine | Cần nhạc có bản quyền hợp lệ. Xem `docs/music-credits.md`. |
 | **Quét QR** | Không quét được bằng máy tính | Mở `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png` bằng app ngân hàng Việt Nam thật. 2 phút, chặn tính năng liên quan tới tiền. |
 | **Cảm giác hiệu ứng** | Phong bì, cánh hoa rơi, cuộn — không đánh giá được qua headless | Mở thiệp trên điện thoại thật. |

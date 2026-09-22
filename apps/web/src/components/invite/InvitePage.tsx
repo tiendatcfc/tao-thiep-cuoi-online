@@ -5,7 +5,9 @@ import dynamic from "next/dynamic";
 import { useRef, useState, type CSSProperties } from "react";
 import type { InvitationDocument } from "@hpwd/schema";
 import Link from "next/link";
+import { readableInkOn } from "@/lib/contrast";
 import { fontFamilyStack } from "@/lib/fonts";
+import { findCoverSection } from "@/lib/sections";
 import { CustomFontStyle } from "./CustomFontStyle";
 import { InviteContext } from "./InviteContext";
 import { MusicPlayer, type MusicPlayerHandle } from "./MusicPlayer";
@@ -75,10 +77,36 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
     }
   }
 
+  /*
+   * The opening gate shows the couple's names and wedding date, and they
+   * come from the cover section rather than from `OpeningSchema` — see
+   * `OpeningIdentity`. Read here, at the one place that already holds the
+   * whole document, so the gate never has to know about sections.
+   *
+   * `findCoverSection` is a pure array search over props already in
+   * memory; there is nothing to memoize.
+   */
+  const cover = findCoverSection(document.sections);
+  const openingIdentity = cover
+    ? {
+        groomName: cover.props.groomName,
+        brideName: cover.props.brideName,
+        date: cover.props.date,
+      }
+    : null;
+
   const themeStyle = {
     "--primary": document.theme.primary,
     "--secondary": document.theme.secondary,
     "--background": document.theme.background,
+    /*
+     * Ink for anything filled with `--primary` — the information cards,
+     * chiefly. Computed rather than fixed: `theme.primary` is a free colour
+     * field, so cream text is right on a deep maroon and invisible on a
+     * blush. See `lib/contrast.ts`; the calculation is pure and
+     * synchronous, so the server render and the client's agree.
+     */
+    "--on-primary": readableInkOn(document.theme.primary),
     "--font-heading": fontFamilyStack(document.theme.headingFont),
     "--font-body": fontFamilyStack(document.theme.bodyFont),
   } as CSSProperties;
@@ -105,24 +133,55 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
       <InviteContext.Provider
         value={{ guestName, showGuestName: document.opening.showGuestName, isPreview, slug }}
       >
+        {/*
+         * Two elements, not one: the STAGE fills the window and the COLUMN
+         * is the invitation. On a phone they are the same width and the
+         * stage is invisible; from 431px up, `globals.css` turns the stage
+         * into a wash mixed from this couple's own colours and the column
+         * into a sheet of paper lying on it. Before this split, a guest
+         * opening the link on a laptop got a 430px cream stripe with a hard
+         * seam down each side, and in dark mode that seam was against black.
+         *
+         * `data-invite-root` (the theme variables, and the font rules in
+         * fonts.css) stays on the OUTER element so the stage can mix against
+         * `--secondary` too.
+         *
+         * `data-invite-stage` is withheld in the editor preview — see the
+         * long note on the media query in globals.css for why a viewport
+         * query cannot tell the difference on its own.
+         */}
         <div
           data-invite-root
-          className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-[var(--background)]"
+          data-invite-stage={isPreview ? undefined : ""}
+          className="flex min-h-[var(--viewport-h)] w-full flex-col items-center"
           style={themeStyle}
         >
-          {/* `@font-face` for fonts this couple uploaded. Rendered here rather
-              than in the route so the editor's live preview, which mounts
-              this same component, declares them too — otherwise a custom font
-              would look right when published and fall back while editing. */}
-          <CustomFontStyle fonts={document.theme.customFonts} />
-          <OpeningGate
-            opening={document.opening}
-            guestName={guestName}
-            onOpened={() => setOpened(true)}
-            onTap={handleOpeningTap}
+          <div
+            data-invite-column
+            className="flex min-h-[var(--viewport-h)] w-full max-w-[430px] flex-col bg-[var(--background)]"
           >
-            <SectionRenderer document={document} />
-          </OpeningGate>
+            {/* `@font-face` for fonts this couple uploaded. Rendered here rather
+                than in the route so the editor's live preview, which mounts
+                this same component, declares them too — otherwise a custom font
+                would look right when published and fall back while editing. */}
+            <CustomFontStyle fonts={document.theme.customFonts} />
+            <OpeningGate
+              opening={document.opening}
+              guestName={guestName}
+              identity={openingIdentity}
+              onOpened={() => setOpened(true)}
+              onTap={handleOpeningTap}
+            >
+              <SectionRenderer document={document} />
+            </OpeningGate>
+            {settings.showBadge ? (
+              <footer className="py-6 text-center text-xs text-gray-400">
+                <Link href="/" className="hover:underline">
+                  Tạo miễn phí tại HPWD
+                </Link>
+              </footer>
+            ) : null}
+          </div>
           {/*
            * `MusicPlayer` renders here as a sibling of `OpeningGate`, never
            * inside it, so it stays mounted for the whole lifetime of the page
@@ -153,13 +212,6 @@ export function InvitePage({ document, guestName, settings, isPreview, slug = nu
             interactive={opened || isPreview}
           />
           {opened && document.opening.particles ? <ParticlesOverlay kind={document.opening.particles} /> : null}
-          {settings.showBadge ? (
-            <footer className="py-6 text-center text-xs text-gray-400">
-              <Link href="/" className="hover:underline">
-                Tạo miễn phí tại HPWD
-              </Link>
-            </footer>
-          ) : null}
         </div>
       </InviteContext.Provider>
     </LazyMotion>

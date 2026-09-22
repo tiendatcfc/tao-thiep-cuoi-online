@@ -12,8 +12,8 @@ import { InviteContext } from "../InviteContext";
  * `/api/uploads` stores every photo at up to 1600px wide. Three sections
  * used to render that straight into a bare `<img>`:
  *
- *   CoverSection    224x224 circle
- *   CoupleSection   128x128 circle, twice per invitation
+ *   CoverSection    240x304 arch (a 224px circle when this was written)
+ *   CoupleSection   176x224 arch, twice (a 128px circle when this was written)
  *   StorySection    ~430x160 strip, once per story entry
  *
  * Measured against a real 1600x1600 photo (840 kB) served through this
@@ -40,7 +40,7 @@ function imagesOf(container: HTMLElement) {
 }
 
 describe("photos render at the size they are displayed, not at upload resolution", () => {
-  it("CoverSection's 224px circle goes through the optimizer with a 224px hint", () => {
+  it("CoverSection's arch portrait goes through the optimizer with the arch's own width as the hint", () => {
     const base = createSection("cover") as Extract<Section, { type: "cover" }>;
     const section = { ...base, props: { ...base.props, coverImage: PHOTO } };
 
@@ -48,10 +48,14 @@ describe("photos render at the size they are displayed, not at upload resolution
     const [img] = imagesOf(container);
 
     expect(img?.getAttribute("src")).toContain("/_next/image");
-    expect(img?.getAttribute("sizes")).toBe("224px");
+    // 240px = the 15rem the arch is wide. The number has to track
+    // the CSS box, not a remembered constant: a `sizes` hint larger than
+    // the box makes the optimizer serve a bigger file than anyone needs,
+    // and smaller makes it serve a blurry one.
+    expect(img?.getAttribute("sizes")).toBe("240px");
   });
 
-  it("CoupleSection's two 128px circles each go through the optimizer with a 128px hint", () => {
+  it("CoupleSection's two arch portraits each go through the optimizer with the arch's own width as the hint", () => {
     const base = createSection("couple") as Extract<Section, { type: "couple" }>;
     const section = {
       ...base,
@@ -68,7 +72,7 @@ describe("photos render at the size they are displayed, not at upload resolution
     expect(imgs).toHaveLength(2);
     for (const img of imgs) {
       expect(img.getAttribute("src")).toContain("/_next/image");
-      expect(img.getAttribute("sizes")).toBe("128px");
+      expect(img.getAttribute("sizes")).toBe("176px");
     }
   });
 

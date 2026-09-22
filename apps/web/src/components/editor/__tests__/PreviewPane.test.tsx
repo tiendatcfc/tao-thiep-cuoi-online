@@ -18,7 +18,7 @@ vi.mock("@/components/invite/InvitePage", () => ({
   InvitePage: (props: unknown) => InvitePageMock(props),
 }));
 
-import { PreviewPane } from "../PreviewPane";
+import { PREVIEW_FRAME_HEIGHT_PX, PreviewPane } from "../PreviewPane";
 
 afterEach(cleanup);
 
@@ -48,6 +48,24 @@ beforeEach(() => {
 });
 
 describe("PreviewPane", () => {
+  it("tells the invitation how tall its own viewport is, using the frame's real height", () => {
+    // The invitation measures "one screenful" with `--viewport-h`, not
+    // `100dvh` — inside this frame `dvh` is the BROWSER window, so the
+    // cover section rendered as tall as the editor's window (1180px on a
+    // tablet) inside a 780px box, and the couple previewed their own
+    // invitation with half a screen of blank paper above it. The taller
+    // the editor window, the worse it got, which is why it survived on the
+    // machine it was written on.
+    render(<PreviewPane />);
+    const frame = screen.getByTestId("preview-pane");
+
+    expect(frame.style.height).toBe(`${PREVIEW_FRAME_HEIGHT_PX}px`);
+    expect(frame.style.getPropertyValue("--viewport-h")).toBe(`${PREVIEW_FRAME_HEIGHT_PX}px`);
+    // Both come from one constant; this is what stops them drifting apart
+    // the next time someone resizes the frame.
+    expect(frame.style.getPropertyValue("--viewport-h")).toBe(frame.style.height);
+  });
+
   it("selects the clicked section's id in the store", () => {
     render(<PreviewPane />);
     fireEvent.click(screen.getByText("A"));

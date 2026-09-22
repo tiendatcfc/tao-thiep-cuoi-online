@@ -57,6 +57,51 @@ describe("GuestTable", () => {
     expect(screen.getByText(/1 đã xem thiệp/)).toBeInTheDocument();
   });
 
+  it("mọi ô đều có nhãn cột, để bố cục xếp chồng trên điện thoại không hiện giá trị trần trụi", () => {
+    // Dưới 640px, globals.css bỏ hàng tiêu đề đi và mỗi ô tự in nhãn của
+    // nó từ `data-label`. Thêm một cột mới mà quên `data-label` thì trên
+    // máy tính vẫn đẹp, còn trên điện thoại khách hàng thấy một giá trị
+    // không biết là gì — đúng kiểu lỗi chỉ lộ ra ở khổ màn hình khác.
+    const { container } = render(
+      <GuestTable
+        invitationId="inv-1"
+        slug={SLUG}
+        status="published"
+        initialGuests={[guest()]}
+        origin={ORIGIN}
+      />,
+    );
+
+    const table = container.querySelector("[data-stacked-table]");
+    expect(table).not.toBeNull();
+
+    const headers = [...table!.querySelectorAll("thead th")].map((th) => th.textContent?.trim());
+    const labels = [...table!.querySelectorAll("tbody td")].map((td) => td.getAttribute("data-label"));
+
+    expect(labels).not.toContain(null);
+    expect(labels).toEqual(headers);
+  });
+
+  it("giữ ngữ nghĩa bảng bằng role tường minh, vì bố cục xếp chồng đổi display", () => {
+    // `display: block` xoá sạch ngữ nghĩa bảng ngầm định của thẻ
+    // <table>/<tr>/<td>. Các role viết tay là thứ duy nhất còn lại cho
+    // trình đọc màn hình ở khổ điện thoại.
+    const { container } = render(
+      <GuestTable
+        invitationId="inv-1"
+        slug={SLUG}
+        status="published"
+        initialGuests={[guest()]}
+        origin={ORIGIN}
+      />,
+    );
+
+    expect(container.querySelector('table[role="table"]')).not.toBeNull();
+    expect(container.querySelectorAll('[role="rowgroup"]')).toHaveLength(2);
+    expect(container.querySelectorAll('tbody tr[role="row"]')).toHaveLength(1);
+    expect(container.querySelectorAll('tbody td[role="cell"]')).toHaveLength(4);
+  });
+
   it("nút 'Sao chép link' gọi clipboard với đúng link cá nhân hoá", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.assign(navigator, { clipboard: { writeText } });

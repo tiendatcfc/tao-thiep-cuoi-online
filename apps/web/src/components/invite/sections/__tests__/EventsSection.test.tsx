@@ -36,7 +36,14 @@ describe("EventsSection.formatEventDate", () => {
 function eventsSectionWithMapUrl(mapUrl: string): Extract<Section, { type: "events" }> {
   const base = createSection("events") as Extract<Section, { type: "events" }>;
   base.props.items = [
-    { name: "Lễ Vu Quy", time: "09:00", date: "2026-12-20T09:00:00+07:00", address: "Nhà gái", mapUrl },
+    {
+      name: "Lễ Vu Quy",
+      time: "09:00",
+      date: "2026-12-20T09:00:00+07:00",
+      address: "Nhà gái",
+      mapUrl,
+      guestTime: "",
+    },
   ];
   return base;
 }
@@ -44,7 +51,12 @@ function eventsSectionWithMapUrl(mapUrl: string): Extract<Section, { type: "even
 describe("EventsSection — mapUrl scheme allowlist", () => {
   it("renders the map link for an https URL", () => {
     render(<EventsSection section={eventsSectionWithMapUrl("https://maps.google.com/x")} />);
-    const link = screen.getByRole("link", { name: "Xem bản đồ" });
+    // "Chỉ đường", not "Xem bản đồ": the invitation deliberately embeds no
+    // map (see the design spec's decision 3), so the affordance is the
+    // action — hand the guest off to their own map app — rather than a
+    // promise of something to look at on the page. The arrow glyph beside
+    // it is `aria-hidden`, so the accessible name stays exactly this.
+    const link = screen.getByRole("link", { name: "Chỉ đường" });
     expect(link).toHaveAttribute("href", "https://maps.google.com/x");
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");

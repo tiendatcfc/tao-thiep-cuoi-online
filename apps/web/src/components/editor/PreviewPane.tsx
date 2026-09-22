@@ -1,6 +1,6 @@
 "use client";
 
-import { Component, type MouseEvent, type ReactNode } from "react";
+import { Component, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { InvitePage } from "@/components/invite/InvitePage";
 import { useEditorStore } from "@/stores/editor-store";
 
@@ -52,6 +52,14 @@ class PreviewErrorBoundary extends Component<
 }
 
 /**
+ * Height of the phone frame below, in CSS pixels. Declared once because it
+ * is used twice — as the box's own height and as the `--viewport-h` the
+ * invitation inside it measures "one screenful" against. A test pins the
+ * two together.
+ */
+export const PREVIEW_FRAME_HEIGHT_PX = 780;
+
+/**
  * Live phone-frame preview of the document being edited: same `InvitePage`
  * component the public route renders, in the same React tree (no iframe),
  * so any store mutation shows up immediately. Clicking a section in the
@@ -74,10 +82,27 @@ export function PreviewPane() {
 
   return (
     <div className="flex h-full items-start justify-center overflow-y-auto bg-gray-100 p-6">
+      {/*
+       * The frame's height is applied inline rather than as `h-[780px]`, so
+       * that the SAME number can be handed to `--viewport-h`. Everything
+       * inside the invitation that means "one screenful" — the shell, and
+       * the cover section — reads that variable instead of `100dvh`, which
+       * measures the BROWSER window and is therefore wrong by definition in
+       * here: on a 1180px-tall tablet the cover section rendered 1180px tall
+       * inside this 780px box, and the couple previewed their invitation
+       * with half a screen of blank paper above it. The taller the editor's
+       * window, the more wrong it got.
+       */}
       <div
         data-testid="preview-pane"
         onClick={handleClick}
-        className="h-[780px] w-[390px] overflow-y-auto rounded-[2rem] border border-gray-300 bg-white shadow-lg"
+        style={
+          {
+            height: `${PREVIEW_FRAME_HEIGHT_PX}px`,
+            "--viewport-h": `${PREVIEW_FRAME_HEIGHT_PX}px`,
+          } as CSSProperties
+        }
+        className="w-[390px] overflow-y-auto rounded-[2rem] border border-gray-300 bg-white shadow-lg"
       >
         <PreviewErrorBoundary resetKey={document}>
           <InvitePage

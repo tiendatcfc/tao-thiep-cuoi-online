@@ -21,10 +21,10 @@ function renderCover(showGuestName: boolean) {
 describe("CoverSection và opening.showGuestName", () => {
   it("hiện tên khách khi showGuestName bật", () => {
     renderCover(true);
-    expect(screen.getByText(/Kính mời: Nguyễn Văn An/)).toBeTruthy();
+    expect(screen.getByText("Nguyễn Văn An")).toBeTruthy();
   });
   it("KHÔNG hiện tên khách khi showGuestName tắt", () => {
     renderCover(false);
-    expect(screen.queryByText(/Kính mời/)).toBeNull();
+    expect(screen.queryByText("Kính mời")).toBeNull();
   });
 });

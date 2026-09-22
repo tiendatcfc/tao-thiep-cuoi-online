@@ -22,7 +22,16 @@ export function SectionWrapper({
   style?: CSSProperties;
   children: ReactNode;
 }) {
-  const base = fullBleed ? "w-full" : "mx-auto w-full max-w-[430px] px-6 py-14";
+  /*
+   * The gutter and the vertical rhythm come from `--gutter`/`--section-y`
+   * in globals.css rather than from literal Tailwind steps, so the
+   * breathing room of every section on every invitation is one value in
+   * one file. It was `px-6 py-14`; `--section-y` is deliberately larger,
+   * because the single biggest difference between a page that looks
+   * designed and one that looks defaulted is how much air sits around the
+   * type.
+   */
+  const base = fullBleed ? "w-full" : "mx-auto w-full max-w-[430px] px-[var(--gutter)] py-[var(--section-y)]";
   return (
     <section
       data-section={section.type}

@@ -1,6 +1,7 @@
 "use client";
 
 import { m, useReducedMotion } from "framer-motion";
+import { OpeningCaption, OpeningCta } from "./OpeningContent";
 import type { OpeningVariantProps } from "./types";
 import { useOpeningTap } from "./useOpeningTap";
 
@@ -24,7 +25,7 @@ const TOTAL_DURATION_MS = 700;
  * tab is backgrounded mid-animation, and a guest left behind a disabled
  * button with an `inert` invitation underneath has no way to recover.
  */
-export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVariantProps) {
+export function RevealOpening({ opening, guestName, identity = null, onOpen, onTap }: OpeningVariantProps) {
   const reduceMotion = useReducedMotion();
   const { tapped, handleTap, handleAnimationComplete } = useOpeningTap(
     onOpen,
@@ -35,6 +36,7 @@ export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVari
 
   return (
     <m.div
+      data-opening-gate
       className="fixed inset-0 z-30 overflow-hidden"
       initial={{ opacity: 1 }}
       animate={{ opacity: tapped ? 0 : 1 }}
@@ -47,23 +49,16 @@ export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVari
         animate={{ y: tapped ? "-100%" : "0%" }}
         transition={{ duration: t(PANEL_DURATION), ease: "easeInOut" }}
       >
-        {/* Always rendered, unlike the monogram and the guest name.
-            `createDefaultDocument` leaves `monogram` empty and a guest name
-            only exists on a personalised `?g=` link, so for most couples
-            both are absent — and an upper panel with nothing in it turns
-            this effect into a blank screen with a hairline across it, which
-            reads as a broken page rather than as a designed one. */}
+        {/* Kept even though `OpeningCaption` now guarantees the panel is
+            never empty: this effect's upper half is bottom-aligned against
+            the seam, and the ornament is what gives the type something to
+            sit on instead of ending flush against a bare hairline. */}
         <div aria-hidden="true" data-opening-ornament className="flex items-center gap-3">
           <span className="h-px w-10 bg-[var(--secondary)]" />
           <span className="h-2 w-2 rotate-45 bg-[var(--primary)]" />
           <span className="h-px w-10 bg-[var(--secondary)]" />
         </div>
-        {opening.monogram ? (
-          <p className="text-3xl font-semibold tracking-[0.2em] text-[var(--primary)]">{opening.monogram}</p>
-        ) : null}
-        {opening.showGuestName && guestName ? (
-          <p className="text-sm text-gray-600">Kính mời: {guestName}</p>
-        ) : null}
+        <OpeningCaption opening={opening} guestName={guestName} identity={identity} tone="ink" />
       </m.div>
 
       {/* The seam itself: a hairline in the accent colour so the split reads
@@ -81,9 +76,9 @@ export function RevealOpening({ opening, guestName, onOpen, onTap }: OpeningVari
           onClick={handleTap}
           disabled={tapped}
           aria-label="Mở thiệp"
-          className="rounded-full bg-[var(--primary)] px-8 py-3 text-sm font-medium text-white shadow-lg transition-transform active:scale-95"
+          className="rounded-full transition-transform focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--primary)] active:scale-95"
         >
-          Mở thiệp
+          <OpeningCta tone="ink" />
         </button>
       </m.div>
     </m.div>

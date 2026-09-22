@@ -31,10 +31,25 @@ describe("OpeningGate without JavaScript (SSR markup only)", () => {
     "SSR HTML for effect=%s carries neither inert nor aria-hidden on the content, and marks the overlay for the noscript CSS",
     (effect) => {
       const html = renderToString(gate(effect));
-      expect(html).toContain("NỘI DUNG THIỆP");
-      expect(html).not.toContain("inert");
-      expect(html).not.toContain('aria-hidden="true"');
       expect(html).toContain("data-opening-overlay");
+      // `inert` must not appear ANYWHERE in the server-rendered markup:
+      // it is the attribute a no-JS guest can never get rid of, and the
+      // overlay carrying it would be just as fatal as the content doing so.
+      expect(html).not.toContain("inert");
+
+      // `aria-hidden`, by contrast, is checked against the CONTENT
+      // WRAPPER and its subtree specifically, not against the whole
+      // document. The overlay legitimately marks its own decorations
+      // (paper grain, the envelope flap, the seal's halo, the ornament)
+      // `aria-hidden="true"` — they are pure ornament and a screen reader
+      // should skip them. What must never be hidden is the invitation.
+      const content = new DOMParser()
+        .parseFromString(html, "text/html")
+        .querySelector("[data-opening-content]");
+      expect(content).not.toBeNull();
+      expect(content?.textContent).toContain("NỘI DUNG THIỆP");
+      expect(content?.getAttribute("aria-hidden")).toBeNull();
+      expect(content?.querySelector('[aria-hidden="true"]')).toBeNull();
     },
   );
 });

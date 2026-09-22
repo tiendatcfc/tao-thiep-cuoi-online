@@ -1,7 +1,28 @@
 @import "tailwindcss";
+@import "./fonts.generated.css";
 @import "./fonts.css";
 
+/*
+ * This app is light-only, and says so.
+ *
+ * `create-next-app` scaffolds a `prefers-color-scheme: dark` block that
+ * flips `--background`/`--foreground`, and that block survived here for
+ * months while NOTHING else in the codebase ever honoured it: there is not
+ * a single `dark:` variant in the whole of src/, and every surface is a
+ * literal `bg-white` with `text-gray-900` on it. The result was not a dark
+ * theme, it was a broken light one — `body` went black while every panel,
+ * card and heading stayed light, so the dashboard's own greeting became
+ * near-invisible dark grey on black, and a guest opening an invitation on
+ * a laptop in dark mode got a cream column floating in a black field.
+ *
+ * Declaring `color-scheme: light` is the honest fix and also the
+ * functional one: it is what stops the browser rendering the native form
+ * controls in `FormSection` and `GuestTable` dark against light paper.
+ * Building a real dark theme is a design job, not a media query; when
+ * someone does it, they remove this line.
+ */
 :root {
+  color-scheme: light;
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -11,16 +32,357 @@
   --color-foreground: var(--foreground);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
+}
+
+/*
+ * ---------------------------------------------------------------------
+ * Shared visual language for invitations
+ * ---------------------------------------------------------------------
+ * Plain custom properties, deliberately NOT registered in `@theme`: these
+ * are read with `var()` from stylesheets and inline `style` objects as
+ * much as from Tailwind arbitrary values, and a `@theme` token is only
+ * guaranteed to reach `:root` when Tailwind sees a utility that uses it.
+ * Declaring them here means they always resolve, wherever they are read.
+ *
+ * Every value below is colour-agnostic on purpose. A couple picks
+ * `--primary`/`--secondary`/`--background` in the editor and those can be
+ * anything at all, so the part of the design that has to hold up across
+ * ALL of their choices is the part made of proportion rather than hue:
+ * the type scale, the tracking, the rhythm, the radii, the shadows.
+ * Anywhere the design does need one of the couple's colours, it goes
+ * through `color-mix()` against their own background rather than a
+ * hardcoded tint, so a maroon theme and a sage theme both land somewhere
+ * sensible.
+ *
+ * Sizes are tuned for the 430px column an invitation renders in, not for
+ * a desktop page.
+ */
+:root {
+  /* Type scale. `overline` is the spaced small-caps label ("THIỆP CƯỚI"),
+     `display` is the couple's names, `hero` is the cover.
+     *
+     * Every step is a `clamp()` that grows from a 320px viewport to a 640px
+     * one and then STOPS. That ceiling is deliberate and it is the whole
+     * subtlety here: the invitation renders in a column capped at 430px, so
+     * type that kept growing with the viewport would simply overflow its own
+     * column on a laptop. What the fluid range actually buys is the other
+     * end — on a 320px phone the couple's names were being set at 32px in a
+     * display serif inside a 272px measure, which is where long Vietnamese
+     * names broke badly.
+     *
+     * The opening gate is the one part of the invitation that IS full-
+     * viewport, so it overrides these on large screens — see
+     * `[data-opening-gate]` below. */
+  --text-overline: clamp(0.6875rem, 0.5625rem + 0.625vw, 0.8125rem);
+  --text-caption: clamp(0.8125rem, 0.6875rem + 0.625vw, 0.9375rem);
+  --text-body: clamp(0.9375rem, 0.8125rem + 0.625vw, 1.0625rem);
+  --text-lead: clamp(1.0625rem, 0.9375rem + 0.625vw, 1.1875rem);
+  --text-title: clamp(1.5rem, 1.25rem + 1.25vw, 1.75rem);
+  --text-display: clamp(1.75rem, 1.5rem + 1.25vw, 2rem);
+  --text-hero: clamp(2.375rem, 2rem + 1.875vw, 2.75rem);
+
+  /* Tracking does most of the work in an editorial layout: wide on the
+     small labels, slightly negative on the large serif settings. */
+  --tracking-overline: 0.24em;
+  --tracking-caption: 0.08em;
+  --tracking-display: -0.015em;
+
+  --leading-display: 1.14;
+  --leading-body: 1.7;
+
+  /* Vertical rhythm. One value, so changing the breathing room of every
+     section is a one-line edit instead of a sweep through ten files. */
+  --section-y: 4.5rem;
+  --gutter: 1.5rem;
+
+  /*
+   * "One screenful", for the cover section and the invitation shell.
+   *
+   * `100dvh` is right on a real device and WRONG inside the editor's phone
+   * frame, which is a 780px-tall scrolling box in the middle of a much
+   * taller browser window: `dvh` measures the browser, so the cover section
+   * rendered 1180px tall inside a 780px frame and the couple previewed
+   * half a screen of blank paper. Routing it through a variable lets
+   * `PreviewPane` say how tall its own "viewport" is, while everything
+   * downstream keeps asking the same question. */
+  --viewport-h: 100dvh;
+
+  /* `paper` is deliberately near-square: an envelope, a card and a photo
+     edge should read as cut paper, not as an app surface. `card` is for
+     the genuinely interactive boxes. */
+  --radius-paper: 3px;
+  --radius-card: 0.875rem;
+
+  /*
+   * The envelope's two load-bearing measurements. Everything else about
+   * the card is derived from them — most importantly its top padding,
+   * which is `flap + seal/2 + 1.75rem` so the first line of type always
+   * clears the seal hanging off the flap's point. They are variables and
+   * not Tailwind classes precisely so the short-viewport rule further down
+   * can shrink the whole assembly by changing two numbers, instead of four
+   * hand-recomputed magic paddings that would drift apart.
+   */
+  --envelope-flap: 6rem;
+  --envelope-seal: 3.5rem;
+
+  /* Two soft, layered shadows in place of a single hard drop. The near
+     layer draws the edge, the far layer gives ambient lift; both are
+     low-alpha warm black, so neither reads as a grey halo. */
+  --shadow-soft: 0 1px 2px rgba(28, 25, 23, 0.04), 0 6px 16px -10px rgba(28, 25, 23, 0.18);
+  --shadow-lift: 0 2px 4px rgba(28, 25, 23, 0.05), 0 18px 44px -22px rgba(28, 25, 23, 0.38);
+
+  /* Warm neutral ink. These deliberately do NOT follow
+     `prefers-color-scheme`: an invitation is always paper in a colour its
+     couple chose, so flipping the ink dark would put dark text on a light
+     background the couple set explicitly. The app chrome above uses
+     `--foreground` for that instead. */
+  --ink: #1f1b18;
+  --ink-soft: #5b544e;
+  --ink-faint: #9d958d;
+  --hairline: rgba(31, 27, 24, 0.14);
+
+  /*
+   * Paper.
+   *
+   * `--grain` is isotropic noise, for small surfaces like the envelope
+   * card. `--paper-fibre` is the same generator stretched along one axis
+   * so it reads as the grain direction of a sheet of stock, and it is what
+   * the whole invitation column is laid on. `--watermark` is a line
+   * drawing of a ceremony arch, repeated down the column at a few percent
+   * — the thing that stops a long scroll of centred text looking like a
+   * document.
+   *
+   * All three are inline SVG: a few hundred bytes each, no extra request,
+   * and they resize with whatever they are painted on. They are
+   * deliberately NOT tinted from the couple's palette — a data URI cannot
+   * read a custom property, and at these opacities the difference is not
+   * visible, so masking the theme colour through them would be real
+   * complexity bought for nothing.
+   */
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23g)'/%3E%3C/svg%3E");
+  --paper-fibre: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.022 0.9' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23f)' opacity='0.07'/%3E%3C/svg%3E");
+  --watermark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 780' width='420' height='780'%3E%3Cg fill='none' stroke='%231f1b18' stroke-opacity='0.055' stroke-width='1'%3E%3Cpath d='M112 620V286a98 98 0 0 1 196 0v334'/%3E%3Cpath d='M134 620V292a76 76 0 0 1 152 0v328'/%3E%3Cpath d='M74 622h272M88 606h244'/%3E%3Cpath d='M158 620V336M262 620V336'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/*
+ * The one "come and tap me" cue on the opening gate: a ring that breathes
+ * outward from the seal. Written as a CSS animation rather than a
+ * framer-motion loop so it costs no JavaScript and so the reduced-motion
+ * opt-out below is honoured by the browser directly — the gate must stay
+ * completely still for a guest who asked for that, and a JS-driven loop
+ * would need the React tree to re-read the media query to manage it.
+ */
+@keyframes hpwd-halo {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+.hpwd-halo {
+  animation: hpwd-halo 3s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hpwd-halo {
+    animation: none;
+  }
+}
+
+/*
+ * The stage.
+ *
+ * Below 431px the column IS the page and none of this applies. Above it
+ * there are gutters, and the question is what fills them. Anything fixed
+ * would clash with some couple's palette, so the stage is mixed out of the
+ * couple's own secondary colour against their own background — a maroon
+ * theme and a sage theme each land somewhere that belongs to them — and
+ * the column becomes a sheet of paper lying on it, with the same shadow
+ * and hairline the opening gate's card uses.
+ *
+ * The wash is painted by a `position: fixed` pseudo-element rather than by
+ * a background on the stage itself: the stage is as tall as the whole
+ * invitation (4000px and up), so a gradient anchored to it would be
+ * stretched over the entire document instead of sitting at the top of the
+ * screen. `background-attachment: fixed` would express the same thing and
+ * is a known scroll-jank source on mobile Safari.
+ *
+ * `InvitePage` withholds `data-invite-stage` in the editor's preview: that
+ * frame is 390px wide inside a wide browser window, so a viewport media
+ * query is true there while the thing being previewed is a phone. The
+ * container query that would answer this honestly is not usable —
+ * `container-type` makes the element a containing block for `position:
+ * fixed` descendants, which would re-anchor the opening overlay to the
+ * full 4000px document instead of to the viewport.
+ */
+@media (min-width: 431px) {
+  [data-invite-stage] {
+    background-color: color-mix(in oklab, var(--secondary) 12%, var(--background));
+  }
+
+  [data-invite-stage]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: radial-gradient(
+      90% 45% at 50% 0%,
+      color-mix(in oklab, var(--secondary) 30%, var(--background)) 0%,
+      transparent 75%
+    );
+  }
+
+  [data-invite-stage] [data-invite-column] {
+    position: relative;
+    z-index: 1;
+    box-shadow: var(--shadow-lift);
+    border-inline: 1px solid color-mix(in oklab, var(--primary) 8%, transparent);
+  }
+}
+
+/*
+ * The opening gate is the one full-viewport surface an invitation has, so
+ * unlike the column it should use the room a laptop gives it. Overriding
+ * the scale variables on the gate's own root lets every one of the five
+ * effects scale together, without a single prop being threaded through
+ * `OpeningCaption`.
+ */
+@media (min-width: 700px) {
+  [data-opening-gate] {
+    --text-overline: 0.8125rem;
+    --text-caption: 0.9375rem;
+    --text-lead: 1.25rem;
+    --text-display: 2.5rem;
+    --envelope-flap: 7rem;
+    --envelope-seal: 4rem;
+  }
+}
+
+/*
+ * ...and the opposite case, which is the one that was actually broken: a
+ * SHORT viewport. Measured on a phone held sideways (844x390), the gate's
+ * composition came to 614px against 390px of screen and was clipped at
+ * both ends at once — the seal above the fold, the "Mở thiệp" button below
+ * it. Nobody was trapped, because the whole card is the button, but a
+ * guest who happened to be holding their phone in landscape met a
+ * cropped, buttonless invitation.
+ *
+ * Deliberately AFTER the min-width rule, so that on something that is both
+ * wide and short — a tablet in landscape, a phone in landscape — the short
+ * rule is the one that wins. Height is the binding constraint there.
+ */
+@media (max-height: 700px) {
+  [data-opening-gate] {
+    --text-overline: 0.625rem;
+    --text-caption: 0.75rem;
+    --text-lead: 0.9375rem;
+    --text-display: 1.5rem;
+    --envelope-flap: 4rem;
+    --envelope-seal: 2.5rem;
+  }
+}
+
+/*
+ * Owner-facing data tables (the guest list, the responses list) stacked
+ * for narrow screens.
+ *
+ * One DOM, restyled — not a second card-list rendered alongside the table.
+ * Rendering both would put two copies of every "Sao chép link" / "Xoá"
+ * button in the accessible tree at once, which is worse for a screen
+ * reader than either layout alone, and would double every control the
+ * tests reach for by role.
+ *
+ * Changing `display` away from the table values strips the implicit table
+ * semantics, so the markup carries the matching ARIA roles explicitly —
+ * redundant above the breakpoint, load-bearing below it.
+ */
+@media (max-width: 639px) {
+  [data-stacked-table],
+  [data-stacked-table] tbody,
+  [data-stacked-table] tr,
+  [data-stacked-table] td {
+    display: block;
+    width: 100%;
+  }
+
+  /* Visually hidden, not `display: none`: the column names are what the
+     `data-label` captions below are quoting, and a `rowgroup` that is
+     display:none is gone from the accessible tree too. */
+  [data-stacked-table] thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  [data-stacked-table] tr {
+    padding: 0.625rem 0;
+  }
+
+  [data-stacked-table] td {
+    padding: 0.25rem 0.75rem;
+  }
+
+  [data-stacked-table] td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 0.125rem;
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #9ca3af;
+  }
+}
+
+/*
+ * The invitation column is a sheet of paper, not a white div.
+ *
+ * Two background layers over the couple's own `--background`: the
+ * watermark, repeated down the page (the reference this was modelled on
+ * does the same — its arch motif reappears behind the album and behind the
+ * gift box rather than sitting at the top once), and the fibre grain over
+ * the whole thing.
+ *
+ * Painted as backgrounds rather than as an absolutely-positioned element
+ * on purpose. A real element would need a stacking context to sit under
+ * ten sections that are not themselves positioned, and getting that wrong
+ * puts a decorative layer on top of the couple's own text.
+ */
+[data-invite-column] {
+  /* `clip`, not `hidden`: the floral sprays on the information cards
+     overhang their card edges on purpose, and a spray on a full-width card
+     would otherwise widen the page. `overflow: hidden` would fix that too
+     but would also turn the column into a scroll container, which on iOS
+     breaks the page's own momentum scrolling. */
+  overflow-x: clip;
+  background-image: var(--watermark), var(--paper-fibre);
+  background-repeat: repeat-y, repeat;
+  background-size: 100% 780px, 220px 220px;
+  background-position: center -60px, top left;
+  background-blend-mode: normal, multiply;
+}
+
+/*
+ * Ink for the filled information cards, computed from the couple's own
+ * `--primary` by `readableInkOn` and published here by `InvitePage`. See
+ * `lib/contrast.ts` for why this is computed and not a fixed cream.
+ * The fallback matches that module's own fallback, so a card rendered
+ * outside `InvitePage` (a test, a future standalone preview) still has
+ * legible text rather than inheriting whatever is around it.
+ */
+[data-invite-root] {
+  --on-primary: #fbf7f2;
 }

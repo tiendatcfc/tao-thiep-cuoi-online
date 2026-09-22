@@ -145,18 +145,28 @@ export default async function ResponsesPage({
                 <p className="mt-3 text-sm text-gray-400">Chưa có phản hồi nào.</p>
               ) : (
                 <div className="mt-3 overflow-x-auto rounded-xl border border-gray-200">
-                  <table className="min-w-full divide-y divide-gray-200 text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
+                  {/*
+                   * Same `data-stacked-table` treatment as the guest list
+                   * (see globals.css), and it matters more here: this table
+                   * is as wide as the couple's RSVP form has fields, so on a
+                   * phone it was a sideways scroll from the very first
+                   * custom question. Column names come from the form's own
+                   * `field.label`, so `data-label` is per-field rather than
+                   * a fixed set.
+                   */}
+                  <table data-stacked-table role="table" className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead role="rowgroup" className="bg-gray-50">
+                      <tr role="row">
+                        <th role="columnheader" className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
                           Thời gian
                         </th>
-                        <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
+                        <th role="columnheader" className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
                           Tên khách
                         </th>
                         {section.props.fields.map((field) => (
                           <th
                             key={field.id}
+                            role="columnheader"
                             className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500"
                           >
                             {field.label}
@@ -164,23 +174,38 @@ export default async function ResponsesPage({
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody role="rowgroup" className="divide-y divide-gray-100">
                       {sectionSubmissions.map((submission) => {
                         const data = submission.data as Record<string, unknown>;
                         const guestName = submission.guestToken
                           ? (guestNameByToken.get(submission.guestToken) ?? "Ẩn danh")
                           : "Ẩn danh";
                         return (
-                          <tr key={submission.id}>
-                            <td className="whitespace-nowrap px-3 py-2 text-gray-500">
+                          <tr key={submission.id} role="row">
+                            <td
+                              role="cell"
+                              data-label="Thời gian"
+                              className="whitespace-nowrap px-3 py-2 text-gray-500"
+                            >
                               {formatVietnameseDate(submission.createdAt.toISOString(), {
                                 hour: "2-digit",
                                 minute: "2-digit",
                               })}
                             </td>
-                            <td className="whitespace-nowrap px-3 py-2 text-gray-700">{guestName}</td>
+                            <td
+                              role="cell"
+                              data-label="Tên khách"
+                              className="whitespace-nowrap px-3 py-2 font-medium text-gray-700 sm:font-normal"
+                            >
+                              {guestName}
+                            </td>
                             {section.props.fields.map((field) => (
-                              <td key={field.id} className="px-3 py-2 text-gray-700">
+                              <td
+                                key={field.id}
+                                role="cell"
+                                data-label={field.label}
+                                className="px-3 py-2 text-gray-700"
+                              >
                                 {formatSubmissionValue(data[field.id], "-")}
                               </td>
                             ))}

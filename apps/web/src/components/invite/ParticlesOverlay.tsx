@@ -100,14 +100,30 @@ export function ParticlesOverlay({ kind }: ParticlesOverlayProps) {
     let height = window.innerHeight;
     let particles: Particle[] = [];
 
+    /**
+     * Measures the CANVAS, not the window.
+     *
+     * The canvas used to be `fixed inset-0` sized to `window.innerWidth`,
+     * so on any screen wider than the invitation's 430px column the petals
+     * fell over the empty page on either side of it — most visibly on a
+     * laptop in dark mode, where they drifted across a black field that is
+     * no part of anyone's invitation. The element is now capped to the
+     * column's width in CSS, and the drawing surface has to follow the box
+     * rather than the other way round: nothing here writes `style.width`
+     * any more, or the inline value would immediately override that cap.
+     *
+     * The `|| window.inner*` fallback is for environments where layout
+     * never runs and the rect is all zeros (jsdom, and a canvas measured
+     * before first paint) — a zero-width surface would silently draw
+     * nothing at all.
+     */
     function resize() {
       const dpr = window.devicePixelRatio || 1;
-      width = window.innerWidth;
-      height = window.innerHeight;
-      canvas!.width = width * dpr;
-      canvas!.height = height * dpr;
-      canvas!.style.width = `${width}px`;
-      canvas!.style.height = `${height}px`;
+      const rect = canvas!.getBoundingClientRect();
+      width = rect.width || window.innerWidth;
+      height = rect.height || window.innerHeight;
+      canvas!.width = Math.round(width * dpr);
+      canvas!.height = Math.round(height * dpr);
       ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
       particles = Array.from({ length: PARTICLE_COUNT }, () => createParticle(kind, width, height));
     }
@@ -139,5 +155,11 @@ export function ParticlesOverlay({ kind }: ParticlesOverlayProps) {
 
   if (shouldReduceMotion) return null;
 
-  return <canvas ref={canvasRef} aria-hidden="true" className="pointer-events-none fixed inset-0 z-40" />;
+  return (
+    <canvas
+      ref={canvasRef}
+      aria-hidden="true"
+      className="pointer-events-none fixed inset-y-0 left-1/2 z-40 w-full max-w-[430px] -translate-x-1/2"
+    />
+  );
 }

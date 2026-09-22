@@ -2,30 +2,28 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { createDefaultDocument, type Music, type Section } from '@hpwd/schema'
 import sharp from 'sharp'
 import { prisma } from '../src/index'
+import { ART_PALETTES, placeholderArtSvg } from './placeholder-art'
 
 // ---------------------------------------------------------------------------
 // Album image seed
 // ---------------------------------------------------------------------------
 //
-// Generates 4 solid-pastel placeholder JPEGs (via sharp, no real photos to
-// hand) and uploads them to the same S3-compatible object store `storage.ts`
-// (apps/web) uses — MinIO locally, R2 in production — reusing its R2_* env
-// var names. This is best-effort: a working `/i/demo` page doesn't require a
-// reachable object store, so any failure here (env not set, MinIO down)
-// just warns and leaves the album section empty instead of failing the seed.
+// Generates illustrated placeholder JPEGs (via sharp, from the SVG in
+// `placeholder-art.ts` — no real photos to hand, and no right to anyone
+// else's) and uploads them to the same S3-compatible object store
+// `storage.ts` (apps/web) uses — MinIO locally, R2 in production — reusing
+// its R2_* env var names. This is best-effort: a working `/i/demo` page
+// doesn't require a reachable object store, so any failure here (env not
+// set, MinIO down) just warns and leaves the images unset instead of
+// failing the seed.
+//
+// Portrait, not landscape: wedding photographs are, the arch motif the art
+// draws is, and the album's carousel layout crops to 3/4.
 
-const ALBUM_IMAGE_WIDTH = 800
-const ALBUM_IMAGE_HEIGHT = 600
+const ALBUM_IMAGE_WIDTH = 900
+const ALBUM_IMAGE_HEIGHT = 1200
 const ALBUM_BLUR_WIDTH = 16
 const ALBUM_BLUR_QUALITY = 40
-
-// RGB solid backgrounds — no real photos, just distinguishable placeholders.
-const ALBUM_PASTEL_COLORS = [
-  { r: 250, g: 214, b: 221 }, // pastel pink
-  { r: 214, g: 232, b: 250 }, // pastel blue
-  { r: 223, g: 245, b: 224 }, // pastel green
-  { r: 250, g: 240, b: 214 }, // pastel cream
-]
 
 interface SeedAlbumImage {
   url: string
@@ -54,17 +52,26 @@ function readR2Env(): R2Env | null {
   return { endpoint, bucket, accessKeyId, secretAccessKey, publicUrl }
 }
 
-async function buildPlaceholderJpeg(color: { r: number; g: number; b: number }) {
-  const buffer = await sharp({
-    create: {
-      width: ALBUM_IMAGE_WIDTH,
-      height: ALBUM_IMAGE_HEIGHT,
-      channels: 3,
-      background: color,
-    },
+/**
+ * `portrait` art is what goes inside the invitation's own `ArchPortrait`
+ * frame — the cover and the two couple photos. It drops the drawn arch and
+ * the second spray: a drawn arch inside a real arch, under a real floral
+ * corner, reads as a mistake rather than as a motif.
+ */
+async function buildPlaceholderJpeg(
+  paletteIndex: number,
+  options: { monogram?: string; variant?: 'album' | 'portrait' } = {},
+) {
+  const portrait = options.variant === 'portrait'
+  const svg = placeholderArtSvg({
+    width: ALBUM_IMAGE_WIDTH,
+    height: ALBUM_IMAGE_HEIGHT,
+    palette: ART_PALETTES[paletteIndex % ART_PALETTES.length],
+    monogram: options.monogram,
+    arch: !portrait,
+    sprays: portrait ? 'portrait' : 'full',
   })
-    .jpeg({ quality: 80 })
-    .toBuffer()
+  const buffer = await sharp(Buffer.from(svg)).jpeg({ quality: 82 }).toBuffer()
 
   // Same recipe as apps/web/src/lib/image.ts's blur preview: a tiny resized
   // WebP re-encoded as a base64 data URL.
@@ -77,14 +84,29 @@ async function buildPlaceholderJpeg(color: { r: number; g: number; b: number }) 
   return { buffer, blurDataUrl }
 }
 
-async function seedAlbumImages(): Promise<SeedAlbumImage[]> {
+/**
+ * The demo's imagery: four album frames, one cover portrait and one
+ * portrait per person. Everything the invitation can show a picture in,
+ * so the demo never renders an empty photo slot — those are what made it
+ * look unfinished, and the demo doubles as the product's shop window.
+ */
+export interface SeedArtwork {
+  album: SeedAlbumImage[]
+  cover: string | null
+  groom: string | null
+  bride: string | null
+}
+
+const EMPTY_ARTWORK: SeedArtwork = { album: [], cover: null, groom: null, bride: null }
+
+async function seedAlbumImages(): Promise<SeedArtwork> {
   const env = readR2Env()
   if (!env) {
     console.warn(
-      'seed-dev: R2_* env vars not set — skipping album image upload (album section will be empty). ' +
+      'seed-dev: R2_* env vars not set — skipping placeholder artwork upload (photo slots will be empty). ' +
         'Set R2_ENDPOINT/R2_BUCKET/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_PUBLIC_URL (see apps/web/.env.local) to enable it.',
     )
-    return []
+    return EMPTY_ARTWORK
   }
 
   const client = new S3Client({
@@ -94,35 +116,43 @@ async function seedAlbumImages(): Promise<SeedAlbumImage[]> {
     credentials: { accessKeyId: env.accessKeyId, secretAccessKey: env.secretAccessKey },
   })
 
+  // Deterministic keys — re-running the seed overwrites the same objects
+  // instead of accumulating new ones each time.
+  async function upload(
+    key: string,
+    paletteIndex: number,
+    options: { monogram?: string; variant?: 'album' | 'portrait' } = {},
+  ) {
+    const { buffer, blurDataUrl } = await buildPlaceholderJpeg(paletteIndex, options)
+    await client.send(
+      new PutObjectCommand({ Bucket: env!.bucket, Key: key, Body: buffer, ContentType: 'image/jpeg' }),
+    )
+    return { url: `${env!.publicUrl}/${key}`, blurDataUrl }
+  }
+
   try {
-    const images: SeedAlbumImage[] = []
-    for (const [i, color] of ALBUM_PASTEL_COLORS.entries()) {
-      // Deterministic key — re-running the seed overwrites the same 4
-      // objects instead of accumulating new ones each time.
-      const key = `seed/album-${i + 1}.jpg`
-      const { buffer, blurDataUrl } = await buildPlaceholderJpeg(color)
-      await client.send(
-        new PutObjectCommand({
-          Bucket: env.bucket,
-          Key: key,
-          Body: buffer,
-          ContentType: 'image/jpeg',
-        }),
-      )
-      images.push({
-        url: `${env.publicUrl}/${key}`,
-        width: ALBUM_IMAGE_WIDTH,
-        height: ALBUM_IMAGE_HEIGHT,
-        blurDataUrl,
-      })
+    // Warm palettes only, and all three PORTRAITS on the same one.
+    // The demo document's theme is a deep plum, and the first attempt gave
+    // the bride a sage frame and the groom a terracotta one — which read
+    // as three unrelated photographs rather than as one shoot. The album
+    // still varies, because four album photos having different light IS
+    // what four album photos look like.
+    const albumPalettes = [0, 4, 2, 3]
+    const album: SeedAlbumImage[] = []
+    for (const [i, palette] of albumPalettes.entries()) {
+      const { url, blurDataUrl } = await upload(`seed/album-${i + 1}.jpg`, palette)
+      album.push({ url, width: ALBUM_IMAGE_WIDTH, height: ALBUM_IMAGE_HEIGHT, blurDataUrl })
     }
-    return images
+    const cover = await upload('seed/cover.jpg', 0, { monogram: 'K & H', variant: 'portrait' })
+    const groom = await upload('seed/groom.jpg', 0, { variant: 'portrait' })
+    const bride = await upload('seed/bride.jpg', 0, { variant: 'portrait' })
+    return { album, cover: cover.url, groom: groom.url, bride: bride.url }
   } catch (error) {
     console.warn(
-      'seed-dev: could not upload album images (object storage unreachable?) — album section will be empty.',
+      'seed-dev: could not upload placeholder artwork (object storage unreachable?) — photo slots will be empty.',
       error,
     )
-    return []
+    return EMPTY_ARTWORK
   }
 }
 
@@ -161,12 +191,34 @@ async function seedDemoMusic(): Promise<Music | null> {
 async function main() {
   const document = createDefaultDocument()
 
-  const albumImages = await seedAlbumImages()
-  if (albumImages.length > 0) {
+  const artwork = await seedAlbumImages()
+  if (artwork.album.length > 0) {
     const album = document.sections.find(
       (section): section is Extract<Section, { type: 'album' }> => section.type === 'album',
     )
-    if (album) album.props.images = albumImages
+    if (album) {
+      album.props.images = artwork.album
+      // The demo doubles as the shop window, and the peek carousel is the
+      // layout that shows there is more than one photo without the guest
+      // having to guess. `createDefaultDocument` keeps `grid` as the
+      // neutral default for a real couple starting from scratch.
+      album.props.layout = 'carousel'
+    }
+  }
+  if (artwork.cover) {
+    const cover = document.sections.find(
+      (section): section is Extract<Section, { type: 'cover' }> => section.type === 'cover',
+    )
+    if (cover) cover.props.coverImage = artwork.cover
+  }
+  if (artwork.groom || artwork.bride) {
+    const couple = document.sections.find(
+      (section): section is Extract<Section, { type: 'couple' }> => section.type === 'couple',
+    )
+    if (couple) {
+      if (artwork.groom) couple.props.groom.photo = artwork.groom
+      if (artwork.bride) couple.props.bride.photo = artwork.bride
+    }
   }
 
   const music = await seedDemoMusic()

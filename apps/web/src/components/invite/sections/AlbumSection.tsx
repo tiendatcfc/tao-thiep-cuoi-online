@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AlbumProps, Section } from "@hpwd/schema";
 import Image from "next/image";
 import dynamic from "next/dynamic";
@@ -57,6 +57,121 @@ function AlbumTile({
         <figcaption className="mt-1 px-0.5 text-center text-xs text-gray-500">{caption}</figcaption>
       ) : null}
     </figure>
+  );
+}
+
+/**
+ * The carousel layout: a peek carousel, not a filmstrip.
+ *
+ * Each slide is 76% of the column and snaps to centre, so the neighbours
+ * on both sides show an edge — which is the whole point. A strip of
+ * full-width slides gives a guest no reason to believe there is anything
+ * to the right of what they are looking at, and most never swipe. The
+ * dots say how many there are and how far in they have got.
+ *
+ * `-mx-[var(--gutter)]` with matching scroll padding: the strip runs the
+ * full width of the column so the peeking neighbours are not clipped at
+ * the section's gutter, while the centred slide still lines up with every
+ * other section's measure.
+ *
+ * The dots are real buttons, not decoration. `scrollIntoView` on the slide
+ * is one line and makes the carousel usable by anyone who cannot swipe;
+ * the scroll position is read back on scroll so the dots follow a swipe
+ * too.
+ */
+function AlbumCarousel({
+  images,
+  onOpen,
+}: {
+  images: AlbumImage[];
+  onOpen: (index: number) => void;
+}) {
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+
+  const handleScroll = useCallback(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const slides = [...strip.children] as HTMLElement[];
+    if (slides.length === 0) return;
+    // Nearest slide centre to the viewport centre, rather than
+    // `scrollLeft / slideWidth`: the slides carry scroll padding and a
+    // gap, so dividing by a width drifts by a whole slide near the end.
+    const centre = strip.scrollLeft + strip.clientWidth / 2;
+    let nearest = 0;
+    let best = Infinity;
+    slides.forEach((slide, index) => {
+      const distance = Math.abs(slide.offsetLeft + slide.offsetWidth / 2 - centre);
+      if (distance < best) {
+        best = distance;
+        nearest = index;
+      }
+    });
+    setActive(nearest);
+  }, []);
+
+  function goTo(index: number) {
+    const slide = stripRef.current?.children[index] as HTMLElement | undefined;
+    slide?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }
+
+  return (
+    <div className="flex w-full flex-col gap-4">
+      <div
+        ref={stripRef}
+        onScroll={handleScroll}
+        data-album-layout="carousel"
+        className="-mx-[var(--gutter)] flex w-[calc(100%+2*var(--gutter))] snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-[12%] px-[12%] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {images.map((image, index) => (
+          <AlbumTile
+            key={image.url}
+            image={image}
+            index={index}
+            onOpen={onOpen}
+            figureClassName="w-[76%] shrink-0 snap-center"
+            // A stable crop per slot rather than each photo's native (and
+            // possibly very tall or very wide) aspect ratio dictating the
+            // slide's size. The full, uncropped photo still opens in the
+            // lightbox.
+            buttonClassName="relative block aspect-[3/4] w-full overflow-hidden rounded-[var(--radius-card)]"
+          >
+            <Image
+              src={image.url}
+              alt={`Ảnh cưới ${index + 1}`}
+              fill
+              sizes="(max-width: 430px) 76vw, 327px"
+              placeholder={image.blurDataUrl ? "blur" : "empty"}
+              blurDataURL={image.blurDataUrl || undefined}
+              className="object-cover"
+              loading="lazy"
+            />
+          </AlbumTile>
+        ))}
+      </div>
+
+      {images.length > 1 ? (
+        <div role="group" aria-label="Chọn ảnh" className="flex items-center justify-center gap-2">
+          {images.map((image, index) => (
+            <button
+              key={image.url}
+              type="button"
+              onClick={() => goTo(index)}
+              aria-label={`Ảnh ${index + 1}`}
+              aria-current={index === active ? "true" : undefined}
+              className="h-1.5 rounded-full transition-all"
+              style={{
+                width: index === active ? 18 : 6,
+                backgroundColor:
+                  index === active
+                    ? "var(--primary)"
+                    : "color-mix(in oklab, var(--primary) 26%, transparent)",
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -167,37 +282,7 @@ export function AlbumSection({ section }: { section: Extract<Section, { type: "a
         </div>
       )}
       {layout === "carousel" && (
-        <div
-          data-album-layout="carousel"
-          className="flex w-full snap-x snap-mandatory gap-2 overflow-x-auto"
-        >
-          {images.map((image, index) => (
-            <AlbumTile
-              key={image.url}
-              image={image}
-              index={index}
-              onOpen={setLightboxIndex}
-              figureClassName="w-4/5 shrink-0 snap-center"
-              // Wide fixed-ratio tiles that snap to center as the guest
-              // swipes/scrolls horizontally — `fill` + `object-cover` again,
-              // same reasoning as the grid tile: a stable crop per slot
-              // rather than each photo's native (and possibly very tall or
-              // very wide) aspect ratio dictating the tile's size.
-              buttonClassName="relative block aspect-[3/4] w-full overflow-hidden rounded-lg"
-            >
-              <Image
-                src={image.url}
-                alt={`Ảnh cưới ${index + 1}`}
-                fill
-                sizes="(max-width: 430px) 80vw, 344px"
-                placeholder={image.blurDataUrl ? "blur" : "empty"}
-                blurDataURL={image.blurDataUrl || undefined}
-                className="object-cover"
-                loading="lazy"
-              />
-            </AlbumTile>
-          ))}
-        </div>
+        <AlbumCarousel images={images} onOpen={setLightboxIndex} />
       )}
       {layout === "hero" && (
         <div data-album-layout="hero" className="flex w-full flex-col gap-2">

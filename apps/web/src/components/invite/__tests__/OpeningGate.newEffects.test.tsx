@@ -69,7 +69,12 @@ describe.each(VARIANTS)("%s", (name, Variant, animationMs) => {
     renderVariant();
 
     expect(screen.getByText("M&T")).toBeInTheDocument();
-    expect(screen.getByText(/Kính mời: Nguyễn Văn An/)).toBeInTheDocument();
+    // The label and the name are two lines now ("Kính mời" set as a
+    // tracked small-caps label above the name), not the single
+    // "Kính mời: <name>" string they used to be — so each is asserted on
+    // its own rather than as one run of text.
+    expect(screen.getByText("Kính mời")).toBeInTheDocument();
+    expect(screen.getByText("Nguyễn Văn An")).toBeInTheDocument();
   });
 
   it("hides the guest's name when the couple turned that off", () => {

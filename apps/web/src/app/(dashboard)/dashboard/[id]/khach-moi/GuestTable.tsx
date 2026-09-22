@@ -295,20 +295,34 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">Tên</th>
-                <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">Nhóm</th>
-                <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
+          {/*
+           * `data-stacked-table` (see globals.css): below 640px the rows
+           * stop being a four-column grid and become stacked, labelled
+           * blocks. On a phone — which is where a couple actually sends
+           * these links from — four columns left the names wrapping onto
+           * three lines and cut every personalised link off mid-URL inside
+           * a sideways scroll.
+           *
+           * The ARIA roles are explicit because that restyling changes
+           * `display` away from the table values, which silently strips the
+           * implicit table semantics; `data-label` supplies the column name
+           * each stacked cell shows in place of the (then visually hidden)
+           * header row.
+           */}
+          <table data-stacked-table role="table" className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead role="rowgroup" className="bg-gray-50">
+              <tr role="row">
+                <th role="columnheader" className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">Tên</th>
+                <th role="columnheader" className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">Nhóm</th>
+                <th role="columnheader" className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
                   Trạng thái
                 </th>
-                <th className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
+                <th role="columnheader" className="whitespace-nowrap px-3 py-2 text-left font-medium text-gray-500">
                   Thao tác
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody role="rowgroup" className="divide-y divide-gray-100">
               {guests.map((guest) => {
                 const link = buildGuestLink(origin, slug, guest.token);
                 const zaloShareUrl = `https://zalo.me/share/link?url=${encodeURIComponent(link)}`;
@@ -316,8 +330,8 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
 
                 if (isEditing) {
                   return (
-                    <tr key={guest.id}>
-                      <td className="px-3 py-2">
+                    <tr key={guest.id} role="row">
+                      <td role="cell" data-label="Tên" className="px-3 py-2">
                         <input
                           value={editDraft.name}
                           onChange={(event) =>
@@ -326,7 +340,7 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
                           className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td role="cell" data-label="Nhóm" className="px-3 py-2">
                         <input
                           value={editDraft.group}
                           onChange={(event) =>
@@ -335,10 +349,10 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
                           className="w-full rounded-lg border border-gray-300 px-2 py-1 text-sm"
                         />
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-gray-700">
+                      <td role="cell" data-label="Trạng thái" className="whitespace-nowrap px-3 py-2 text-gray-700">
                         {guest.viewedAt ? "Đã xem" : "Chưa xem"}
                       </td>
-                      <td className="px-3 py-2">
+                      <td role="cell" data-label="Thao tác" className="px-3 py-2">
                         <div className="flex flex-col gap-1">
                           <div className="flex flex-wrap gap-2">
                             <button
@@ -366,15 +380,21 @@ export function GuestTable({ invitationId, slug, status, initialGuests, origin: 
                 }
 
                 return (
-                  <tr key={guest.id}>
-                    <td className="px-3 py-2 text-gray-900">{guest.name}</td>
-                    <td className="px-3 py-2 text-gray-700">{guest.group ?? "-"}</td>
-                    <td className="whitespace-nowrap px-3 py-2 text-gray-700">
+                  <tr key={guest.id} role="row">
+                    <td role="cell" data-label="Tên" className="px-3 py-2 font-medium text-gray-900 sm:font-normal">
+                      {guest.name}
+                    </td>
+                    <td role="cell" data-label="Nhóm" className="px-3 py-2 text-gray-700">{guest.group ?? "-"}</td>
+                    <td role="cell" data-label="Trạng thái" className="whitespace-nowrap px-3 py-2 text-gray-700">
                       {guest.viewedAt ? "Đã xem" : "Chưa xem"}
                     </td>
-                    <td className="px-3 py-2">
+                    <td role="cell" data-label="Thao tác" className="px-3 py-2">
                       <div className="flex flex-col gap-1">
-                        <p className="max-w-xs truncate text-xs text-gray-400">
+                        {/* `max-w-full` below the breakpoint: `max-w-xs` is
+                            wider than a phone's content box, so the link ran
+                            past the edge and was clipped without even an
+                            ellipsis to say so. */}
+                        <p className="max-w-full truncate text-xs text-gray-400 sm:max-w-xs">
                           {originKnown ? link : "Đang tải liên kết…"}
                         </p>
                         <div className="flex flex-wrap gap-2">

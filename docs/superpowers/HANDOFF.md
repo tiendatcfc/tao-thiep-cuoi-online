@@ -151,12 +151,18 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`.
 - ~~**Mã QR = 60% trang thiệp**~~: `react-qr-code` vẽ một sub-path cho **mỗi ô**, cả ô đen lẫn ô trắng. Thay bằng `<rect>` + path mã hoá độ dài chạy. `/i/demo`: thô **123.212 → 49.354**, gzip **21.111 → 12.566**. Tập ô đen so trước/sau: **giống hệt** (851 và 799 ô).
   - **Sửa một khẳng định sai của Phase 4:** 124 kB HTML **không** phải nghẽn LCP. Đo cùng điều kiện: 723 ms trước, 753 ms sau — nhiễu. Section quà ở **cuối tài liệu** nên byte của nó về sau khi phần tử LCP đã vẽ. Đừng chạy lại thí nghiệm này.
 
-## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 12
+## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 11
 
 1. ~~**Google OAuth**~~ — **XONG 2026-09-18.** `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` đã có trong `apps/web/.env` (và `.env.local`), chủ dự án đã đăng nhập thật: có `User` "Tiến Đạt Nguyễn" (@gmail.com) + `Account` provider `google` + ảnh đại diện, và đã tạo được thiệp. Luồng sau đăng nhập không còn là vùng chưa ai bấm.
    - **Còn cho production:** đặt `AUTH_TRUST_HOST=true` (hoặc `AUTH_URL`) — thiếu là đăng nhập Google **hỏng hoàn toàn** khi tự host sau reverse proxy; đặt `NEXT_PUBLIC_SITE_URL` lúc **build**; thêm redirect URI của tên miền thật vào Google Cloud Console.
    - **Bẫy cấu hình (nay đã có cảnh báo, chưa được dọn):** `apps/web/.env` và `apps/web/.env.local` vẫn **trùng nhau từng byte**. Next cho `.env.local` thắng, nên sửa `.env` không có tác dụng. Từ 2026-09-18, `next dev` / `next build` in cảnh báo kèm danh sách khoá bị che (tên khoá thôi, không bao giờ in giá trị). **Vẫn cần người xoá một trong hai file** — code không tự xoá file chứa secret thật.
-2. **File font** — `apps/web/public/fonts/` hiện **chỉ có README.md**. Cần 16 file `.woff2` (8 họ × 400/700, subset tiếng Việt, OFL) **và** 1 file `og-heading.ttf` hoặc `.woff`. Đọc `apps/web/public/fonts/README.md`. Lưu ý: satori (dùng cho ảnh share) **không đọc được WOFF2** — thả mỗi WOFF2 vào thì CSS sửa được nhưng ảnh share vẫn hiện ô trắng thay cho Đ, ặ, ễ, ị.
+2. ~~**File font**~~ — **XONG**: WOFF2 (trình duyệt) 2026-09-21, WOFF1 (ảnh share OG) 2026-09-22. Không còn việc gì cho người làm bằng tay.
+   - ~~16 file `.woff2`~~ → nay là **32 file** trong `apps/web/public/fonts/` (8 họ × 2 subset `latin`/`vietnamese` × 400/700), sinh bởi `pnpm --filter @hpwd/web sync:fonts` từ các gói `@fontsource/*` và đã commit. Cái chặn trước đây là **đường truyền**, không phải file: proxy MITM `fonts.gstatic.com` nhưng **cho registry npm đi qua**, mà `@fontsource` phát hành đúng các file WOFF2 của Google Fonts. Vẫn không có request nào ra host ngoài, lúc build hay lúc chạy. `src/lib/__tests__/font-files.test.ts` là chốt chặn: thiếu file, sai định dạng, hoặc CSS sinh ra lệch với file đã commit đều đỏ.
+   - ~~**Còn lại:** 1 file `og-heading.ttf` cho ảnh share~~ → **xong, và hoá ra là lỗi rò dữ liệu chứ không phải lỗi thẩm mỹ.** Thêm **16 file `.woff` (WOFF1)** (8 họ × `latin`/`vietnamese`, chỉ weight 700), cùng `sync:fonts` sinh ra, **không trình duyệt nào tải** (có test chốt là CSS không trỏ tới chúng) — chỉ satori đọc, từ đĩa.
+     - Ghi chú cũ nói "satori chỉ nhận một file mỗi họ chữ nên file đã subset là vô dụng". **Sai.** satori dò font **theo từng ký tự**: nó duyệt danh sách font đã đăng ký và lấy font đầu tiên thật sự có glyph. Hai subset dùng được, miễn là đăng ký dưới **hai `name` khác nhau** — cùng tên + cùng weight + cùng style thì font store của nó **giữ một, bỏ lặng lẽ cái kia**. Đó là lý do `og-font.ts` đặt `HPWD OG Heading` và `HPWD OG Heading VN`.
+     - **Lỗi thật:** không có font đọc được, satori lùi về `noto-sans-v27-latin-regular.ttf` đi kèm (226 glyph, không có ễ Đ ặ ư ờ ạ), rồi **gọi `fonts.googleapis.com/css2?family=Noto+Sans&text=<các ký tự thiếu>` lúc render**. Ba request ra Google mỗi lần render ảnh share, một trong đó mang **ký tự trong tên cặp đôi** trên query string — trong một app lấy "không request bên thứ ba" làm điểm bán hàng. Ô vuông trắng chỉ xuất hiện khi cú gọi đó **thất bại**, nên trên máy dev nó trông hoàn toàn bình thường.
+     - Ảnh share nay dùng **đúng font tiêu đề cặp đôi chọn** (`theme.headingFont`), lùi về Playfair Display nếu tên font lạ.
+     - Chốt: `src/lib/__tests__/og-font.render.test.tsx` render PNG thật tên `Nguyễn Đặng & Trường Hạnh` và khẳng định **0 request ra ngoài**, kèm test đối chứng bỏ font đi để chứng minh request quay lại — test không thể pass rỗng nếu sau này `ImageResponse` thôi fetch.
 3. **Nhạc có bản quyền** — thư viện hiện là 3 tiếng bíp sine do ffmpeg sinh ra. `docs/music-credits.md` ghi rõ chúng không được lên production, kèm việc cần làm.
 4. **Quét thử QR** bằng app ngân hàng Việt Nam thật: `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png`. 2 phút, chặn tính năng liên quan tới tiền.
 5. **Email liên hệ + rà soát pháp lý** — `apps/web/src/app/(legal)/constants.ts` còn placeholder; hai trang có banner "chưa qua luật sư".
@@ -168,9 +174,31 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`.
 11. **Tạo bucket backup riêng** (KHÔNG gắn policy công khai), đặt `BACKUP_BUCKET`, chạy `pnpm backup:db` và **diễn tập restore** theo `docs/operations.md` mục 5c. Backup chưa từng restore thì không phải backup.
 12. **Cắm uptime monitor** vào `/api/health?strict=1` (60 giây/lần, báo động sau 2 lần hỏng liên tiếp) và **quyết định về theo dõi lỗi** (Sentry hay tự host) — đây sẽ là dịch vụ bên thứ ba đầu tiên nhận dữ liệu người dùng, nên là quyết định của chủ dự án. Endpoint nay kiểm **5** thành phần, không phải 4 (thêm `services/rembg`).
 
+## Giao diện: light-only, và cột 430px
+
+- **Ứng dụng chỉ có giao diện sáng.** Khối `prefers-color-scheme: dark` mà
+  `create-next-app` sinh ra đã bị **xoá** (2026-09-21): không có một biến thể
+  `dark:` nào trong toàn bộ `src/`, nên khối đó không tạo ra giao diện tối mà
+  chỉ làm hỏng giao diện sáng — `body` thành đen còn mọi thẻ, mọi chữ vẫn
+  sáng. `:root` nay khai báo `color-scheme: light`, và
+  `src/app/__tests__/color-scheme.test.ts` giữ cả hai đầu: cấm khối media
+  query đó quay lại, và cấm luôn `dark:` lẻ tẻ. Ai làm giao diện tối thật thì
+  xoá test đó đi.
+- **Thiệp luôn rộng 430px, ở mọi khổ màn hình.** Từ 431px trở lên, phần thừa
+  hai bên là "sân khấu" (`[data-invite-stage]`) pha từ chính màu của cặp đôi,
+  còn cột thiệp thành tấm giấy có bóng. Không nới cột ra: bố cục và độ dài
+  dòng chữ phải khớp đúng với khung xem trước trong trình soạn, nếu không
+  khung đó nói dối.
+- **"Một màn hình" là `--viewport-h`, không phải `100dvh`.** `dvh` đo cửa sổ
+  trình duyệt, sai bên trong khung xem trước 780px của trình soạn.
+- Sân khấu **không** bật trong chế độ xem trước. Lý do không dùng container
+  query nằm ở comment dài trong `globals.css` — `container-type` biến phần tử
+  thành khối chứa cho con `position: fixed`, làm lớp phủ màn mở bị neo vào cả
+  tài liệu thay vì vào màn hình.
+
 ## Môi trường (bỏ qua là mất thời gian)
 
-- **Proxy công ty MITM `fonts.gstatic.com`** → `next/font/google` KHÔNG dùng được, sẽ hỏng ngay trên máy này. Font phải self-host.
+- **Proxy công ty MITM `fonts.gstatic.com`** → `next/font/google` KHÔNG dùng được, sẽ hỏng ngay trên máy này. Font phải self-host. **Registry npm thì đi qua bình thường**, nên `@fontsource/*` là đường lấy đúng các file đó — xem `apps/web/scripts/sync-fonts.mjs`.
 - Tải binary lỗi chứng chỉ → thêm `NODE_EXTRA_CA_CERTS=$PWD/.certs/corp-ca.pem`. **Tuyệt đối không** `NODE_TLS_REJECT_UNAUTHORIZED=0` hay `curl --insecure` (đã có subagent thử và bị chặn).
 - Docker: `docker compose -f docker-compose.dev.yml up -d` → `hpwd-postgres`, `hpwd-redis`, `hpwd-minio` (bind 127.0.0.1).
 - **MinIO không hỗ trợ API CORS mức bucket (501)**; local dựa vào `cors_allow_origin=*` mức server. **Từ 2026-08-19 upload ảnh KHÔNG cần CORS nữa** (đi multipart qua server, không còn browser-PUT); `init-bucket.mjs` vẫn set CORS (vô hại, để dành cho upload trực tiếp tương lai — audio Phase 2). Chỉ khi nào quay lại presign/browser-PUT thì R2 mới cần `PutBucketCors`.

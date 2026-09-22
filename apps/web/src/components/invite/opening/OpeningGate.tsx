@@ -8,7 +8,7 @@ import { EnvelopeOpening } from "./EnvelopeOpening";
 import { FadeOpening } from "./FadeOpening";
 import { PetalsOpening } from "./PetalsOpening";
 import { RevealOpening } from "./RevealOpening";
-import type { OpeningVariantProps } from "./types";
+import type { OpeningIdentity, OpeningVariantProps } from "./types";
 
 /**
  * One component per effect the schema allows, `none` excepted (it has no
@@ -32,6 +32,12 @@ const OPENING_VARIANTS: Record<Exclude<Opening["effect"], "none">, ComponentType
 export interface OpeningGateProps {
   opening: Opening;
   guestName: string | null;
+  /**
+   * The couple's names and date, read off the document's cover section by
+   * `InvitePage`. Optional and nullable: a document without a cover
+   * section is legal, and the gate degrades to the monogram alone.
+   */
+  identity?: OpeningIdentity | null;
   /**
    * Fired exactly once, the moment the invitation becomes visible/usable —
    * `InvitePage` uses this to flip `MusicPlayer`'s `startSignal`, its
@@ -80,7 +86,7 @@ export interface OpeningGateProps {
  * tap through an envelope on every re-render, and preview must never kick
  * off the guest-facing autoplay chain.
  */
-export function OpeningGate({ opening, guestName, onOpened, onTap, children }: OpeningGateProps) {
+export function OpeningGate({ opening, guestName, identity = null, onOpened, onTap, children }: OpeningGateProps) {
   const { isPreview } = useInviteContext();
   const [opened, setOpened] = useState(opening.effect === "none");
   const firedRef = useRef(false);
@@ -147,7 +153,7 @@ export function OpeningGate({ opening, guestName, onOpened, onTap, children }: O
       </div>
       <div data-opening-overlay>
         {!opened && Variant ? (
-          <Variant opening={opening} guestName={guestName} onOpen={handleOpen} onTap={onTap} />
+          <Variant opening={opening} guestName={guestName} identity={identity} onOpen={handleOpen} onTap={onTap} />
         ) : null}
       </div>
     </>
