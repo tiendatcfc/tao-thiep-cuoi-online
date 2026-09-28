@@ -47,6 +47,30 @@ describe("GiftSection", () => {
     expect(screen.getByText("Nhà gái")).toBeInTheDocument();
   });
 
+  /*
+   * The QR used to be `size={168}`, a hard pixel value larger than the card
+   * that holds it: two-up in a 430px column each card measures 182px with
+   * 16px padding, so the code forced its own wrapper to 184px and crossed
+   * the card's border on both sides. jsdom has no layout, so this cannot
+   * assert the measurement — it pins the mechanism instead. A fixed width
+   * cannot adapt to the card; only a fluid one can, and reverting to a
+   * hardcoded size is what this catches.
+   */
+  it("sizes the QR from its container instead of a fixed width that can outgrow the card", () => {
+    render(<GiftSection section={giftSection([groomAccount])} />);
+
+    const wrapper = screen.getByTestId("vietqr");
+    const svg = wrapper.querySelector("svg");
+
+    expect(svg?.getAttribute("class") ?? "(no class at all — a fixed-width QR)").toContain("w-full");
+    // Capped, or the one-column layout below 360px would blow it up to the
+    // full width of the card.
+    expect(wrapper.className).toMatch(/max-w-\[\d+px\]/);
+    // The viewBox is what lets CSS scale it; without it `w-full` would
+    // stretch the code and break the module grid a camera reads.
+    expect(svg?.getAttribute("viewBox")).toBeTruthy();
+  });
+
   it("uppercases the account name", () => {
     render(<GiftSection section={giftSection([brideAccount])} />);
 

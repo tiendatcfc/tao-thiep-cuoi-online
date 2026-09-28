@@ -114,8 +114,21 @@ function GiftAccountCard({ account }: { account: GiftProps["accounts"][number] }
         {SIDE_LABEL[account.side]}
       </p>
       <p className="text-base font-semibold text-[var(--primary)]">{account.bankName}</p>
-      <div data-testid="vietqr" className="rounded-lg bg-white p-2">
-        <QrCode value={payload} size={168} />
+      {/*
+        * Fluid, not a fixed pixel size. At 168px the code was wider than
+        * the card holding it — two-up in a 430px column each card is 182px
+        * with 16px of padding, so only ~134px is actually available, and
+        * the QR forced its own wrapper to 184px and pushed past the card's
+        * border on both sides. `w-full` makes it take whatever the card
+        * gives it, and `max-w` stops it ballooning when the grid drops to
+        * one column below 360px.
+        *
+        * `size` stays as the SVG's intrinsic width/height so the element
+        * has correct dimensions before CSS applies; the viewBox means the
+        * class simply scales it.
+        */}
+      <div data-testid="vietqr" className="w-full max-w-[150px] rounded-lg bg-white p-2">
+        <QrCode value={payload} size={134} className="h-auto w-full" />
       </div>
       <GroupedAccountNumber value={account.accountNumber} />
       <p className="text-sm text-gray-600">{account.accountName.toUpperCase()}</p>
