@@ -25,7 +25,7 @@ const groomAccount: GiftProps["accounts"][number] = {
   bankBin: "970436",
   bankName: "Vietcombank",
   accountNumber: "0123456789",
-  accountName: "NGUYEN MINH KHANG",
+  accountName: "NGUYEN NGOC HAI",
 };
 
 const brideAccount: GiftProps["accounts"][number] = {
@@ -33,7 +33,7 @@ const brideAccount: GiftProps["accounts"][number] = {
   bankBin: "970422",
   bankName: "MB Bank",
   accountNumber: "0987654321",
-  accountName: "tran thu ha",
+  accountName: "le hong tham",
 };
 
 describe("GiftSection", () => {
@@ -74,7 +74,7 @@ describe("GiftSection", () => {
   it("uppercases the account name", () => {
     render(<GiftSection section={giftSection([brideAccount])} />);
 
-    expect(screen.getByText("TRAN THU HA")).toBeInTheDocument();
+    expect(screen.getByText("LE HONG THAM")).toBeInTheDocument();
   });
 
   // C8: visual grouping must never leak into the SELECTABLE/copyable text —
@@ -182,7 +182,7 @@ describe("GiftSection", () => {
       bankBin: "",
       bankName: "Vietcombank",
       accountNumber: "",
-      accountName: "NGUYEN MINH KHANG",
+      accountName: "NGUYEN NGOC HAI",
     };
 
     expect(() =>
@@ -200,7 +200,7 @@ describe("GiftSection", () => {
       bankBin: "",
       bankName: "Vietcombank",
       accountNumber: "",
-      accountName: "NGUYEN MINH KHANG",
+      accountName: "NGUYEN NGOC HAI",
     };
 
     const { container } = render(<GiftSection section={giftSection([halfFilled])} />);

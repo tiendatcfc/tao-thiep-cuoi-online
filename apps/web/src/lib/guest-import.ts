@@ -166,7 +166,7 @@ function cleanOptional(raw: string | undefined, maxLength: number): string | und
 
 /**
  * De-duplication key. Case- and spacing-insensitive, but deliberately NOT
- * diacritic-insensitive: "Thu Hà" and "Thu Hạ" are two different guests, and
+ * diacritic-insensitive: "Lê Thị Hà" and "Lê Thị Hạ" are two different guests, and
  * folding them together would silently drop one of them from the wedding.
  */
 function dedupeKey(name: string): string {

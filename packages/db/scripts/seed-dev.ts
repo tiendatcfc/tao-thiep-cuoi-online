@@ -143,7 +143,7 @@ async function seedAlbumImages(): Promise<SeedArtwork> {
       const { url, blurDataUrl } = await upload(`seed/album-${i + 1}.jpg`, palette)
       album.push({ url, width: ALBUM_IMAGE_WIDTH, height: ALBUM_IMAGE_HEIGHT, blurDataUrl })
     }
-    const cover = await upload('seed/cover.jpg', 0, { monogram: 'K & H', variant: 'portrait' })
+    const cover = await upload('seed/cover.jpg', 0, { monogram: 'H & T', variant: 'portrait' })
     const groom = await upload('seed/groom.jpg', 0, { variant: 'portrait' })
     const bride = await upload('seed/bride.jpg', 0, { variant: 'portrait' })
     return { album, cover: cover.url, groom: groom.url, bride: bride.url }

@@ -71,7 +71,7 @@ REMBG_URL="http://127.0.0.1:7000"
 | Mẫu thiệp | 15 | 5 Basic + 10 Premium |
 | Nhạc thư viện | 7 | nhạc cổ điển thật, Public domain/CC0 — xem `docs/music-credits.md` |
 | Tài khoản | 2 | 1 Google thật đã đăng nhập + 1 "Demo User" của seed |
-| Thiệp | 3 | `/i/demo` và `/i/minh-khang-thu-ha` đã publish, 1 bản nháp |
+| Thiệp | 3 | `/i/demo` và `/i/ngoc-hai-hong-tham` đã publish, 1 bản nháp |
 | Khách mời | 9 | có token sẵn để thử link cá nhân hoá |
 
 Link khách để thử tên tự động (tính năng 11):

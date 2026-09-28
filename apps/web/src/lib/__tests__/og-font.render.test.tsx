@@ -20,6 +20,12 @@ import { loadOgHeadingFont } from "../og-font";
  * A screenshot cannot tell those two apart. Counting outbound requests can.
  */
 
+/*
+ * Deliberately NOT the demo couple's name. This string is chosen for glyph
+ * coverage: Đ, ặ, ễ, ờ, ạ are exactly the characters satori's bundled Noto
+ * Sans lacks and would go to Google for. "Ngọc Hải & Hồng Thắm" happens to
+ * be easier, so it would weaken the test.
+ */
 const VIETNAMESE_NAME = "Nguyễn Đặng & Trường Hạnh";
 
 let fetchSpy: ReturnType<typeof vi.fn>;
@@ -116,7 +122,8 @@ describe("OG heading font, rendered", () => {
   it(
     "control: a pure-ASCII name never triggers the fetch, so it really is the diacritics",
     async () => {
-      await render("Khang and Ha", "sans-serif");
+      // Must stay unaccented — that is the whole point of this control.
+      await render("Hai and Tham", "sans-serif");
       expect(googleRequests()).toEqual([]);
     },
     30_000,

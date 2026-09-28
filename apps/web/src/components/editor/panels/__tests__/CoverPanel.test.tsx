@@ -22,11 +22,11 @@ beforeEach(() => {
 describe("CoverPanel", () => {
   it("renders every CoverProps field with its current value", () => {
     const section = coverSection();
-    section.props = { ...section.props, groomName: "Minh Khang", brideName: "Thu Hà", tagline: "Save the date" };
+    section.props = { ...section.props, groomName: "Ngọc Hải", brideName: "Hồng Thắm", tagline: "Save the date" };
     render(<CoverPanel section={section} />);
 
-    expect(screen.getByLabelText("Tên chú rể")).toHaveValue("Minh Khang");
-    expect(screen.getByLabelText("Tên cô dâu")).toHaveValue("Thu Hà");
+    expect(screen.getByLabelText("Tên chú rể")).toHaveValue("Ngọc Hải");
+    expect(screen.getByLabelText("Tên cô dâu")).toHaveValue("Hồng Thắm");
     expect(screen.getByLabelText("Khẩu hiệu")).toHaveValue("Save the date");
   });
 

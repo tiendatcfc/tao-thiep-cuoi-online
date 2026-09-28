@@ -131,7 +131,7 @@ export function ThemePanel() {
 
       <div className="rounded-lg border border-gray-200 p-3">
         <p className="text-lg" style={{ fontFamily: fontFamilyStack(theme.headingFont) }}>
-          Minh Khang &amp; Thu Hà
+          Ngọc Hải &amp; Hồng Thắm
         </p>
         <p className="text-sm text-gray-600" style={{ fontFamily: fontFamilyStack(theme.bodyFont) }}>
           Trân trọng kính mời bạn đến chung vui cùng chúng tôi.

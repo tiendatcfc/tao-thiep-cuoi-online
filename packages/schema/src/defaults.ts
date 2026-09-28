@@ -120,8 +120,8 @@ function seedSection<T extends SectionType>(
  */
 export function createDefaultDocument(): InvitationDocument {
   const cover = seedSection('cover', 0, {
-    groomName: 'Minh Khang',
-    brideName: 'Thu Hà',
+    groomName: 'Ngọc Hải',
+    brideName: 'Hồng Thắm',
     date: '2026-12-20T09:00:00+07:00',
     coverImage: '',
     tagline: 'Trân trọng kính mời',
@@ -130,7 +130,7 @@ export function createDefaultDocument(): InvitationDocument {
 
   const couple = seedSection('couple', 1, {
     groom: {
-      name: 'Minh Khang',
+      name: 'Ngọc Hải',
       photo: '',
       intro: 'Con trai của ông Nguyễn Văn A và bà Trần Thị B',
       parents: 'Ông Nguyễn Văn A & Bà Trần Thị B',
@@ -138,7 +138,7 @@ export function createDefaultDocument(): InvitationDocument {
       parentsCity: 'Quận 1, TP. Hồ Chí Minh',
     },
     bride: {
-      name: 'Thu Hà',
+      name: 'Hồng Thắm',
       photo: '',
       intro: 'Con gái của ông Lê Văn C và bà Phạm Thị D',
       parents: 'Ông Lê Văn C & Bà Phạm Thị D',
@@ -203,14 +203,14 @@ export function createDefaultDocument(): InvitationDocument {
         bankBin: '970436',
         bankName: 'Vietcombank',
         accountNumber: '0123456789',
-        accountName: 'NGUYEN MINH KHANG',
+        accountName: 'NGUYEN NGOC HAI',
       },
       {
         side: 'bride',
         bankBin: '970422',
         bankName: 'MB Bank',
         accountNumber: '0987654321',
-        accountName: 'TRAN THU HA',
+        accountName: 'LE HONG THAM',
       },
     ],
   })

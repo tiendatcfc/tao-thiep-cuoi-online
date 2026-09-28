@@ -61,8 +61,8 @@ describe("photos render at the size they are displayed, not at upload resolution
       ...base,
       props: {
         ...base.props,
-        bride: { ...base.props.bride, name: "Thu Hà", photo: PHOTO },
-        groom: { ...base.props.groom, name: "Minh Khang", photo: PHOTO },
+        bride: { ...base.props.bride, name: "Hồng Thắm", photo: PHOTO },
+        groom: { ...base.props.groom, name: "Ngọc Hải", photo: PHOTO },
       },
     };
 

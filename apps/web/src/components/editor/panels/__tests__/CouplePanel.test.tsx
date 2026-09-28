@@ -22,14 +22,14 @@ beforeEach(() => {
 describe("CouplePanel", () => {
   it("renders separate, labeled groups for groom and bride", () => {
     const section = coupleSection();
-    section.props.groom.name = "Minh Khang";
-    section.props.bride.name = "Thu Hà";
+    section.props.groom.name = "Ngọc Hải";
+    section.props.bride.name = "Hồng Thắm";
     render(<CouplePanel section={section} />);
 
     const groomGroup = screen.getByRole("group", { name: "Chú rể" });
     const brideGroup = screen.getByRole("group", { name: "Cô dâu" });
-    expect(within(groomGroup).getByLabelText("Họ và tên")).toHaveValue("Minh Khang");
-    expect(within(brideGroup).getByLabelText("Họ và tên")).toHaveValue("Thu Hà");
+    expect(within(groomGroup).getByLabelText("Họ và tên")).toHaveValue("Ngọc Hải");
+    expect(within(brideGroup).getByLabelText("Họ và tên")).toHaveValue("Hồng Thắm");
   });
 
   it("updates only the bride's name when edited, leaving the groom untouched", () => {

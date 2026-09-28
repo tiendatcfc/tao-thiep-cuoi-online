@@ -90,8 +90,8 @@ describe("opengraph-image route (app/i/[slug]/opengraph-image.tsx)", () => {
     const document = createDefaultDocument();
     const cover = document.sections.find((s): s is Extract<typeof s, { type: "cover" }> => s.type === "cover");
     if (!cover) throw new Error("default document has no cover section");
-    cover.props.groomName = "Đặng Minh Khang";
-    cover.props.brideName = "Nguyễn Thị Thu Hà";
+    cover.props.groomName = "Nguyễn Ngọc Hải";
+    cover.props.brideName = "Sen Thị Hồng Thắm";
     cover.props.date = "2026-12-20T09:00:00+07:00";
 
     const invitation = await prisma.invitation.create({

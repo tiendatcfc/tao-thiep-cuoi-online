@@ -128,7 +128,7 @@ describe("updateSectionProps", () => {
     if (coverAfter.type !== "cover") throw new Error("Fixture invalid: expected cover section");
     expect(coverAfter.props.tagline).toBe("Trân trọng kính mời quý khách");
     // Other props on the same section are untouched.
-    expect(coverAfter.props.groomName).toBe("Minh Khang");
+    expect(coverAfter.props.groomName).toBe("Ngọc Hải");
     // The other section is byte-for-byte untouched.
     expect(findSection(coupleId)).toEqual(coupleBefore);
     expect(useEditorStore.getState().dirty).toBe(true);

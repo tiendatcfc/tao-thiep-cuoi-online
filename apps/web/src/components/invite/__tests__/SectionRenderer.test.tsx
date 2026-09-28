@@ -19,8 +19,8 @@ describe("InvitePage / SectionRenderer", () => {
     // rather than asserting on `screen` (which would be ambiguous).
     const cover = container.querySelector('[data-section="cover"]');
     if (!cover) throw new Error("cover section did not render");
-    expect(within(cover as HTMLElement).getByText(/Minh Khang/)).toBeInTheDocument();
-    expect(within(cover as HTMLElement).getByText(/Thu Hà/)).toBeInTheDocument();
+    expect(within(cover as HTMLElement).getByText(/Ngọc Hải/)).toBeInTheDocument();
+    expect(within(cover as HTMLElement).getByText(/Hồng Thắm/)).toBeInTheDocument();
   });
 
   it("does not render a section whose visible flag is false", () => {

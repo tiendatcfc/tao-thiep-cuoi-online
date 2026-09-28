@@ -114,11 +114,13 @@ describe("parseGuestFile — CSV", () => {
   it("phân biệt hai người khác dấu tiếng Việt (Hà vs Hạ)", async () => {
     // Chuẩn hoá chỉ gộp khoảng trắng và hoa/thường — KHÔNG được bỏ dấu,
     // nếu không hai khách khác nhau sẽ bị coi là một.
-    const csv = "Tên\nThu Hà\nThu Hạ\n";
+    // A minimal pair: identical but for the tone mark on the last letter.
+    // Anything less makes this test pass even if dedupe folded diacritics.
+    const csv = "Tên\nLê Thị Hà\nLê Thị Hạ\n";
 
     const result = await parseGuestFile(csvFile(csv));
 
-    expect(result.rows.map((r) => r.name)).toEqual(["Thu Hà", "Thu Hạ"]);
+    expect(result.rows.map((r) => r.name)).toEqual(["Lê Thị Hà", "Lê Thị Hạ"]);
     expect(result.warnings).toEqual([]);
   });
 

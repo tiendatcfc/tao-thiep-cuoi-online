@@ -5,8 +5,8 @@ import { TextField } from "../TextField";
 
 describe("TextField", () => {
   it("renders the Vietnamese label and the current value", () => {
-    render(<TextField label="Tên chú rể" value="Minh Khang" onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Tên chú rể")).toHaveValue("Minh Khang");
+    render(<TextField label="Tên chú rể" value="Ngọc Hải" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Tên chú rể")).toHaveValue("Ngọc Hải");
   });
 
   it("updates the visible value on every keystroke without calling onChange yet", () => {
@@ -76,7 +76,7 @@ describe("TextField", () => {
 
   it("re-syncs the visible value when the external value prop changes (e.g. switching selection)", () => {
     const { rerender } = render(<TextField label="Tên chú rể" value="Minh" onChange={vi.fn()} />);
-    rerender(<TextField label="Tên chú rể" value="Khang" onChange={vi.fn()} />);
-    expect(screen.getByLabelText("Tên chú rể")).toHaveValue("Khang");
+    rerender(<TextField label="Tên chú rể" value="Hải" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("Tên chú rể")).toHaveValue("Hải");
   });
 });

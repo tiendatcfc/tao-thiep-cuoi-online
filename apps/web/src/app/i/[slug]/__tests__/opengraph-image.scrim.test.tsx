@@ -52,7 +52,7 @@ function card(withScrim: boolean) {
           fontSize: 64,
         }}
       >
-        Thu Hà
+        Hồng Thắm
       </div>
     </div>
   );
