@@ -166,7 +166,11 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`.
 3. ~~**Nhạc có bản quyền**~~ — **XONG 2026-09-28**: 7 bản cổ điển thật từ Wikimedia Commons, toàn bộ `Public domain`/`CC0`, giấy phép đọc thẳng từ Commons API và ghi nguyên văn trong `docs/music-credits.md`. Ba dòng sine đã bị **xoá hẳn** khỏi catalogue. **Còn lại cho người:** nghe thử — máy xác minh được giấy phép chứ không nghe được bản thu; và bản thu PD khác bản nhạc PD (xem mục 2 trong file đó).
 4. **Quét thử QR** bằng app ngân hàng Việt Nam thật: `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png`. 2 phút, chặn tính năng liên quan tới tiền.
 5. **Email liên hệ + rà soát pháp lý** — `apps/web/src/app/(legal)/constants.ts` còn placeholder; hai trang có banner "chưa qua luật sư".
-6. **Tạo GitHub repo + push** để CI chạy lần đầu.
+6. **Gỡ khoá thanh toán GitHub** — repo đã tạo, code đã push đầy đủ lên `main` (2026-09-28, 149 commit), nhưng **CI vẫn chưa từng chạy một dòng nào**. Cả run #1 (03-09) lẫn run #2 (28-09) đều kết thúc sau 3 giây với **0 step**; annotation trên check-run ghi nguyên văn:
+   > `The job was not started because your account is locked due to a billing issue.`
+   Đây **không phải lỗi code** — sửa workflow hay sửa test đều vô ích cho tới khi tài khoản được gỡ khoá. Kiểm lại bằng:
+   `curl -s https://api.github.com/repos/tiendatcfc/tao-thiep-cuoi-online/actions/runs/<id>/jobs` rồi lấy `id` job đem hỏi `/check-runs/<job_id>/annotations` (repo công khai nên không cần token).
+   **Lưu ý có hạn định:** GitHub báo `ubuntu-latest` sẽ chuyển sang Ubuntu 26 từ **19-10-2026**. CI chưa chạy lần nào, nên lần chạy thật đầu tiên sau mốc đó sẽ vừa là lần đầu vừa là lần đổi hệ điều hành — nếu gỡ khoá sau 19-10 mà CI đỏ, hãy nghi ngờ mốc này trước khi nghi ngờ code.
 7. **Xem thiệp trên điện thoại thật** — tỉ lệ phong bì, cánh hoa rơi, hiệu ứng cuộn: không kiểm được headless.
 8. **Mở `/i/demo` với JavaScript TẮT trên Chrome thật** (Cài đặt trang → JavaScript → chặn) — xác nhận thiệp hiện ra, cuộn được, không còn lớp phủ. Bằng chứng hiện tại mới ở mức SSR-bytes + CSS chuẩn (noscript không giả lập headless được). 2 phút.
 9. **Upload thử 1 ảnh chụp dọc từ điện thoại thật** qua editor — xác nhận ảnh đứng đúng chiều trong album (autoOrient đã có test orientation-6, nhưng chưa thử ảnh thật từ camera).
