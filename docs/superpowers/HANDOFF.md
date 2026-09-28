@@ -11,7 +11,7 @@ Website tạo thiệp cưới online miễn phí, tiếng Việt. Đọc file n�
 
 ## Muốn tự bấm tay kiểm sản phẩm?
 
-`docs/testing-guide.md` — danh sách 17 tính năng, cách kiểm từng cái, thứ gì bắt buộc phải mở trên điện thoại thật, và thứ gì **chưa** kiểm được (thiếu font, nhạc là tiếng bíp, QR cần app ngân hàng thật). Kèm 3 lệnh khởi động và dữ liệu mẫu đã có sẵn.
+`docs/testing-guide.md` — danh sách 17 tính năng, cách kiểm từng cái, thứ gì bắt buộc phải mở trên điện thoại thật, và thứ gì **chưa** kiểm được (QR cần app ngân hàng thật, cảm giác hiệu ứng cần điện thoại thật). Kèm 3 lệnh khởi động và dữ liệu mẫu đã có sẵn.
 
 ## Tài liệu nguồn (đọc theo thứ tự này)
 
@@ -151,7 +151,7 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`.
 - ~~**Mã QR = 60% trang thiệp**~~: `react-qr-code` vẽ một sub-path cho **mỗi ô**, cả ô đen lẫn ô trắng. Thay bằng `<rect>` + path mã hoá độ dài chạy. `/i/demo`: thô **123.212 → 49.354**, gzip **21.111 → 12.566**. Tập ô đen so trước/sau: **giống hệt** (851 và 799 ô).
   - **Sửa một khẳng định sai của Phase 4:** 124 kB HTML **không** phải nghẽn LCP. Đo cùng điều kiện: 723 ms trước, 753 ms sau — nhiễu. Section quà ở **cuối tài liệu** nên byte của nó về sau khi phần tử LCP đã vẽ. Đừng chạy lại thí nghiệm này.
 
-## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 11
+## VIỆC CHỈ CON NGƯỜI LÀM ĐƯỢC (chặn launch) — còn 10
 
 1. ~~**Google OAuth**~~ — **XONG 2026-09-18.** `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` đã có trong `apps/web/.env` (và `.env.local`), chủ dự án đã đăng nhập thật: có `User` "Tiến Đạt Nguyễn" (@gmail.com) + `Account` provider `google` + ảnh đại diện, và đã tạo được thiệp. Luồng sau đăng nhập không còn là vùng chưa ai bấm.
    - **Còn cho production:** đặt `AUTH_TRUST_HOST=true` (hoặc `AUTH_URL`) — thiếu là đăng nhập Google **hỏng hoàn toàn** khi tự host sau reverse proxy; đặt `NEXT_PUBLIC_SITE_URL` lúc **build**; thêm redirect URI của tên miền thật vào Google Cloud Console.
@@ -163,7 +163,7 @@ Ledger: `.superpowers/sdd/2026-09-18-deferred-minors/progress.md`.
      - **Lỗi thật:** không có font đọc được, satori lùi về `noto-sans-v27-latin-regular.ttf` đi kèm (226 glyph, không có ễ Đ ặ ư ờ ạ), rồi **gọi `fonts.googleapis.com/css2?family=Noto+Sans&text=<các ký tự thiếu>` lúc render**. Ba request ra Google mỗi lần render ảnh share, một trong đó mang **ký tự trong tên cặp đôi** trên query string — trong một app lấy "không request bên thứ ba" làm điểm bán hàng. Ô vuông trắng chỉ xuất hiện khi cú gọi đó **thất bại**, nên trên máy dev nó trông hoàn toàn bình thường.
      - Ảnh share nay dùng **đúng font tiêu đề cặp đôi chọn** (`theme.headingFont`), lùi về Playfair Display nếu tên font lạ.
      - Chốt: `src/lib/__tests__/og-font.render.test.tsx` render PNG thật tên `Nguyễn Đặng & Trường Hạnh` và khẳng định **0 request ra ngoài**, kèm test đối chứng bỏ font đi để chứng minh request quay lại — test không thể pass rỗng nếu sau này `ImageResponse` thôi fetch.
-3. **Nhạc có bản quyền** — thư viện hiện là 3 tiếng bíp sine do ffmpeg sinh ra. `docs/music-credits.md` ghi rõ chúng không được lên production, kèm việc cần làm.
+3. ~~**Nhạc có bản quyền**~~ — **XONG 2026-09-28**: 7 bản cổ điển thật từ Wikimedia Commons, toàn bộ `Public domain`/`CC0`, giấy phép đọc thẳng từ Commons API và ghi nguyên văn trong `docs/music-credits.md`. Ba dòng sine đã bị **xoá hẳn** khỏi catalogue. **Còn lại cho người:** nghe thử — máy xác minh được giấy phép chứ không nghe được bản thu; và bản thu PD khác bản nhạc PD (xem mục 2 trong file đó).
 4. **Quét thử QR** bằng app ngân hàng Việt Nam thật: `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png`. 2 phút, chặn tính năng liên quan tới tiền.
 5. **Email liên hệ + rà soát pháp lý** — `apps/web/src/app/(legal)/constants.ts` còn placeholder; hai trang có banner "chưa qua luật sư".
 6. **Tạo GitHub repo + push** để CI chạy lần đầu.

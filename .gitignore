@@ -13,3 +13,6 @@ dist/
 .venv/
 __pycache__/
 .pytest_cache/
+
+# Downloaded + normalised music sources for `pnpm seed:music` (see docs/music-credits.md)
+packages/db/.music-cache/

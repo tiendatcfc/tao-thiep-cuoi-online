@@ -1,7 +1,7 @@
 # HPWD — Cách tự kiểm toàn bộ tính năng
 
 Danh sách để **người** bấm tay qua 17 tính năng trong spec, kèm trạng thái đã
-kiểm trên máy dev tính đến 2026-09-21. Test tự động (1.362 cái) chứng minh
+kiểm trên máy dev tính đến 2026-09-28. Test tự động (1.406 cái) chứng minh
 từng mảnh chạy đúng; file này là để chứng minh **chúng ghép lại thành sản
 phẩm dùng được** — thứ không test tự động nào nói hộ được.
 
@@ -69,7 +69,7 @@ REMBG_URL="http://127.0.0.1:7000"
 | Thứ | Số lượng | Ghi chú |
 |---|---|---|
 | Mẫu thiệp | 15 | 5 Basic + 10 Premium |
-| Nhạc thư viện | 3 | **là 3 tiếng bíp sine do ffmpeg sinh ra**, không phải nhạc thật |
+| Nhạc thư viện | 7 | nhạc cổ điển thật, Public domain/CC0 — xem `docs/music-credits.md` |
 | Tài khoản | 2 | 1 Google thật đã đăng nhập + 1 "Demo User" của seed |
 | Thiệp | 3 | `/i/demo` và `/i/minh-khang-thu-ha` đã publish, 1 bản nháp |
 | Khách mời | 9 | có token sẵn để thử link cá nhân hoá |
@@ -100,7 +100,7 @@ trên điện thoại thật — **[chặn]** chưa thử được, xem mục 3.
 | 6 | Mở phong bì | **[điện thoại]** Đặc biệt trên **iPhone**: chạm mở phong bì phải đồng thời khởi động nhạc. Chính sách autoplay của iOS là thứ không giả lập được. |
 | 7 | Hyperlink | **[máy]** Thêm section Văn bản → bôi đen chữ → chèn link. Thử dán link rác (`javascript:`, `//evil.com`) → phải bị từ chối. Dán nội dung từ Word/Google Docs → định dạng lạ tự bị bỏ. |
 | 8 | Mẫu Basic | **[máy]** `/mau-thiep` → 5 mẫu Basic, bấm "Dùng mẫu" → thiệp mới mang đúng nội dung/theme của mẫu. |
-| 9 | Thư viện nhạc | **[máy]** Panel Nhạc → chọn bài → player hiện ở đáy. **Lưu ý: 3 bài hiện có là tiếng bíp.** |
+| 9 | Thư viện nhạc | **[máy]** Panel Nhạc → chọn bài → player hiện ở đáy. **Nghe thử cả 7 bài** — giấy phép đã kiểm bằng máy, còn chất lượng âm thanh thì chưa ai nghe; `Gymnopédie No. 1` lấy mẫu 22 kHz nên đáng nghe kỹ nhất. |
 | 10 | Upload nhạc riêng | **[máy]** Upload mp3 ≤15MB → trạng thái "Đang xử lý" → worker transcode → chuyển "Sẵn sàng". Xem log worker để thấy job chạy. |
 | 11 | Tên khách tự động | **[máy]** `/dashboard/<id>/khach-moi` → thêm tay hoặc import Excel/CSV → copy link khách → mở link, tên khách hiện trên thiệp → cột "Đã xem" đổi trạng thái. |
 | 12 | Mẫu Premium | **[máy]** `/mau-thiep?tier=premium` → 10 mẫu, mở thử vài cái. |
@@ -116,6 +116,7 @@ trên điện thoại thật — **[chặn]** chưa thử được, xem mục 3.
 - **Đổi slug**: publish → đổi slug → publish lại → mở **link cũ** phải tự chuyển sang link mới (chuyển hướng 308), không được 404.
 - **Hai tab**: mở cùng một thiệp ở hai tab, sửa ở cả hai → tab thứ hai phải báo xung đột chứ không được ghi đè âm thầm.
 - **Giới hạn tốc độ**: gửi lời chúc liên tục >5 lần/phút → phải nhận thông báo tiếng Việt, không phải lỗi trắng.
+- **Ảnh share (OG)**: mở thẳng `http://localhost:3000/i/demo/opengraph-image`. Tên phải đủ dấu (`Hồng Thắm`, không phải `Thu H□`), đúng font tiêu đề của thiệp, và chữ trắng phải nằm trên nền đã tối đi chứ không chìm vào ảnh bìa. Trước 2026-09-22 route này **gọi ra Google mỗi lần render**, mang theo ký tự trong tên cặp đôi; nếu muốn tự xác nhận nó đã hết, mở tab Network của DevTools ở server log hoặc chạy `pnpm --filter @hpwd/web vitest run src/lib/__tests__/og-font.render.test.tsx`.
 
 ---
 
@@ -123,8 +124,6 @@ trên điện thoại thật — **[chặn]** chưa thử được, xem mục 3.
 
 | Việc | Vì sao | Cần gì |
 |---|---|---|
-| **Ảnh share (OG) có dấu tiếng Việt** | satori không đọc được WOFF2, và các `.woff` của `@fontsource` đều đã subset | Font hiển thị trên trang **đã xong** (32 file WOFF2 trong `apps/web/public/fonts/`, sinh bằng `pnpm --filter @hpwd/web sync:fonts`). Riêng ảnh share còn cần 1 file `og-heading.ttf` đầy đủ; chưa có thì Đ, ặ, ễ, ị ra ô trắng. Đọc `apps/web/public/fonts/README.md`. |
-| **Nhạc thật** | Thư viện là 3 tiếng bíp sine | Cần nhạc có bản quyền hợp lệ. Xem `docs/music-credits.md`. |
 | **Quét QR** | Không quét được bằng máy tính | Mở `.superpowers/sdd/2026-08-10-phase-0-1-mvp/task-7-demo-qr.png` bằng app ngân hàng Việt Nam thật. 2 phút, chặn tính năng liên quan tới tiền. |
 | **Cảm giác hiệu ứng** | Phong bì, cánh hoa rơi, cuộn — không đánh giá được qua headless | Mở thiệp trên điện thoại thật. |
 | **Nhạc tự phát trên iOS** | Chính sách autoplay của WebKit không giả lập được | Mở trên iPhone thật, chạm mở phong bì. |
@@ -140,7 +139,7 @@ trên điện thoại thật — **[chặn]** chưa thử được, xem mục 3.
 1. Chạy mục 0, xác nhận `/api/health?strict=1` ra `ok` cả 5 mục.
 2. Đi hết cột **[máy]** trong bảng 17 — khoảng 45–60 phút.
 3. Bật rembg rồi quay lại tính năng 15.
-4. Mở `/i/demo` trên **điện thoại thật** và đi hết cột **[điện thoại]** — 15 phút, và đây là phần bắt được những lỗi mà 1.347 test không bắt được.
+4. Mở `/i/demo` trên **điện thoại thật** và đi hết cột **[điện thoại]** — 15 phút, và đây là phần bắt được những lỗi mà 1.406 test không bắt được.
 5. Quét QR bằng app ngân hàng — 2 phút.
 6. Kiểm JavaScript tắt — 2 phút.
 
